@@ -16,7 +16,7 @@
 - Kotlin + View（非 Compose，轻量）
 - CameraX 1.6.1（预览 + ImageAnalysis）
 - ML Kit barcode-scanning 17.3.0 + text-recognition 16.0.1（中文）
-- Gradle 9.4.1 / AGP 8.11.1 / compileSdk 35 / minSdk 26
+- Gradle 9.4.1 / AGP 8.11.1 / compileSdk 36 / minSdk 26
 
 ## 构建
 

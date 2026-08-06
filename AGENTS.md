@@ -20,6 +20,6 @@
 
 ## 已知注意
 - ML Kit barcode 17.3.0 / text-recognition 16.0.1 / cameraX 1.6.1 /
-  Gradle 9.4.1 / AGP 8.11.1 / compileSdk 35 / minSdk 26
+  Gradle 9.4.1 / AGP 8.11.1 / compileSdk 36 / minSdk 26
 - 本机无 Android SDK，构建靠 GitHub Actions（assembleDebug → artifact）
 - 别升级 OkHttp 之类的传递依赖导致 R8 问题（参照 Han1meViewer 教训）
