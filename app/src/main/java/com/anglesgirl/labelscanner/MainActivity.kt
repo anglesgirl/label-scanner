@@ -28,7 +28,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etSn: EditText
     private lateinit var btnSave: Button
     private lateinit var btnDiscard: Button
+    private lateinit var btnExport: Button
     private lateinit var tvBarcodes: TextView
+    private lateinit var tvCount: TextView
 
     private var analyzer: BarcodeAnalyzer? = null
     private var cameraExecutor = Executors.newSingleThreadExecutor()
@@ -53,10 +55,13 @@ class MainActivity : AppCompatActivity() {
         etSn = findViewById(R.id.etSn)
         btnSave = findViewById(R.id.btnSave)
         btnDiscard = findViewById(R.id.btnDiscard)
+        btnExport = findViewById(R.id.btnExport)
         tvBarcodes = findViewById(R.id.tvBarcodes)
+        tvCount = findViewById(R.id.tvCount)
 
         btnSave.setOnClickListener { confirmSave() }
         btnDiscard.setOnClickListener { clearCurrent() }
+        btnExport.setOnClickListener { exportData() }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
@@ -121,8 +126,32 @@ class MainActivity : AppCompatActivity() {
             return
         }
         savedResults.add(r)
+        updateCount()
         Toast.makeText(this, "✅ 已保存（共 ${savedResults.size} 条）", Toast.LENGTH_SHORT).show()
         clearCurrent()
+    }
+
+    private fun updateCount() {
+        tvCount.text = "📋 已保存 ${savedResults.size} 条"
+    }
+
+    private fun exportData() {
+        if (savedResults.isEmpty()) {
+            Toast.makeText(this, "还没有保存任何标签", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = com.anglesgirl.labelscanner.export.Exporter.export(this, savedResults)
+        if (uri == null) {
+            Toast.makeText(this, "导出失败", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "标签数据")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, "导出标签数据"))
     }
 
     private fun clearCurrent() {
