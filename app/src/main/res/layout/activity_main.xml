@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#1a1a2e">
+
+    <!-- 相机预览（上半屏） -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- 识别结果区 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/tvBarcodes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="等待识别..."
+            android:textColor="#00e5ff"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/resultPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:minHeight="36dp"
+            android:padding="8dp"
+            android:textColor="#ffffff"
+            android:textSize="13sp"
+            android:background="@color/result_idle" />
+
+        <!-- 字段编辑 -->
+        <TextView style="@style/FieldLabel" android:text="物料编码（D列）" />
+        <EditText
+            android:id="@+id/etMaterial"
+            style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="生产日期（I列 yyyymmdd）" />
+        <EditText
+            android:id="@+id/etDate"
+            style="@style/FieldInput"
+            android:inputType="number" />
+
+        <TextView style="@style/FieldLabel" android:text="序列号（E列+O列）" />
+        <EditText
+            android:id="@+id/etSn"
+            style="@style/FieldInput" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnSave"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="✅ 保存本条"
+                android:backgroundTint="#2e7d32" />
+
+            <Button
+                android:id="@+id/btnDiscard"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="✖ 丢弃"
+                android:backgroundTint="#c62828" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

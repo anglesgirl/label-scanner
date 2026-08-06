@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="result_idle">#1e1e3a</color>
+    <color name="result_highlight">#1b3a1b</color>
+    <color name="ic_launcher_background">#1a1a2e</color>
+</resources>
