@@ -3,6 +3,7 @@ package com.anglesgirl.labelscanner
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
@@ -17,9 +18,12 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.anglesgirl.labelscanner.camera.BarcodeAnalyzer
+import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelResult
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
@@ -34,6 +38,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnDiscard: Button
     private lateinit var btnExport: Button
     private lateinit var btnList: Button
+    private lateinit var btnDocScan: Button
+    private lateinit var btnGallery: Button
     private lateinit var tvBarcodes: TextView
     private lateinit var tvCount: TextView
     private lateinit var tvExtras: TextView
@@ -44,6 +50,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var savedResults: MutableList<LabelResult>
     private lateinit var lookup69: Barcode69Lookup
+
+    /** 相册选图回调 */
+    private val pickImageLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) recognizeStatic(uri)
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -65,6 +78,8 @@ class MainActivity : AppCompatActivity() {
         btnDiscard = findViewById(R.id.btnDiscard)
         btnExport = findViewById(R.id.btnExport)
         btnList = findViewById(R.id.btnList)
+        btnDocScan = findViewById(R.id.btnDocScan)
+        btnGallery = findViewById(R.id.btnGallery)
         tvBarcodes = findViewById(R.id.tvBarcodes)
         tvCount = findViewById(R.id.tvCount)
         tvExtras = findViewById(R.id.tvExtras)
@@ -77,6 +92,10 @@ class MainActivity : AppCompatActivity() {
         btnExport.setOnClickListener { exportData() }
         btnList.setOnClickListener {
             startActivityForResult(Intent(this, RecordListActivity::class.java), REQ_LIST)
+        }
+        btnDocScan.setOnClickListener { startDocScan() }
+        btnGallery.setOnClickListener {
+            pickImageLauncher.launch("image/*")
         }
         updateCount()
 
@@ -208,22 +227,77 @@ class MainActivity : AppCompatActivity() {
         etEan69.setText("")
     }
 
+    /** 文档扫描：ML Kit Document Scanner（自动对焦/扶正/去背景），返回矫正后图片再识别 */
+    private fun startDocScan() {
+        val options = GmsDocumentScannerOptions.Builder()
+            .setPageLimit(1)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+        val scanner = GmsDocumentScanning.getClient(options)
+
+        scanner.getStartScanIntent(this)
+            .addOnSuccessListener { intentSender ->
+                startIntentSenderForResult(
+                    intentSender, REQ_DOC_SCAN, null, 0, 0, 0
+                )
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "文档扫描不可用：${e.message}", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    /** 静态图片识别（文档扫描结果 / 相册导入共用） */
+    private fun recognizeStatic(uri: Uri) {
+        resultPanel.text = "识别中..."
+        StaticRecognizer.recognizeUri(
+            uri,
+            openStream = { contentResolver.openInputStream(uri) },
+            lookup69 = { ean -> lookup69.lookup(ean) },
+            onResult = { result ->
+                runOnUiThread { showResult(result) }
+            },
+            onError = { msg ->
+                runOnUiThread {
+                    resultPanel.text = "识别失败：$msg"
+                }
+            }
+        )
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        // 从列表页返回：重新加载（可能编辑/删除了记录）
-        if (requestCode == REQ_LIST) {
-            savedResults = RecordStore.load(this)
-            updateCount()
+        when (requestCode) {
+            REQ_LIST -> {
+                // 从列表页返回：重新加载（可能编辑/删除了记录）
+                savedResults = RecordStore.load(this)
+                updateCount()
+            }
+            REQ_DOC_SCAN -> {
+                // 文档扫描完成，拿矫正后的图片识别
+                if (resultCode == RESULT_OK && data != null) {
+                    val uri: Uri? = data.getParcelableExtra(
+                        GmsDocumentScanning.RESULT_EXTRA_SCANNED_IMAGE_URI
+                    )
+                    if (uri != null) {
+                        recognizeStatic(uri)
+                    } else {
+                        Toast.makeText(this, "扫描结果为空", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         analyzer?.close()
+        StaticRecognizer.close()
         cameraExecutor.shutdown()
     }
 
     companion object {
         private const val REQ_LIST = 1002
+        private const val REQ_DOC_SCAN = 1003
     }
 }
