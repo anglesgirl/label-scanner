@@ -16,6 +16,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 固定 debug 签名（仓库内 debug.keystore）：
+            // CI 每次构建用同一签名 → 覆盖安装无需卸载 → 数据不丢
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -23,6 +28,16 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            // 用仓库内的固定 debug.keystore（默认配置指向 ~/.android/，CI 每次不同）
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
     compileOptions {
