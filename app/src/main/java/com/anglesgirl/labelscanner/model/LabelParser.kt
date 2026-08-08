@@ -3,14 +3,16 @@ package com.anglesgirl.labelscanner.model
 import java.util.regex.Pattern
 
 /**
- * 标签值 → 字段 的智能解析器。
+ * 标签值 → 9 段 SAP 模型 的解析器。
  *
- * 不依赖标签排版（条码类型千差万别），纯按【值特征】判断：
- *  - 8 位纯数字 → 生产日期候选（yyyymmdd）
- *  - 13 位 69 开头 → 商品码（EAN13，留作反查物料编码）
- *  - 10 位纯数字 → 物料编码候选（模板规则：10 位补 01）
- *  - 12 位纯数字 → 物料编码候选（模板规则：12 位原样）
- *  - 字母+数字混合 → SN 候选
+ * 两条识别通道：
+ *  - 条码通道（准）：69 码（EAN13）→ 反查物料；SN 条码 → 序列号
+ *  - OCR 通道（辅助）：物料编码/日期/型号/颜色/硒鼓
+ *  条码结果优先，OCR 只补缺 + 交叉验证（不一致由 UI 人工确认）。
+ *
+ * SAP 9 段码（|| 分隔）：
+ *   供应商 || 箱号 || 物料编码 || 数量 || 日期(yyyymmdd) || 69码 || 透传 || 透传 || 透传
+ * 后 4 段对用户系统无用，透传保留。
  */
 object LabelParser {
 
@@ -25,7 +27,7 @@ object LabelParser {
         val v = value.trim()
         if (v.isEmpty()) return null
 
-        // 日期：8 位纯数字且像日期（MM 01-12, DD 01-31）
+        // 日期：8 位纯数字且像日期（MM 01-12, DD 01-31）→ yyyymmdd
         if (DATE8.matcher(v).matches()) {
             val m = v.substring(4, 6).toInt()
             val d = v.substring(6, 8).toInt()
@@ -46,47 +48,116 @@ object LabelParser {
     }
 
     /**
-     * 把一组条码值 + OCR 文本合并解析成 LabelResult。
-     * 多值冲突时按优先级：日期 > 物料 > SN > 商品码
+     * 主入口：条码 + OCR 合并解析成 9 段模型。
+     *
+     * @param barcodes 条码通道（准）
+     * @param ocrText  OCR 通道（辅助）
+     * @param lookup69 69码→物料编码 反查函数（可为 null）
      */
-    fun parse(barcodes: List<String>, ocrText: String): LabelResult {
+    fun parse(
+        barcodes: List<String>,
+        ocrText: String,
+        lookup69: ((String) -> String?)? = null,
+    ): LabelResult {
+        // 1. 条码里若直接有 9 段码（QR 内容含 ||）→ 直接拆段
+        val sapCode = barcodes.firstOrNull { it.contains("||") }
+        if (sapCode != null) return parseSapCode(sapCode, barcodes, ocrText)
+
         val result = LabelResult(barcodes = barcodes, ocrText = ocrText)
 
-        // 1. 条码优先（准确）
+        // 2. 条码通道：69 码 / SN / 物料 / 日期
         for (code in barcodes) {
             when (classify(code)?.first) {
-                "date" -> if (result.productionDate.isEmpty()) result.productionDate = code
+                "ean" -> if (result.ean69.isEmpty()) result.ean69 = code
+                "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = code
                 "material10", "material12" -> if (result.materialCode.isEmpty()) {
                     result.materialCode = normalizeMaterial(code)
                 }
-                "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = code
-                "ean" -> { /* 商品码：暂存不填字段，供反查 */ }
+                "date" -> if (result.productionDate.isEmpty()) result.productionDate = code
             }
         }
 
-        // 2. OCR 兜底：从文本行里提取（条码缺失时）
-        if (result.materialCode.isEmpty() || result.productionDate.isEmpty() || result.serialNumber.isEmpty()) {
-            val lines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
-            for (line in lines) {
-                when (classify(line)?.first) {
-                    "date" -> if (result.productionDate.isEmpty()) result.productionDate = line
-                    "material10", "material12" -> if (result.materialCode.isEmpty()) {
-                        result.materialCode = normalizeMaterial(line)
-                    }
-                    "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = line
-                }
-            }
+        // 3. 69 码反查物料（条码通道优先；OCR 的物料只做交叉验证）
+        if (result.materialCode.isEmpty() && result.ean69.isNotEmpty() && lookup69 != null) {
+            lookup69(result.ean69)?.let { result.materialCode = it }
+        }
+
+        // 4. OCR 通道：补缺 + 提取型号/颜色/硒鼓/供应商
+        val lines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        for (line in lines) {
+            applyOcrLine(result, line, lookup69)
         }
 
         return result
     }
 
-    /** 物料编码规范化：10 位补 01；12 位原样；69 开头保留（App 自有数据） */
+    /** 解析 SAP 9 段码（含 || 的字符串），后 4 段透传不解析 */
+    fun parseSapCode(code: String, barcodes: List<String> = emptyList(), ocrText: String = ""): LabelResult {
+        val parts = code.split("||").map { it.trim() }
+        fun seg(i: Int): String = parts.getOrNull(i)?.takeIf { it.isNotBlank() && it != "NA" } ?: ""
+        return LabelResult(
+            barcodes = barcodes,
+            ocrText = ocrText,
+            supplier = seg(0).ifBlank { "NA" },
+            serialNumber = seg(1),
+            materialCode = seg(2),
+            quantity = parts.getOrNull(3)?.toIntOrNull() ?: 1,
+            productionDate = seg(4),
+            ean69 = seg(5),
+        )
+    }
+
+    /** OCR 单行处理：补缺字段 + 提取附加信息 */
+    private fun applyOcrLine(result: LabelResult, line: String, lookup69: ((String) -> String?)?) {
+        // 带标签的行：产品型号/颜色/商品硒鼓/供应商
+        when {
+            line.contains("型号") -> {
+                val m = Regex("[:：]\\s*([A-Za-z0-9][A-Za-z0-9\\-]*)").find(line)
+                if (m != null && result.model.isEmpty()) result.model = m.groupValues[1]
+                return
+            }
+            line.contains("颜色") -> {
+                val m = Regex("[:：]\\s*(\\S+)").find(line)
+                if (m != null && result.color.isEmpty()) result.color = m.groupValues[1]
+                return
+            }
+            line.contains("硒鼓") || line.contains("耗材") -> {
+                val m = Regex("[:：]\\s*([A-Za-z0-9][A-Za-z0-9\\-]*)").find(line)
+                if (m != null && result.tonerModel.isEmpty()) result.tonerModel = m.groupValues[1]
+                return
+            }
+            line.contains("供应商") -> {
+                val m = Regex("[:：]\\s*(\\S+)").find(line)
+                if (m != null) result.supplier = m.groupValues[1]
+                return
+            }
+            line.contains("S/N", ignoreCase = true) || line.contains("SN", ignoreCase = true) ||
+                line.contains("序列号") -> {
+                val m = Regex("[:：]?\\s*([A-Za-z0-9]{6,30})").find(line.replace("S/N", "SN").replace("s/n", "SN"))
+                if (m != null && result.serialNumber.isEmpty()) result.serialNumber = m.groupValues[1]
+                return
+            }
+        }
+
+        // 纯值行：按值特征补缺
+        when (classify(line)?.first) {
+            "date" -> if (result.productionDate.isEmpty()) result.productionDate = normalizeDate(line)
+            "material10", "material12" -> if (result.materialCode.isEmpty()) {
+                result.materialCode = normalizeMaterial(line)
+            }
+            "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = line
+        }
+    }
+
+    /** 物料编码规范化：10 位补 01；12 位原样；69 开头保留（自有数据） */
     fun normalizeMaterial(code: String): String {
         val c = code.trim()
-        return when {
-            c.length == 10 -> c + "01"
-            else -> c
-        }
+        return if (c.length == 10) c + "01" else c
+    }
+
+    /** 日期规范化：带符号日期 → 8 位无符号 yyyymmdd；已是 8 位数字原样 */
+    fun normalizeDate(date: String): String {
+        val digits = date.replace(Regex("[^0-9]"), "")
+        return if (digits.length == 8) digits else date
     }
 }

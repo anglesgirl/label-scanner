@@ -17,6 +17,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.anglesgirl.labelscanner.camera.BarcodeAnalyzer
+import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.model.LabelResult
 import java.util.concurrent.Executors
 
@@ -27,17 +28,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etMaterial: EditText
     private lateinit var etDate: EditText
     private lateinit var etSn: EditText
+    private lateinit var etEan69: EditText
     private lateinit var btnSave: Button
     private lateinit var btnDiscard: Button
     private lateinit var btnExport: Button
     private lateinit var tvBarcodes: TextView
     private lateinit var tvCount: TextView
+    private lateinit var tvExtras: TextView
 
     private var analyzer: BarcodeAnalyzer? = null
     private var cameraExecutor = Executors.newSingleThreadExecutor()
     private var currentResult: LabelResult? = null
 
     private val savedResults = mutableListOf<LabelResult>()
+    private lateinit var lookup69: Barcode69Lookup
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -54,11 +58,15 @@ class MainActivity : AppCompatActivity() {
         etMaterial = findViewById(R.id.etMaterial)
         etDate = findViewById(R.id.etDate)
         etSn = findViewById(R.id.etSn)
+        etEan69 = findViewById(R.id.etEan69)
         btnSave = findViewById(R.id.btnSave)
         btnDiscard = findViewById(R.id.btnDiscard)
         btnExport = findViewById(R.id.btnExport)
         tvBarcodes = findViewById(R.id.tvBarcodes)
         tvCount = findViewById(R.id.tvCount)
+        tvExtras = findViewById(R.id.tvExtras)
+
+        lookup69 = Barcode69Lookup(this)
 
         btnSave.setOnClickListener { confirmSave() }
         btnDiscard.setOnClickListener { clearCurrent() }
@@ -83,9 +91,12 @@ class MainActivity : AppCompatActivity() {
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-            analyzer = BarcodeAnalyzer { result ->
-                runOnUiThread { showResult(result) }
-            }
+            analyzer = BarcodeAnalyzer(
+                onResult = { result ->
+                    runOnUiThread { showResult(result) }
+                },
+                lookup69 = { ean -> lookup69.lookup(ean) }
+            )
             analysis.setAnalyzer(cameraExecutor, analyzer!!)
 
             provider.unbindAll()
@@ -102,12 +113,25 @@ class MainActivity : AppCompatActivity() {
     private fun showResult(result: LabelResult) {
         currentResult = result
 
-        tvBarcodes.text = "📦 条码: " + result.barcodes.joinToString("  ") { it }.ifEmpty { "（无，OCR 识别）" }
+        tvBarcodes.text = "📦 条码: " + result.barcodes.joinToString("  ") { it }.ifEmpty { "（无条码，OCR 识别）" }
         resultPanel.text = if (result.ocrText.isNotBlank()) "📝 OCR: ${result.ocrText}" else ""
 
         etMaterial.setText(result.materialCode)
         etDate.setText(result.productionDate)
         etSn.setText(result.serialNumber)
+        etEan69.setText(result.ean69)
+
+        // 附加信息（型号/颜色/硒鼓 + 反查提示）
+        val extras = buildList {
+            if (result.model.isNotBlank()) add("型号: ${result.model}")
+            if (result.color.isNotBlank()) add("颜色: ${result.color}")
+            if (result.tonerModel.isNotBlank()) add("硒鼓: ${result.tonerModel}")
+            if (result.ean69.isNotBlank()) {
+                val hit = lookup69.lookup(result.ean69)
+                if (hit != null) add("🔁 69码反查物料: $hit")
+            }
+        }
+        tvExtras.text = extras.joinToString("　")
 
         // 高亮提示
         resultPanel.setBackgroundColor(
@@ -121,14 +145,21 @@ class MainActivity : AppCompatActivity() {
         r.materialCode = etMaterial.text.toString().trim()
         r.productionDate = etDate.text.toString().trim()
         r.serialNumber = etSn.text.toString().trim()
+        r.ean69 = etEan69.text.toString().trim()
 
         if (r.serialNumber.isEmpty()) {
             Toast.makeText(this, "序列号不能为空", Toast.LENGTH_SHORT).show()
             return
         }
         savedResults.add(r)
+        // 自动学习：69码 → 物料编码 映射（为以后反查积累）
+        lookup69.learn(r.ean69, r.materialCode)
         updateCount()
-        Toast.makeText(this, "✅ 已保存（共 ${savedResults.size} 条）", Toast.LENGTH_SHORT).show()
+        Toast.makeText(
+            this,
+            "✅ 已保存（共 ${savedResults.size} 条，反查表 ${lookup69.size()} 条）",
+            Toast.LENGTH_SHORT
+        ).show()
         clearCurrent()
     }
 
@@ -160,9 +191,11 @@ class MainActivity : AppCompatActivity() {
         tvBarcodes.text = ""
         resultPanel.text = "等待识别..."
         resultPanel.setBackgroundColor(ContextCompat.getColor(this, R.color.result_idle))
+        tvExtras.text = ""
         etMaterial.setText("")
         etDate.setText("")
         etSn.setText("")
+        etEan69.setText("")
     }
 
     override fun onDestroy() {

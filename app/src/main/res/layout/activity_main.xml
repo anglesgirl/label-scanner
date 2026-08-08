@@ -39,6 +39,14 @@
             android:textSize="13sp"
             android:background="@color/result_idle" />
 
+        <TextView
+            android:id="@+id/tvExtras"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="#ffd54f"
+            android:textSize="12sp" />
+
         <!-- 字段编辑 -->
         <TextView style="@style/FieldLabel" android:text="物料编码（D列）" />
         <EditText
@@ -51,9 +59,14 @@
             style="@style/FieldInput"
             android:inputType="number" />
 
-        <TextView style="@style/FieldLabel" android:text="序列号（E列+O列）" />
+        <TextView style="@style/FieldLabel" android:text="序列号（E列+O列，= 箱号）" />
         <EditText
             android:id="@+id/etSn"
+            style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="69 商品码（反查钥匙）" />
+        <EditText
+            android:id="@+id/etEan69"
             style="@style/FieldInput" />
 
         <LinearLayout
