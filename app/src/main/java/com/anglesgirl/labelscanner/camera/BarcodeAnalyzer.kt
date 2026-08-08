@@ -15,15 +15,17 @@ import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
 
 /**
- * ML Kit 双通道分析器：
- *  - BarcodeScanner：一帧同时检测所有条码（69码/SN码/QR 9段码 等）
- *  - TextRecognizer：OCR（中文模型）—— 和条码【同时跑】，不是兜底
+ * ML Kit 双通道分析器（字段锁定版）。
  *
- * 为什么同时跑：标签上通常同时有 69 码（条码）和 文字（物料/日期/型号）。
- * 条码准但字段少，OCR 能补型号/颜色/硒鼓/交叉验证物料。条码结果优先。
+ * 核心设计：**识别结果锁定（first-wins）** —— 已识别到的字段值绝不覆盖，
+ * 后续帧只补空缺字段。解决实时扫描时 OCR/条码每帧抖动、字段来回跳的问题：
+ *   - 序列号/物料/日期/69码 一旦有值就锁定
+ *   - OCR 附加信息（型号/颜色/硒鼓）同样锁定
+ *   - 条码签名变化（换标签）→ 自动重置锁定
+ *   - 手动 reset()（保存/丢弃后）→ 解锁
  *
- * 每帧流程：条码检测 + OCR 并行 → 合并解析 → 回调
- * 节流：同一内容 2 秒内不重复回调（避免连续弹）。
+ * 条码 + OCR 双通道同时跑：条码准但字段少，OCR 补型号/颜色/交叉验证。
+ * 只有当合并结果【发生变化】时才回调 UI（不会每秒乱跳）。
  */
 class BarcodeAnalyzer(
     private val onResult: (LabelResult) -> Unit,
@@ -35,9 +37,7 @@ class BarcodeAnalyzer(
     // 全格式条码（能扫到什么返回什么）
     private val scanner: BarcodeScanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(
-                Barcode.FORMAT_ALL_FORMATS,
-            )
+            .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
             .build()
     )
 
@@ -46,8 +46,10 @@ class BarcodeAnalyzer(
         ChineseTextRecognizerOptions.Builder().build()
     )
 
-    private var lastEmit = 0L
-    private var lastContent = ""
+    /** 已锁定的识别结果（first-wins 累积） */
+    private var locked: LabelResult? = null
+    /** 上一帧条码签名（检测换标签） */
+    private var lastBarcodeSig = ""
     private var processing = false
 
     override fun analyze(imageProxy: ImageProxy) {
@@ -70,7 +72,7 @@ class BarcodeAnalyzer(
         scanner.process(inputImage)
             .addOnSuccessListener { barcodes ->
                 val values = barcodes.mapNotNull { it.rawValue }.distinct()
-                // 2. OCR 与条码并行（无论条码有没有都跑，补型号/颜色等）
+                // 2. OCR 与条码并行（无论条码有没有都跑）
                 runOcr(inputImage, values, imageProxy)
             }
             .addOnFailureListener { e ->
@@ -92,18 +94,66 @@ class BarcodeAnalyzer(
     }
 
     private fun emit(barcodes: List<String>, ocrText: String, imageProxy: ImageProxy) {
-        val result = LabelParser.parse(barcodes, ocrText, lookup69)
-        val content = barcodes.joinToString(",") + "|" + ocrText
-        val now = System.currentTimeMillis()
+        val fresh = LabelParser.parse(barcodes, ocrText, lookup69)
+        val sig = barcodes.joinToString(",")
 
-        // 节流：同内容 2 秒内不重复
-        if (result.hasData && (content != lastContent || now - lastEmit > 2000)) {
-            lastContent = content
-            lastEmit = now
-            onResult(result)
+        // 换标签检测：条码签名变化（且当前帧有条码）→ 重置锁定
+        if (barcodes.isNotEmpty() && sig != lastBarcodeSig) {
+            locked = null
+            lastBarcodeSig = sig
+        }
+
+        // 合并：first-wins 锁定 + 补缺
+        val merged = merge(locked, fresh)
+
+        // 只有关键字段发生变化才回调（不每秒乱跳）
+        // 注意：不能用 merged != locked —— barcodes/OCR 原文每帧抖动，
+        // 用字段签名判断，barcodes 怎么变都不影响。
+        if (merged.hasData && fieldSig(merged) != fieldSig(locked)) {
+            locked = merged
+            onResult(merged)
         }
         imageProxy.close()
         processing = false
+    }
+
+    /** 关键字段签名：这些不变就不刷新 UI */
+    private fun fieldSig(r: LabelResult?): String = r?.let {
+        listOf(
+            it.supplier, it.serialNumber, it.materialCode,
+            it.quantity.toString(), it.productionDate, it.ean69,
+            it.model, it.color, it.tonerModel,
+        ).joinToString("|")
+    } ?: ""
+
+    /**
+     * 合并识别结果：已有字段锁定不覆盖，缺失字段用新帧补上。
+     * 字段优先级：条码通道的结果已经在 parse 里优先，这里只做 first-wins。
+     */
+    private fun merge(prev: LabelResult?, fresh: LabelResult): LabelResult {
+        if (prev == null) return fresh
+        return prev.copy(
+            // 已有值锁定，缺失才补
+            supplier = if (prev.supplier != "NA") prev.supplier else fresh.supplier,
+            serialNumber = prev.serialNumber.ifBlank { fresh.serialNumber },
+            materialCode = prev.materialCode.ifBlank { fresh.materialCode },
+            quantity = prev.quantity,
+            productionDate = prev.productionDate.ifBlank { fresh.productionDate },
+            ean69 = prev.ean69.ifBlank { fresh.ean69 },
+            model = prev.model.ifBlank { fresh.model },
+            color = prev.color.ifBlank { fresh.color },
+            tonerModel = prev.tonerModel.ifBlank { fresh.tonerModel },
+            // OCR 原文：首次非空即锁定（OCR 每帧抖动，避免文本来回变）
+            ocrText = prev.ocrText.ifBlank { fresh.ocrText },
+            // 条码集：保留最新（换标签判定用）
+            barcodes = fresh.barcodes.ifEmpty { prev.barcodes },
+        )
+    }
+
+    /** 手动重置锁定（保存/丢弃后调用，解锁识别下一个标签） */
+    fun reset() {
+        locked = null
+        lastBarcodeSig = ""
     }
 
     fun close() {

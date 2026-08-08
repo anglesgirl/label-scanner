@@ -188,6 +188,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun clearCurrent() {
         currentResult = null
+        analyzer?.reset()   // 解锁分析器，识别下一个标签
         tvBarcodes.text = ""
         resultPanel.text = "等待识别..."
         resultPanel.setBackgroundColor(ContextCompat.getColor(this, R.color.result_idle))
