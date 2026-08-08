@@ -252,8 +252,8 @@ class MainActivity : AppCompatActivity() {
     private fun recognizeStatic(uri: Uri) {
         resultPanel.text = "识别中..."
         StaticRecognizer.recognizeUri(
-            uri,
-            openStream = { contentResolver.openInputStream(uri) },
+            resolver = contentResolver,
+            uri = uri,
             lookup69 = { ean -> lookup69.lookup(ean) },
             onResult = { result ->
                 runOnUiThread { showResult(result) }
