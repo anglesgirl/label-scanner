@@ -24,6 +24,7 @@ import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelResult
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
@@ -274,11 +275,10 @@ class MainActivity : AppCompatActivity() {
                 updateCount()
             }
             REQ_DOC_SCAN -> {
-                // 文档扫描完成，拿矫正后的图片识别
+                // 文档扫描完成，拿矫正后的图片识别（16.0.0 API）
                 if (resultCode == RESULT_OK && data != null) {
-                    val uri: Uri? = data.getParcelableExtra(
-                        GmsDocumentScanning.RESULT_EXTRA_SCANNED_IMAGE_URI
-                    )
+                    val result = GmsDocumentScanningResult.fromActivityResultIntent(data)
+                    val uri: Uri? = result?.pages?.firstOrNull()?.imageUri
                     if (uri != null) {
                         recognizeStatic(uri)
                     } else {
