@@ -17,6 +17,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.anglesgirl.labelscanner.camera.BarcodeAnalyzer
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
@@ -25,6 +26,7 @@ import com.anglesgirl.labelscanner.model.LabelResult
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import java.io.File
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
@@ -41,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnList: Button
     private lateinit var btnDocScan: Button
     private lateinit var btnGallery: Button
+    private lateinit var btnCamera: Button
     private lateinit var tvBarcodes: TextView
     private lateinit var tvCount: TextView
     private lateinit var tvExtras: TextView
@@ -51,12 +54,24 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var savedResults: MutableList<LabelResult>
     private lateinit var lookup69: Barcode69Lookup
+    private var pendingCaptureUri: Uri? = null
 
     /** 相册选图回调 */
     private val pickImageLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) recognizeStatic(uri)
+    }
+
+    /** 系统相机拍照回调（拍完直接识别，配合系统相机"文档"模式） */
+    private val takePictureLauncher = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        val uri = pendingCaptureUri
+        pendingCaptureUri = null
+        if (success && uri != null) {
+            recognizeStatic(uri)
+        }
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -81,6 +96,7 @@ class MainActivity : AppCompatActivity() {
         btnList = findViewById(R.id.btnList)
         btnDocScan = findViewById(R.id.btnDocScan)
         btnGallery = findViewById(R.id.btnGallery)
+        btnCamera = findViewById(R.id.btnCamera)
         tvBarcodes = findViewById(R.id.tvBarcodes)
         tvCount = findViewById(R.id.tvCount)
         tvExtras = findViewById(R.id.tvExtras)
@@ -98,6 +114,7 @@ class MainActivity : AppCompatActivity() {
         btnGallery.setOnClickListener {
             pickImageLauncher.launch("image/*")
         }
+        btnCamera.setOnClickListener { launchSystemCamera() }
         updateCount()
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -226,6 +243,23 @@ class MainActivity : AppCompatActivity() {
         etDate.setText("")
         etSn.setText("")
         etEan69.setText("")
+    }
+
+    /** 唤起系统相机拍照（可手动切"文档"模式），拍完直接识别 */
+    private fun launchSystemCamera() {
+        try {
+            val dir = File(cacheDir, "captures").apply { mkdirs() }
+            val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                file
+            )
+            pendingCaptureUri = uri
+            takePictureLauncher.launch(uri)
+        } catch (e: Exception) {
+            Toast.makeText(this, "无法唤起相机：${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** 文档扫描：ML Kit Document Scanner（自动对焦/扶正/去背景），返回矫正后图片再识别 */

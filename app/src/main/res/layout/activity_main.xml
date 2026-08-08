@@ -47,7 +47,7 @@
             android:textColor="#ffd54f"
             android:textSize="12sp" />
 
-        <!-- 识别入口：文档扫描（矫正） / 相册导入 -->
+        <!-- 识别入口：系统相机（文档模式） / 文档扫描 / 相册导入 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -55,10 +55,20 @@
             android:orientation="horizontal">
 
             <Button
+                android:id="@+id/btnCamera"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="📷 拍照"
+                android:textSize="13sp"
+                android:backgroundTint="#2e7d32" />
+
+            <Button
                 android:id="@+id/btnDocScan"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:layout_marginStart="6dp"
                 android:text="📄 文档扫描"
                 android:textSize="13sp"
                 android:backgroundTint="#e65100" />
@@ -68,8 +78,8 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:text="🖼 相册导入"
+                android:layout_marginStart="6dp"
+                android:text="🖼 相册"
                 android:textSize="13sp"
                 android:backgroundTint="#00838f" />
         </LinearLayout>
