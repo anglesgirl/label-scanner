@@ -102,22 +102,22 @@ object StaticRecognizer {
 
     /** 缩放解码：目标边 ≤ 2048。FileDescriptor 方式（content URI 最可靠） */
     private fun decodeSampledBitmap(resolver: ContentResolver, uri: Uri): Bitmap? {
+        // 方式一：FileDescriptor（bounds 和解码各开一次 fd）
         try {
-            // 方式一：FileDescriptor（支持 seek，bounds+解码同 fd）
+            var sample = 1
             resolver.openFileDescriptor(uri, "r")?.use { pfd ->
-                val fd = pfd.fileDescriptor
-
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFileDescriptor(fd, null, bounds)
+                BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, bounds)
                 if (bounds.outWidth > 0 && bounds.outHeight > 0) {
-                    var sample = 1
                     val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
                     while (maxDim / (sample * 2) >= 2048) sample *= 2
-
-                    try { pfd.seekTo(0) } catch (_: Exception) { /* 部分实现不支持，忽略 */ }
-
+                }
+            }
+            if (sample > 0) {
+                resolver.openFileDescriptor(uri, "r")?.use { pfd ->
                     val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-                    return BitmapFactory.decodeFileDescriptor(fd, null, opts)
+                    BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, opts)
+                        ?.let { return it }
                 }
             }
         } catch (e: Exception) {
