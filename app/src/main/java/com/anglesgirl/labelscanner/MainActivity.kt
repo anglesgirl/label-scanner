@@ -18,6 +18,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.anglesgirl.labelscanner.camera.BarcodeAnalyzer
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
+import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelResult
 import java.util.concurrent.Executors
 
@@ -32,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSave: Button
     private lateinit var btnDiscard: Button
     private lateinit var btnExport: Button
+    private lateinit var btnList: Button
     private lateinit var tvBarcodes: TextView
     private lateinit var tvCount: TextView
     private lateinit var tvExtras: TextView
@@ -40,7 +42,7 @@ class MainActivity : AppCompatActivity() {
     private var cameraExecutor = Executors.newSingleThreadExecutor()
     private var currentResult: LabelResult? = null
 
-    private val savedResults = mutableListOf<LabelResult>()
+    private lateinit var savedResults: MutableList<LabelResult>
     private lateinit var lookup69: Barcode69Lookup
 
     private val permissionLauncher = registerForActivityResult(
@@ -62,15 +64,21 @@ class MainActivity : AppCompatActivity() {
         btnSave = findViewById(R.id.btnSave)
         btnDiscard = findViewById(R.id.btnDiscard)
         btnExport = findViewById(R.id.btnExport)
+        btnList = findViewById(R.id.btnList)
         tvBarcodes = findViewById(R.id.tvBarcodes)
         tvCount = findViewById(R.id.tvCount)
         tvExtras = findViewById(R.id.tvExtras)
 
         lookup69 = Barcode69Lookup(this)
+        savedResults = RecordStore.load(this)
 
         btnSave.setOnClickListener { confirmSave() }
         btnDiscard.setOnClickListener { clearCurrent() }
         btnExport.setOnClickListener { exportData() }
+        btnList.setOnClickListener {
+            startActivityForResult(Intent(this, RecordListActivity::class.java), REQ_LIST)
+        }
+        updateCount()
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
@@ -152,6 +160,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         savedResults.add(r)
+        RecordStore.save(this, savedResults)
         // 自动学习：69码 → 物料编码 映射（为以后反查积累）
         lookup69.learn(r.ean69, r.materialCode)
         updateCount()
@@ -199,9 +208,22 @@ class MainActivity : AppCompatActivity() {
         etEan69.setText("")
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        // 从列表页返回：重新加载（可能编辑/删除了记录）
+        if (requestCode == REQ_LIST) {
+            savedResults = RecordStore.load(this)
+            updateCount()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         analyzer?.close()
         cameraExecutor.shutdown()
+    }
+
+    companion object {
+        private const val REQ_LIST = 1002
     }
 }

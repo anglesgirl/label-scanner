@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1a1a2e">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/tvEditTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="编辑记录"
+            android:textColor="#00e5ff"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:paddingBottom="8dp" />
+
+        <TextView style="@style/FieldLabel" android:text="供应商（段1）" />
+        <EditText android:id="@+id/etSupplier" style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="箱号 / 序列号（段2）" />
+        <EditText android:id="@+id/etSn" style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="物料编码（段3）" />
+        <EditText android:id="@+id/etMaterial" style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="数量（段4）" />
+        <EditText android:id="@+id/etQty" style="@style/FieldInput" android:inputType="number" />
+
+        <TextView style="@style/FieldLabel" android:text="日期（段5 yyyymmdd）" />
+        <EditText android:id="@+id/etDate" style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="69 商品码（段6）" />
+        <EditText android:id="@+id/etEan69" style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="产品型号（附加）" />
+        <EditText android:id="@+id/etModel" style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="产品颜色（附加）" />
+        <EditText android:id="@+id/etColor" style="@style/FieldInput" />
+
+        <TextView style="@style/FieldLabel" android:text="硒鼓型号（附加）" />
+        <EditText android:id="@+id/etToner" style="@style/FieldInput" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnEditSave"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="✅ 保存修改"
+                android:backgroundTint="#2e7d32" />
+
+            <Button
+                android:id="@+id/btnEditCancel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="✖ 取消"
+                android:backgroundTint="#546e7a" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

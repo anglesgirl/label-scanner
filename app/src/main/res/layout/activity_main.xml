@@ -110,9 +110,17 @@
                 android:textSize="14sp" />
 
             <Button
+                android:id="@+id/btnList"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📋 数据列表"
+                android:backgroundTint="#6a1b9a" />
+
+            <Button
                 android:id="@+id/btnExport"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
                 android:text="📤 导出"
                 android:backgroundTint="#1565c0" />
         </LinearLayout>
