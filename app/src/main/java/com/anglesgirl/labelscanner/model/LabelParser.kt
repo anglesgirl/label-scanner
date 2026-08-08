@@ -17,6 +17,7 @@ import java.util.regex.Pattern
 object LabelParser {
 
     private val DATE8 = Pattern.compile("^\\d{8}$")
+    private val DATE_SEP = Pattern.compile("^\\d{4}[-/. ]\\d{2}[-/. ]\\d{2}$")
     private val EAN13 = Pattern.compile("^69\\d{11}$")
     private val MAT10 = Pattern.compile("^\\d{10}$")
     private val MAT12 = Pattern.compile("^\\d{12}$")
@@ -27,11 +28,15 @@ object LabelParser {
         val v = value.trim()
         if (v.isEmpty()) return null
 
-        // 日期：8 位纯数字且像日期（MM 01-12, DD 01-31）→ yyyymmdd
-        if (DATE8.matcher(v).matches()) {
-            val m = v.substring(4, 6).toInt()
-            val d = v.substring(6, 8).toInt()
-            if (m in 1..12 && d in 1..31) return "date" to v
+        // 日期：8 位纯数字（yyyymmdd）或带符号（2025-05-08 / 2025.05.08）
+        // → 统一归一为 8 位无符号 yyyymmdd
+        if (DATE8.matcher(v).matches() || DATE_SEP.matcher(v).matches()) {
+            val digits = v.replace(Regex("[^0-9]"), "")
+            if (digits.length == 8) {
+                val m = digits.substring(4, 6).toInt()
+                val d = digits.substring(6, 8).toInt()
+                if (m in 1..12 && d in 1..31) return "date" to digits
+            }
         }
 
         // EAN13 商品码（69 开头）
