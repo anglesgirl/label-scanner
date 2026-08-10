@@ -6,6 +6,8 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelResult
 
@@ -29,7 +31,14 @@ class EditRecordActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge：内容延伸到状态栏/导航栏底下，避免遮挡
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_edit_record)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { view, insets ->
+            val sysBars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            view.setPadding(sysBars.left, sysBars.top, sysBars.right, sysBars.bottom)
+            insets
+        }
 
         index = intent.getIntExtra("index", -1)
         if (index < 0) {
