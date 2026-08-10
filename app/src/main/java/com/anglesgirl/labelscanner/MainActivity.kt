@@ -718,18 +718,18 @@ class MainActivity : AppCompatActivity() {
             lookup69 = null,
             onResult = { result ->
                 runOnUiThread {
-                    // 取第一个条码作为结果
-                    val code = result.barcodes.firstOrNull()?.trim()
-                    if (code == null || code.isEmpty()) {
+                    val barcodes = result.barcodes.map { it.trim() }.filter { it.isNotEmpty() }
+                    if (barcodes.isEmpty()) {
                         Toast.makeText(this, "未识别到条码", Toast.LENGTH_SHORT).show()
                         return@runOnUiThread
                     }
-                    when (field) {
-                        "trayCode" -> etTrayCode.setText(code)
-                        "material" -> etMaterial.setText(code)
-                        "batchMaterial" -> etBatchMaterial.setText(code)
+                    if (barcodes.size == 1) {
+                        // 只有一个条码，直接填入
+                        fillField(field, barcodes[0])
+                    } else {
+                        // 多个条码：弹窗让用户选择
+                        showBarcodePickerDialog(field, barcodes)
                     }
-                    Toast.makeText(this, "已填入 $field: $code", Toast.LENGTH_SHORT).show()
                 }
             },
             onError = { msg ->
@@ -738,6 +738,32 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    private fun fillField(field: String, code: String) {
+        when (field) {
+            "trayCode" -> etTrayCode.setText(code)
+            "material" -> etMaterial.setText(code)
+            "batchMaterial" -> etBatchMaterial.setText(code)
+        }
+        Toast.makeText(this, "已填入 $field: $code", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showBarcodePickerDialog(field: String, barcodes: List<String>) {
+        val fieldLabel = when (field) {
+            "trayCode" -> "托盘码"
+            "material" -> "物料编码"
+            "batchMaterial" -> "批量物料编码"
+            else -> field
+        }
+        val items = barcodes.map { "📦 $it" }.toTypedArray()
+        android.app.AlertDialog.Builder(this)
+            .setTitle("识别到 ${barcodes.size} 个条码，请选择填入【$fieldLabel】")
+            .setItems(items) { _, which ->
+                fillField(field, barcodes[which])
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     // ===== 批量序列号 RecyclerView Adapter =====
