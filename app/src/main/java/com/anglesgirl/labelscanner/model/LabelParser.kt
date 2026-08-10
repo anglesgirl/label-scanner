@@ -87,10 +87,25 @@ object LabelParser {
             lookup69(result.ean69)?.let { result.materialCode = it }
         }
 
-        // 4. OCR 通道：补缺 + 提取型号/颜色/硒鼓/供应商
+        // 4. 规则：SN 以 12 位纯数字 + "01" 结尾 → 取前 12 位当物料编码
+        if (result.materialCode.isEmpty() && result.serialNumber.isNotEmpty()) {
+            val sn = result.serialNumber
+            if (sn.length >= 12 && sn.take(12).all { it.isDigit() } && sn.substring(10, 12) == "01") {
+                result.materialCode = sn.take(12)  // 直接用 12 位（已含 01 结尾）
+            }
+        }
+
+        // 5. OCR 通道：补缺 + 提取型号/颜色/硒鼓/供应商
         val lines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
         for (line in lines) {
             applyOcrLine(result, line, lookup69)
+        }
+
+        // 6. 兜底：无物料编码 + 69 码反查失败 → 标记需人工输入（上层 UI 提示）
+        //    这里不抛异常，返回结果让 UI 判断 materialCode 是否为空
+        // 7. 兜底：无生产日期 → 默认 19000101
+        if (result.productionDate.isEmpty()) {
+            result.productionDate = "19000101"
         }
 
         return result

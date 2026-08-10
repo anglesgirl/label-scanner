@@ -1,103 +1,147 @@
 package com.anglesgirl.labelscanner.export
 
+import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import androidx.core.content.FileProvider
+import android.os.Build
+import android.provider.MediaStore
 import com.anglesgirl.labelscanner.model.LabelResult
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.nio.charset.Charsets
 
 /**
- * 导出：保存的标签列表 → CSV。
+ * 导出工具：CSV / WMS 格式
  *
- * 双版本：
- *  - 系统版（标签数据_系统_<ts>.csv）：库存导入模板 DATA01~14（D/E/F/I/O），
- *    剔除 69 开头物料码（公司系统不认）
- *  - 自有版（标签数据_自有_<ts>.csv）：SAP 9 段码 + 附加字段全保留
- *    （型号/颜色/硒鼓/OCR原文），供迁移/对账/反查积累
- *
- * CSV 编码 UTF-8（Excel 乱码则改 GBK）。
+ * CSV（原有兼容）：标签字段 + 原始条码/OCR
+ * WMS（新增）：库存导入模板 DATA01~DATA14
+ *   DATA01 供应商           -> supplier
+ *   DATA02 供应商批次       -> (留空/可扩展)
+ *   DATA03 入库日期         -> 今日 yyyymmdd
+ *   DATA04 物料编码         -> materialCode
+ *   DATA05 物料名称         -> (留空)
+ *   DATA06 规格型号         -> model
+ *   DATA07 单位             -> PCS
+ *   DATA08 数量             -> quantity
+ *   DATA09 批次号/生产日期  -> productionDate
+ *   DATA10 仓库编码         -> (留空/默认)
+ *   DATA11 库区编码         -> (留空)
+ *   DATA12 库位编码         -> (留空)
+ *   DATA13 箱号/序列号      -> serialNumber
+ *   DATA14 备注             -> ean69 / color / tonerModel
  */
 object Exporter {
 
-    /**
-     * 导出两份 CSV，返回自有版 Uri 供分享。
-     */
-    fun export(context: Context, results: List<LabelResult>): Uri? {
-        if (results.isEmpty()) return null
+    private const val FILE_NAME = "labels_${System.currentTimeMillis()}.csv"
+    private const val WMS_FILE_NAME = "wms_import_${System.currentTimeMillis()}.csv"
+    private const val EXT_DIR = "Download/LabelScanner"
 
-        val dir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-
-        // 系统版（库存导入模板，剔除 69 开头）
-        val sysFile = File(dir, "标签数据_系统_$ts.csv")
-        writeSystemCsv(sysFile, results)
-
-        // 自有版（SAP 9 段码全保留）
-        val ownFile = File(dir, "标签数据_自有_$ts.csv")
-        writeOwnCsv(ownFile, results)
-
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            ownFile
-        )
-        return uri
-    }
-
-    /** 系统版：库存导入模板 DATA01~14 列 */
-    private fun writeSystemCsv(file: File, results: List<LabelResult>) {
-        val sb = StringBuilder()
-        // 第 1 行：DATA01-14 列名（导入必须）
-        sb.append("1,DATA01,DATA02,DATA03,DATA04,DATA05,DATA06,DATA07,DATA08,DATA09,DATA10,DATA11,DATA12,DATA13,DATA14\n")
-        // 第 2 行：表头（业务说明）
-        sb.append("Column Name,库位,卡板,物料编码,箱号,数量,工厂,库存地,生产日期,销售公司,销售订单,供应商,特别加工指示书编号,WCS,SN码\n")
-        // 数据行
-        for (r in results) {
-            if (r.materialCode.startsWith("69")) continue
-            val row = mutableListOf<String>()
-            row.add(""); row.add(""); row.add("") // A B C
-            row.add(r.materialCode)          // D
-            row.add(r.serialNumber)          // E
-            row.add(r.quantity.toString())   // F
-            row.add(""); row.add("")          // G H
-            row.add(r.productionDate)        // I
-            row.add(""); row.add(""); row.add(""); row.add(""); row.add("") // J K L M N
-            row.add(r.serialNumber)          // O
-            sb.append(row.joinToString(",") { csvEscape(it) }).append("\n")
+    /** 原有 CSV 导出（保留兼容） */
+    fun export(context: Context, records: List<LabelResult>): Uri? {
+        return if (Build.VERSION.SDK_INT >= 29) {
+            exportViaMediaStore(context, records, FILE_NAME) { r ->
+                "\"${r.barcodes.joinToString(\"|\")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
+            }
+        } else {
+            exportViaLegacyDir(context, records, FILE_NAME) { r ->
+                "\"${r.barcodes.joinToString(\"|\")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
+            }
         }
-        file.writeText(sb.toString(), Charsets.UTF_8)
     }
 
-    /** 自有版：SAP 9 段码 + 附加字段全保留 */
-    private fun writeOwnCsv(file: File, results: List<LabelResult>) {
-        val sb = StringBuilder()
-        sb.append("序号,SAP9段码,供应商,箱号,物料编码,数量,日期,69商品码,型号,颜色,硒鼓,OCR原文\n")
-        for ((i, r) in results.withIndex()) {
-            val row = listOf(
-                (i + 1).toString(),
-                r.toSapCode(),
-                r.supplier,
-                r.serialNumber,
-                r.materialCode,
-                r.quantity.toString(),
-                r.productionDate,
-                r.ean69,
-                r.model,
-                r.color,
-                r.tonerModel,
-                r.ocrText,
+    /** WMS 导出：库存导入模板 DATA01~DATA14 */
+    fun exportWms(context: Context, records: List<LabelResult>): Uri? {
+        return if (Build.VERSION.SDK_INT >= 29) {
+            exportViaMediaStore(context, records, WMS_FILE_NAME) { r ->
+                val today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))
+                val remark = buildList {
+                    if (r.ean69.isNotBlank()) add("69码:${r.ean69}")
+                    if (r.color.isNotBlank()) add("颜色:${r.color}")
+                    if (r.tonerModel.isNotBlank()) add("硒鼓:${r.tonerModel}")
+                }.joinToString("; ")
+                "\"${r.supplier}\",\"\",\"$today\",\"${r.materialCode}\",\"\",\"${r.model}\",\"PCS\",${r.quantity},\"${r.productionDate}\",\"\",\"\",\"\",\"${r.serialNumber}\",\"$remark\""
+            }
+        } else {
+            exportViaLegacyDir(context, records, WMS_FILE_NAME) { r ->
+                val today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))
+                val remark = buildList {
+                    if (r.ean69.isNotBlank()) add("69码:${r.ean69}")
+                    if (r.color.isNotBlank()) add("颜色:${r.color}")
+                    if (r.tonerModel.isNotBlank()) add("硒鼓:${r.tonerModel}")
+                }.joinToString("; ")
+                "\"${r.supplier}\",\"\",\"$today\",\"${r.materialCode}\",\"\",\"${r.model}\",\"PCS\",${r.quantity},\"${r.productionDate}\",\"\",\"\",\"\",\"${r.serialNumber}\",\"$remark\""
+            }
+        }
+    }
+
+    /** API 29+：MediaStore.Downloads（免权限，公共可见，卸载不删） */
+    private fun exportViaMediaStore(
+        context: Context,
+        records: List<LabelResult>,
+        fileName: String,
+        rowBuilder: (LabelResult) -> String,
+    ): Uri? {
+        try {
+            val header = if (fileName.startsWith("wms_")) {
+                "DATA01,DATA02,DATA03,DATA04,DATA05,DATA06,DATA07,DATA08,DATA09,DATA10,DATA11,DATA12,DATA13,DATA14"
+            } else {
+                "条码,OCR,供应商,序列号,物料编码,数量,生产日期,69码,型号,颜色,硒鼓"
+            }
+
+            val csv = buildString {
+                appendLine(header)
+                for (r in records) appendLine(rowBuilder(r))
+            }
+
+            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            // 先删同名
+            context.contentResolver.delete(
+                collection,
+                "${MediaStore.Downloads.DISPLAY_NAME} = ?",
+                arrayOf(fileName)
             )
-            sb.append(row.joinToString(",") { csvEscape(it) }).append("\n")
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, "text/csv")
+                put(MediaStore.Downloads.RELATIVE_PATH, EXT_DIR)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = context.contentResolver.insert(collection, values)
+            if (uri != null) {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray(Charsets.UTF_8)) }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                context.contentResolver.update(uri, values, null, null)
+            }
+            return uri
+        } catch (e: Exception) {
+            return null
         }
-        file.writeText(sb.toString(), Charsets.UTF_8)
     }
 
-    private fun csvEscape(s: String): String =
-        if (s.contains(',') || s.contains('"') || s.contains('\n')) {
-            "\"" + s.replace("\"", "\"\"") + "\""
-        } else s
+    /** API 26-28：外部文件目录（需要 WRITE_EXTERNAL_STORAGE 权限，卸载删） */
+    private fun exportViaLegacyDir(
+        context: Context,
+        records: List<LabelResult>,
+        fileName: String,
+        rowBuilder: (LabelResult) -> String,
+    ): Uri? {
+        try {
+            val dir = File(context.getExternalFilesDir(null), "LabelScanner").apply { mkdirs() }
+            val file = File(dir, fileName)
+
+            val header = if (fileName.startsWith("wms_")) {
+                "DATA01,DATA02,DATA03,DATA04,DATA05,DATA06,DATA07,DATA08,DATA09,DATA10,DATA11,DATA12,DATA13,DATA14"
+            } else {
+                "条码,OCR,供应商,序列号,物料编码,数量,生产日期,69码,型号,颜色,硒鼓"
+            }
+
+            val csv = buildString {
+                appendLine(header)
+                for (r in records) appendLine(rowBuilder(r))
+            }
+            file.writeText(csv, Charsets.UTF_8)
+            return Uri.fromFile(file)
+        } catch (e: Exception) {
+            return null
+        }
+    }
 }
