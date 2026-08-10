@@ -15,6 +15,8 @@ import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 静态图片识别器：对【单张图片】（文档扫描矫正结果 / 相册导入）跑双通道识别。
@@ -32,6 +34,11 @@ object StaticRecognizer {
 
     private var scanner: BarcodeScanner? = null
     private var recognizer: TextRecognizer? = null
+
+    /** ZXing 解码线程池（放大 3x 解码是 CPU 密集，不阻塞主线程） */
+    private val zxingPool = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "zxing-decode").apply { isDaemon = true }
+    }
 
     private fun getScanner(): BarcodeScanner =
         scanner ?: BarcodeScanning.getClient(
@@ -64,7 +71,7 @@ object StaticRecognizer {
         recognize(bmp, lookup69, onResult, onError)
     }
 
-    /** 识别单张 Bitmap：条码 + OCR 并行，结果合并 */
+    /** 识别单张 Bitmap：ML Kit 条码 + ZXing 双解码并行，结果合并，再跑 OCR */
     fun recognize(
         bitmap: Bitmap,
         lookup69: ((String) -> String?)?,
@@ -73,30 +80,47 @@ object StaticRecognizer {
     ) {
         val input = InputImage.fromBitmap(bitmap, 0)
 
+        // ZXing 双解码器（放大 3x，补 ML Kit 漏检的密集小条码）——后台线程并行跑
+        val zxingFuture = zxingPool.submit { ZxingDecoder.decode(bitmap) }
+
         getScanner().process(input)
             .addOnSuccessListener { barcodes ->
-                val values = barcodes.mapNotNull { it.rawValue }.distinct()
-                getRecognizer().process(input)
-                    .addOnSuccessListener { text ->
-                        val ocr = text.text?.trim() ?: ""
-                        onResult(LabelParser.parse(values, ocr, lookup69))
-                    }
-                    .addOnFailureListener { e ->
-                        Log.w(TAG, "ocr failed", e)
-                        onResult(LabelParser.parse(values, "", lookup69))
-                    }
+                val mlValues = barcodes.mapNotNull { it.rawValue }.distinct()
+                val zxValues = awaitZxing(zxingFuture)
+                val values = (mlValues + zxValues).distinct()
+                finishOcr(input, values, lookup69, onResult, onError)
             }
             .addOnFailureListener { e ->
-                Log.w(TAG, "barcode failed, ocr only", e)
-                getRecognizer().process(input)
-                    .addOnSuccessListener { text ->
-                        val ocr = text.text?.trim() ?: ""
-                        onResult(LabelParser.parse(emptyList(), ocr, lookup69))
-                    }
-                    .addOnFailureListener { e2 ->
-                        Log.w(TAG, "ocr also failed", e2)
-                        onError("识别失败：${e2.message}")
-                    }
+                Log.w(TAG, "barcode failed, ocr + zxing only", e)
+                finishOcr(input, awaitZxing(zxingFuture), lookup69, onResult, onError)
+            }
+    }
+
+    /** 等待 ZXing 解码结果（上限 2s，超时/异常返回空——ML Kit 结果不受影响） */
+    private fun awaitZxing(future: java.util.concurrent.Future<List<String>>): List<String> =
+        try {
+            future.get(2000, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            Log.w(TAG, "zxing timed out: ${e.message}")
+            emptyList()
+        }
+
+    /** 条码结果就绪后跑 OCR 并合并（两通道共用） */
+    private fun finishOcr(
+        input: InputImage,
+        barcodes: List<String>,
+        lookup69: ((String) -> String?)?,
+        onResult: (LabelResult) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        getRecognizer().process(input)
+            .addOnSuccessListener { text ->
+                val ocr = text.text?.trim() ?: ""
+                onResult(LabelParser.parse(barcodes, ocr, lookup69))
+            }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "ocr failed", e)
+                onResult(LabelParser.parse(barcodes, "", lookup69))
             }
     }
 

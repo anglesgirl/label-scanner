@@ -27,6 +27,7 @@ mlkit-barcode = { group = "com.google.mlkit", name = "barcode-scanning", version
 mlkit-text = { group = "com.google.mlkit", name = "text-recognition", version.ref = "mlkitText" }
 mlkit-text-chinese = { group = "com.google.mlkit", name = "text-recognition-chinese", version.ref = "mlkitTextChinese" }
 mlkit-doc-scanner = { group = "com.google.android.gms", name = "play-services-mlkit-document-scanner", version.ref = "mlkitDocScanner" }
+zxing-core = { group = "com.google.zxing", name = "core", version = "3.5.3" }
 androidx-lifecycle-runtime = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 poi = { group = "org.apache.poi", name = "poi", version.ref = "poi" }
