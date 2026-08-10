@@ -18,6 +18,7 @@ package com.anglesgirl.labelscanner.model
  * @param model 附加字段：产品型号（9 段无位置，自有数据保留）
  * @param color 附加字段：产品颜色（自有数据保留）
  * @param tonerModel 附加字段：商品硒鼓/耗材型号（自有数据保留）
+ * @param trayCode 托盘码（WMS 托盘关联，不修改原始标签数据）
  */
 data class LabelResult(
     val barcodes: List<String> = emptyList(),
@@ -31,6 +32,7 @@ data class LabelResult(
     var model: String = "",
     var color: String = "",
     var tonerModel: String = "",
+    var trayCode: String = "",  // 托盘码：WMS 托盘关联，不修改原始标签数据
 ) {
     /** 是否有任何可用数据 */
     val hasData: Boolean

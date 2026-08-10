@@ -182,6 +182,7 @@ object RecordStore {
                     .put("model", r.model)
                     .put("color", r.color)
                     .put("tonerModel", r.tonerModel)
+                    .put("trayCode", r.trayCode)
             )
         }
         return arr.toString()
@@ -205,6 +206,7 @@ object RecordStore {
                     model = o.optString("model", ""),
                     color = o.optString("color", ""),
                     tonerModel = o.optString("tonerModel", ""),
+                    trayCode = o.optString("trayCode", ""),
                 )
             )
         }

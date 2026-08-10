@@ -56,6 +56,7 @@ object Exporter {
                     if (r.ean69.isNotBlank()) add("69码:${r.ean69}")
                     if (r.color.isNotBlank()) add("颜色:${r.color}")
                     if (r.tonerModel.isNotBlank()) add("硒鼓:${r.tonerModel}")
+                    if (r.trayCode.isNotBlank()) add("托盘:${r.trayCode}")
                 }.joinToString("; ")
                 "\"${r.supplier}\",\"\",\"$today\",\"${r.materialCode}\",\"\",\"${r.model}\",\"PCS\",${r.quantity},\"${r.productionDate}\",\"\",\"\",\"\",\"${r.serialNumber}\",\"$remark\""
             }
@@ -66,6 +67,7 @@ object Exporter {
                     if (r.ean69.isNotBlank()) add("69码:${r.ean69}")
                     if (r.color.isNotBlank()) add("颜色:${r.color}")
                     if (r.tonerModel.isNotBlank()) add("硒鼓:${r.tonerModel}")
+                    if (r.trayCode.isNotBlank()) add("托盘:${r.trayCode}")
                 }.joinToString("; ")
                 "\"${r.supplier}\",\"\",\"$today\",\"${r.materialCode}\",\"\",\"${r.model}\",\"PCS\",${r.quantity},\"${r.productionDate}\",\"\",\"\",\"\",\"${r.serialNumber}\",\"$remark\""
             }

@@ -46,7 +46,7 @@ class RecordListActivity : AppCompatActivity() {
                 )
                 val r = getItem(position)!!
                 v.findViewById<TextView>(android.R.id.text1).text =
-                    "#${position + 1}  SN: ${r.serialNumber.ifBlank { "（无）" }}"
+                    "#${position + 1}  SN: ${r.serialNumber.ifBlank { "（无）" }}${if (r.trayCode.isNotBlank()) "  📦${r.trayCode}" else ""}"
                 v.findViewById<TextView>(android.R.id.text2).text =
                     "物料: ${r.materialCode.ifBlank { "—" }}  日期: ${r.productionDate.ifBlank { "—" }}  " +
                         (if (r.ean69.isNotBlank()) "69码: ${r.ean69}" else "")
