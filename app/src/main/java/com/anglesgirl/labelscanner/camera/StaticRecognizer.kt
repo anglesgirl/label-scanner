@@ -97,10 +97,10 @@ object StaticRecognizer {
             }
     }
 
-    /** 等待 ZXing 解码结果（上限 2s，超时/异常返回空——ML Kit 结果不受影响） */
+    /** 等待 ZXing 解码结果（上限 15s——实测 3x 解码可达 1.9s，2s 超时会把结果丢弃） */
     private fun awaitZxing(future: java.util.concurrent.Future<List<String>>): List<String> =
         try {
-            future.get(2000, TimeUnit.MILLISECONDS)
+            future.get(15, TimeUnit.SECONDS)
         } catch (e: Exception) {
             Log.w(TAG, "zxing timed out: ${e.message}")
             emptyList()

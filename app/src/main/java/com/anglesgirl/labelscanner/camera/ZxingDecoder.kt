@@ -23,6 +23,8 @@ object ZxingDecoder {
     private const val TAG = "ZxingDecoder"
     /** 实测放大倍数（3x 时 905x1280 测试图 100% 全解） */
     private const val SCALE = 3f
+    /** 放大后最长边上限（防大图 3x 后 OOM：4096 原图 3x=12K 会爆，压到 6144 内） */
+    private const val MAX_DIM = 6144
 
     // 与 ML Kit 全格式对齐的 1D/2D 格式白名单
     private val FORMATS = listOf(
@@ -44,8 +46,15 @@ object ZxingDecoder {
     fun decode(original: Bitmap): List<String> {
         if (original.width < 10 || original.height < 10) return emptyList()
         return try {
-            val w = (original.width * SCALE).toInt()
-            val h = (original.height * SCALE).toInt()
+            var w = (original.width * SCALE).toInt()
+            var h = (original.height * SCALE).toInt()
+            // 大图保护：放大后最长边超过上限则等比收(防 3x 大图 OOM)
+            val maxDim = maxOf(w, h)
+            if (maxDim > MAX_DIM) {
+                val ratio = MAX_DIM.toFloat() / maxDim
+                w = (w * ratio).toInt().coerceAtLeast(1)
+                h = (h * ratio).toInt().coerceAtLeast(1)
+            }
             val scaled = Bitmap.createScaledBitmap(original, w, h, true)
             // 可选灰度增强：INTER_CUBIC 已足够（实测 3x 全解）；不再叠二值化，保留抗锯齿
             val pixels = IntArray(w * h)
@@ -63,7 +72,10 @@ object ZxingDecoder {
             results
                 .mapNotNull { it.text?.trim()?.takeIf { t -> t.isNotEmpty() } }
                 .distinct()
-                .also { Log.d(TAG, "decoded ${it.size} barcodes after 3x upscale") }
+                .also { Log.d(TAG, "decoded ${it.size} barcodes after upscale (${w}x${h})") }
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "zxing OOM (input ${original.width}x${original.height}): ${e.message}")
+            emptyList()
         } catch (e: Exception) {
             Log.w(TAG, "zxing decode failed: ${e.message}")
             emptyList()
