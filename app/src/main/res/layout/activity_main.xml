@@ -314,6 +314,17 @@
                         android:textSize="15sp"
                         android:textStyle="bold" />
                 </LinearLayout>
+
+                <!-- 测试识别：仅跑 StaticRecognizer 打印原始条码+OCR，不解析不保存 -->
+                <Button
+                    android:id="@+id/btnTestRecognize"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="12dp"
+                    android:backgroundTint="#7b1fa2"
+                    android:text="🔬 测试识别（打印原始条码+OCR）"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
             </LinearLayout>
         </ScrollView>
     </LinearLayout>

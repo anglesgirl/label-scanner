@@ -62,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBarcodes: TextView
     private lateinit var tvCount: TextView
     private lateinit var tvExtras: TextView
+    private lateinit var btnTestRecognize: Button
 
     // ===== 整板快速录入面板 =====
     private lateinit var panelBatch: View
@@ -129,6 +130,13 @@ class MainActivity : AppCompatActivity() {
         if (success && uri != null) {
             recognizeBatchSn(uri)
         }
+    }
+
+    /** 测试识别：相册选图回调（仅打印原始条码+OCR） */
+    private val testRecognizeLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) recognizeTest(uri)
     }
 
     /** 托盘码扫码回调 */
@@ -200,6 +208,7 @@ class MainActivity : AppCompatActivity() {
         tvBarcodes = findViewById(R.id.tvBarcodes)
         tvCount = findViewById(R.id.tvCount)
         tvExtras = findViewById(R.id.tvExtras)
+        btnTestRecognize = findViewById(R.id.btnTestRecognize)
 
         // 批量面板
         etBatchMaterial = findViewById(R.id.etBatchMaterial)
@@ -254,6 +263,9 @@ class MainActivity : AppCompatActivity() {
         btnBatchClear.setOnClickListener { clearBatchSn() }
         btnBatchSaveAll.setOnClickListener { saveBatchAll() }
         btnScanBatchMaterial.setOnClickListener { launchScanForBatchMaterial() }
+
+        // 测试识别：仅打印原始条码+OCR，不解析不保存
+        btnTestRecognize.setOnClickListener { testRecognizeLauncher.launch("image/*") }
 
         // 模式切换
         btnModeSingle.setOnClickListener { switchMode(false) }
@@ -402,6 +414,31 @@ class MainActivity : AppCompatActivity() {
             lookup69 = { ean -> lookup69?.lookup(ean) },
             onResult = { result ->
                 runOnUiThread { showResult(result) }
+            },
+            onError = { msg ->
+                runOnUiThread {
+                    resultPanel.text = "识别失败：$msg"
+                }
+            }
+        )
+    }
+
+    private fun recognizeTest(uri: Uri) {
+        resultPanel.text = "测试识别中..."
+        tvBarcodes.text = "原始条码："
+        tvExtras.text = "原始 OCR 文本："
+        StaticRecognizer.recognizeUri(
+            resolver = contentResolver,
+            uri = uri,
+            lookup69 = null,
+            onResult = { result ->
+                runOnUiThread {
+                    val barcodes = result.barcodes.joinToString("\n") { "• $it" }
+                    val ocr = result.ocrText.ifBlank { "(空)" }
+                    resultPanel.text = "✅ 识别完成（仅测试，不解析不保存）"
+                    tvBarcodes.text = "原始条码 (${result.barcodes.size} 个)：\n$barcodes"
+                    tvExtras.text = "原始 OCR 文本：\n$ocr"
+                }
             },
             onError = { msg ->
                 runOnUiThread {
