@@ -14,20 +14,20 @@ import java.nio.charset.StandardCharsets
  *
  * CSV（原有兼容）：标签字段 + 原始条码/OCR
  * WMS（新增）：库存导入模板 DATA01~DATA14
- *   DATA01 供应商           -> supplier
- *   DATA02 供应商批次       -> (留空/可扩展)
- *   DATA03 入库日期         -> 今日 yyyymmdd
- *   DATA04 物料编码         -> materialCode
- *   DATA05 物料名称         -> (留空)
- *   DATA06 规格型号         -> model
- *   DATA07 单位             -> PCS
- *   DATA08 数量             -> quantity
- *   DATA09 批次号/生产日期  -> productionDate
- *   DATA10 仓库编码         -> (留空/默认)
- *   DATA11 库区编码         -> (留空)
- *   DATA12 库位编码         -> (留空)
- *   DATA13 箱号/序列号      -> serialNumber
- *   DATA14 备注             -> ean69 / color / tonerModel / trayCode
+ *   DATA01 库位           -> 固定 "STAGE"
+ *   DATA02 卡板/托盘      -> trayCode
+ *   DATA03 物料编码       -> materialCode
+ *   DATA04 箱号           -> serialNumber
+ *   DATA05 数量           -> 1 (固定)
+ *   DATA06 工厂           -> 留空
+ *   DATA07 库存地         -> 留空
+ *   DATA08 生产日期-yyyymmdd -> productionDate
+ *   DATA09 销售公司       -> 留空
+ *   DATA10 销售订单|行号   -> 固定 "|"
+ *   DATA11 供应商         -> 留空
+ *   DATA12 特别加工指示书编号 -> 留空
+ *   DATA13 WCS库位        -> 留空
+ *   DATA14 SN码           -> serialNumber (同 DATA04)
  */
 object Exporter {
 
@@ -38,39 +38,32 @@ object Exporter {
         val fileName = "labels_${System.currentTimeMillis()}.csv"
         return if (Build.VERSION.SDK_INT >= 29) {
             exportViaMediaStore(context, records, fileName) { r ->
-                "\"${r.barcodes.joinToString("|")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
+                "\"${r.barcodes.joinToString(\"|\")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
             }
         } else {
             exportViaLegacyDir(context, records, fileName) { r ->
-                "\"${r.barcodes.joinToString("|")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
+                "\"${r.barcodes.joinToString(\"|\")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
             }
         }
     }
 
-    /** WMS 导出：库存导入模板 DATA01~DATA14 */
+    /** WMS 导出：库存导入模板 DATA01~DATA14（按用户提供的实际模板格式） */
     fun exportWms(context: Context, records: List<LabelResult>): Uri? {
         val fileName = "wms_import_${System.currentTimeMillis()}.csv"
         return if (Build.VERSION.SDK_INT >= 29) {
             exportViaMediaStore(context, records, fileName) { r ->
-                val today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))
-                val remark = buildList {
-                    if (r.ean69.isNotBlank()) add("69码:${r.ean69}")
-                    if (r.color.isNotBlank()) add("颜色:${r.color}")
-                    if (r.tonerModel.isNotBlank()) add("硒鼓:${r.tonerModel}")
-                    if (r.trayCode.isNotBlank()) add("托盘:${r.trayCode}")
-                }.joinToString("; ")
-                "\"${r.supplier}\",\"\",\"$today\",\"${r.materialCode}\",\"\",\"${r.model}\",\"PCS\",${r.quantity},\"${r.productionDate}\",\"\",\"\",\"\",\"${r.serialNumber}\",\"$remark\""
+                // DATA01=库位(固定STAGE), DATA02=卡板/托盘(trayCode), DATA03=物料编码(materialCode)
+                // DATA04=箱号(serialNumber), DATA05=数量(1), DATA06=工厂(空), DATA07=库存地(空)
+                // DATA08=生产日期(productionDate), DATA09=销售公司(空), DATA10=销售订单|行号(|)
+                // DATA11=供应商(空), DATA12=特别加工指示书编号(空), DATA13=WCS库位(空)
+                // DATA14=SN码(serialNumber)
+                val trayCode = r.trayCode.ifBlank { "" }
+                "\"STAGE\",\"$trayCode\",\"${r.materialCode}\",\"${r.serialNumber}\",1,\"\",\"\",\"${r.productionDate}\",\"\",\"|\",\"\",\"\",\"\",\"${r.serialNumber}\""
             }
         } else {
             exportViaLegacyDir(context, records, fileName) { r ->
-                val today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))
-                val remark = buildList {
-                    if (r.ean69.isNotBlank()) add("69码:${r.ean69}")
-                    if (r.color.isNotBlank()) add("颜色:${r.color}")
-                    if (r.tonerModel.isNotBlank()) add("硒鼓:${r.tonerModel}")
-                    if (r.trayCode.isNotBlank()) add("托盘:${r.trayCode}")
-                }.joinToString("; ")
-                "\"${r.supplier}\",\"\",\"$today\",\"${r.materialCode}\",\"\",\"${r.model}\",\"PCS\",${r.quantity},\"${r.productionDate}\",\"\",\"\",\"\",\"${r.serialNumber}\",\"$remark\""
+                val trayCode = r.trayCode.ifBlank { "" }
+                "\"STAGE\",\"$trayCode\",\"${r.materialCode}\",\"${r.serialNumber}\",1,\"\",\"\",\"${r.productionDate}\",\"\",\"|\",\"\",\"\",\"\",\"${r.serialNumber}\""
             }
         }
     }
