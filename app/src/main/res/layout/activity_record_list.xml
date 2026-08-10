@@ -6,6 +6,43 @@
     android:background="#1a1a2e"
     android:padding="12dp">
 
+    <!-- 托盘码筛选栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📦 筛选托盘："
+            android:textColor="#00e5ff"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/spTrayFilter"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:background="@android:drawable/btn_dropdown"
+            android:padding="8dp" />
+
+        <Button
+            android:id="@+id/btnExportWms"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#ad1457"
+            android:paddingHorizontal="16dp"
+            android:text="🏭 导出 WMS"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

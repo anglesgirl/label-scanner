@@ -42,10 +42,31 @@ object RecordStore {
         return mutableListOf()
     }
 
+    /** 按托盘码查询记录 */
+    fun loadByTrayCode(context: Context, trayCode: String): MutableList<LabelResult> {
+        return load(context).filter { it.trayCode == trayCode }.toMutableList()
+    }
+
+    /** 获取所有已用的托盘码列表 */
+    fun getAllTrayCodes(context: Context): List<String> {
+        return load(context)
+            .filter { it.trayCode.isNotBlank() }
+            .map { it.trayCode }
+            .distinct()
+    }
+
     /** 全量保存：内部 + 外部双写 */
     fun save(context: Context, records: List<LabelResult>) {
         writeInternal(context, records)
         writeExternal(context, records)
+    }
+
+    /** 追加记录（保留已有数据，只加新的） */
+    fun append(context: Context, newRecords: List<LabelResult>) {
+        val existing = load(context)
+        val combined = (existing + newRecords).distinctBy { it.serialNumber }
+        writeInternal(context, combined)
+        writeExternal(context, combined)
     }
 
     // ---------- 内部 ----------
