@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">标签录入</string>
-    <style name="Theme.LabelScanner" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="android:statusBarColor">#1a1a2e</item>
-    </style>
     <style name="FieldLabel">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
