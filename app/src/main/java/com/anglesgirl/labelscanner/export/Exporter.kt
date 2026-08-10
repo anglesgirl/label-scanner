@@ -37,35 +37,31 @@ object Exporter {
     fun export(context: Context, records: List<LabelResult>): Uri? {
         val fileName = "labels_${System.currentTimeMillis()}.csv"
         return if (Build.VERSION.SDK_INT >= 29) {
-            exportViaMediaStore(context, records, fileName) { r ->
-                "\"${r.barcodes.joinToString(\"|\")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
-            }
+            exportViaMediaStore(context, records, fileName, ::buildCsvRow)
         } else {
-            exportViaLegacyDir(context, records, fileName) { r ->
-                "\"${r.barcodes.joinToString(\"|\")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
-            }
+            exportViaLegacyDir(context, records, fileName, ::buildCsvRow)
         }
     }
 
     /** WMS 导出：库存导入模板 DATA01~DATA14（按用户提供的实际模板格式） */
     fun exportWms(context: Context, records: List<LabelResult>): Uri? {
-        val fileName = "wms_import_${System.currentTimeMillis()}.csv"
+        // 文件名用托盘码，如果有多个托盘码取第一个，或用时间戳兜底
+        val trayCode = records.firstOrNull()?.trayCode?.takeIf { it.isNotBlank() }
+        val fileName = if (trayCode != null) "wms_${trayCode}.csv" else "wms_import_${System.currentTimeMillis()}.csv"
         return if (Build.VERSION.SDK_INT >= 29) {
-            exportViaMediaStore(context, records, fileName) { r ->
-                // DATA01=库位(固定STAGE), DATA02=卡板/托盘(trayCode), DATA03=物料编码(materialCode)
-                // DATA04=箱号(serialNumber), DATA05=数量(1), DATA06=工厂(空), DATA07=库存地(空)
-                // DATA08=生产日期(productionDate), DATA09=销售公司(空), DATA10=销售订单|行号(|)
-                // DATA11=供应商(空), DATA12=特别加工指示书编号(空), DATA13=WCS库位(空)
-                // DATA14=SN码(serialNumber)
-                val trayCode = r.trayCode.ifBlank { "" }
-                "\"STAGE\",\"$trayCode\",\"${r.materialCode}\",\"${r.serialNumber}\",1,\"\",\"\",\"${r.productionDate}\",\"\",\"|\",\"\",\"\",\"\",\"${r.serialNumber}\""
-            }
+            exportViaMediaStore(context, records, fileName, ::buildWmsRow)
         } else {
-            exportViaLegacyDir(context, records, fileName) { r ->
-                val trayCode = r.trayCode.ifBlank { "" }
-                "\"STAGE\",\"$trayCode\",\"${r.materialCode}\",\"${r.serialNumber}\",1,\"\",\"\",\"${r.productionDate}\",\"\",\"|\",\"\",\"\",\"\",\"${r.serialNumber}\""
-            }
+            exportViaLegacyDir(context, records, fileName, ::buildWmsRow)
         }
+    }
+
+    private fun buildCsvRow(r: LabelResult): String {
+        return "\"${r.barcodes.joinToString("|")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
+    }
+
+    private fun buildWmsRow(r: LabelResult): String {
+        val trayCode = r.trayCode.ifBlank { "" }
+        return "\"STAGE\",\"$trayCode\",\"${r.materialCode}\",\"${r.serialNumber}\",1,\"\",\"\",\"${r.productionDate}\",\"\",\"|\",\"\",\"\",\"\",\"${r.serialNumber}\""
     }
 
     /** API 29+：MediaStore.Downloads（免权限，公共可见，卸载不删） */
