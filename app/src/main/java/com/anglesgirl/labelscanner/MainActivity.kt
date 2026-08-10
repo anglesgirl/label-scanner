@@ -853,7 +853,7 @@ class MainActivity : AppCompatActivity() {
     private fun copyToClipboard(label: String, text: String) {
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val clip = android.content.ClipData.newPlainText(label, text)
-        clipboard.primaryClip = clip
+        clipboard.setPrimaryClip(clip)
         Toast.makeText(this, "✅ 已复制 $label 到剪贴板", Toast.LENGTH_SHORT).show()
     }
 }
