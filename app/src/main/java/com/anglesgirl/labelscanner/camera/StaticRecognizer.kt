@@ -81,7 +81,8 @@ object StaticRecognizer {
         val input = InputImage.fromBitmap(bitmap, 0)
 
         // ZXing 双解码器（放大 3x，补 ML Kit 漏检的密集小条码）——后台线程并行跑
-        val zxingFuture = zxingPool.submit { ZxingDecoder.decode(bitmap) }
+        val zxingFuture: java.util.concurrent.Future<List<String>> =
+            zxingPool.submit(java.util.concurrent.Callable { ZxingDecoder.decode(bitmap) })
 
         getScanner().process(input)
             .addOnSuccessListener { barcodes ->
