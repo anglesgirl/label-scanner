@@ -156,7 +156,7 @@ object Exporter {
         val headerStyle = workbook.createCellStyle()
         headerStyle.alignment = HorizontalAlignment.CENTER
         val headerFont = workbook.createFont()
-        headerFont.isBold = true
+        headerFont.bold = true
         headerStyle.setFont(headerFont)
         headerStyle.fillForegroundColor = IndexedColors.GREY_25_PERCENT.index
         headerStyle.fillPattern = FillPatternType.SOLID_FOREGROUND
