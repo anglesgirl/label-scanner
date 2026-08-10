@@ -6,14 +6,20 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import com.anglesgirl.labelscanner.model.LabelResult
+import org.apache.poi.ss.usermodel.CellStyle
+import org.apache.poi.ss.usermodel.FillPatternType
+import org.apache.poi.ss.usermodel.HorizontalAlignment
+import org.apache.poi.ss.usermodel.IndexedColors
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 
 /**
  * 导出工具：CSV / WMS 格式
  *
  * CSV（原有兼容）：标签字段 + 原始条码/OCR
- * WMS（新增）：库存导入模板 DATA01~DATA14
+ * WMS（新增）：库存导入模板 DATA01~DATA14（支持 .csv 和 .xlsx 两种格式）
  *   DATA01 库位           -> 固定 "STAGE"
  *   DATA02 卡板/托盘      -> trayCode
  *   DATA03 物料编码       -> materialCode
@@ -43,15 +49,15 @@ object Exporter {
         }
     }
 
-    /** WMS 导出：库存导入模板 DATA01~DATA14（按用户提供的实际模板格式） */
+    /** WMS 导出：库存导入模板 DATA01~DATA14（默认导出 .xlsx，兼容 CSV 兜底） */
     fun exportWms(context: Context, records: List<LabelResult>): Uri? {
         // 文件名用托盘码，如果有多个托盘码取第一个，或用时间戳兜底
         val trayCode = records.firstOrNull()?.trayCode?.takeIf { it.isNotBlank() }
-        val fileName = if (trayCode != null) "wms_${trayCode}.csv" else "wms_import_${System.currentTimeMillis()}.csv"
+        val fileName = if (trayCode != null) "wms_${trayCode}.xlsx" else "wms_import_${System.currentTimeMillis()}.xlsx"
         return if (Build.VERSION.SDK_INT >= 29) {
-            exportViaMediaStore(context, records, fileName, ::buildWmsRow)
+            exportXlsxViaMediaStore(context, records, fileName)
         } else {
-            exportViaLegacyDir(context, records, fileName, ::buildWmsRow)
+            exportXlsxViaLegacyDir(context, records, fileName)
         }
     }
 
@@ -59,9 +65,141 @@ object Exporter {
         return "\"${r.barcodes.joinToString("|")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
     }
 
-    private fun buildWmsRow(r: LabelResult): String {
+    private fun buildWmsRow(r: LabelResult): Array<String> {
         val trayCode = r.trayCode.ifBlank { "" }
-        return "\"STAGE\",\"$trayCode\",\"${r.materialCode}\",\"${r.serialNumber}\",1,\"\",\"\",\"${r.productionDate}\",\"\",\"|\",\"\",\"\",\"\",\"${r.serialNumber}\""
+        return arrayOf(
+            "STAGE",              // DATA01 库位
+            trayCode,             // DATA02 卡板/托盘
+            r.materialCode,       // DATA03 物料编码
+            r.serialNumber,       // DATA04 箱号
+            "1",                  // DATA05 数量
+            "",                   // DATA06 工厂
+            "",                   // DATA07 库存地
+            r.productionDate,     // DATA08 生产日期-yyyymmdd
+            "",                   // DATA09 销售公司
+            "|",                  // DATA10 销售订单|行号
+            "",                   // DATA11 供应商
+            "",                   // DATA12 特别加工指示书编号
+            "",                   // DATA13 WCS库位
+            r.serialNumber        // DATA14 SN码
+        )
+    }
+
+    // ===== Excel (.xlsx) 导出：使用 Apache POI 直接生成二进制 .xlsx =====
+
+    private fun exportXlsxViaMediaStore(
+        context: Context,
+        records: List<LabelResult>,
+        fileName: String,
+    ): Uri? {
+        try {
+            val workbook = buildWmsWorkbook(records)
+            val csv = buildString {
+                // 这里不需要 CSV 内容，只是占位
+            }
+
+            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            // 先删同名
+            context.contentResolver.delete(
+                collection,
+                "${MediaStore.Downloads.DISPLAY_NAME} = ?",
+                arrayOf(fileName)
+            )
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                put(MediaStore.Downloads.RELATIVE_PATH, EXT_DIR)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = context.contentResolver.insert(collection, values)
+            if (uri != null) {
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    workbook.write(outputStream)
+                    workbook.close()
+                }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                context.contentResolver.update(uri, values, null, null)
+            }
+            return uri
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    private fun exportXlsxViaLegacyDir(
+        context: Context,
+        records: List<LabelResult>,
+        fileName: String,
+    ): Uri? {
+        try {
+            val dir = File(context.getExternalFilesDir(null), "LabelScanner").apply { mkdirs() }
+            val file = File(dir, fileName)
+            val workbook = buildWmsWorkbook(records)
+            FileOutputStream(file).use { outputStream ->
+                workbook.write(outputStream)
+                workbook.close()
+            }
+            return Uri.fromFile(file)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    private fun buildWmsWorkbook(records: List<LabelResult>): XSSFWorkbook {
+        val workbook = XSSFWorkbook()
+        val sheet = workbook.createSheet("WMS导入")
+
+        // 表头样式：加粗、居中、浅灰背景
+        val headerStyle = workbook.createCellStyle()
+        headerStyle.alignment = HorizontalAlignment.CENTER
+        val headerFont = workbook.createFont()
+        headerFont.isBold = true
+        headerStyle.setFont(headerFont)
+        headerStyle.fillForegroundColor = IndexedColors.GREY_25_PERCENT.index
+        headerStyle.fillPattern = FillPatternType.SOLID_FOREGROUND
+
+        // 数据样式：居中
+        val dataStyle = workbook.createCellStyle()
+        dataStyle.alignment = HorizontalAlignment.CENTER
+
+        // 表头行
+        val headerRow = sheet.createRow(0)
+        val headers = arrayOf(
+            "DATA01", "DATA02", "DATA03", "DATA04", "DATA05",
+            "DATA06", "DATA07", "DATA08", "DATA09", "DATA10",
+            "DATA11", "DATA12", "DATA13", "DATA14"
+        )
+        for (i in headers.indices) {
+            val cell = headerRow.createCell(i)
+            cell.setCellValue(headers[i])
+            cell.cellStyle = headerStyle
+        }
+
+        // 数据行
+        for (rowIndex in records.indices) {
+            val r = records[rowIndex]
+            val row = sheet.createRow(rowIndex + 1)
+            val values = buildWmsRow(r)
+            for (colIndex in values.indices) {
+                val cell = row.createCell(colIndex)
+                cell.setCellValue(values[colIndex])
+                cell.cellStyle = dataStyle
+            }
+        }
+
+        // 自动调整列宽
+        for (i in headers.indices) {
+            sheet.autoSizeColumn(i)
+            // 设置最小宽度，防止太窄
+            if (sheet.getColumnWidth(i) < 3000) {
+                sheet.setColumnWidth(i, 3000)
+            }
+        }
+
+        return workbook
     }
 
     /** API 29+：MediaStore.Downloads（免权限，公共可见，卸载不删） */

@@ -73,4 +73,8 @@ dependencies {
 
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.kotlinx.coroutines.android)
+
+    // Apache POI - Excel (.xlsx) 导出
+    implementation(libs.poi)
+    implementation(libs.poi.ooxml)
 }
