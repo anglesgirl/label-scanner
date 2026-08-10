@@ -100,7 +100,7 @@ object StaticRecognizer {
             }
     }
 
-    /** 缩放解码：目标边 ≤ 2048。FileDescriptor 方式（content URI 最可靠） */
+    /** 缩放解码：目标边 ≤ 4096（密集小条码保真）。FileDescriptor 方式（content URI 最可靠） */
     private fun decodeSampledBitmap(resolver: ContentResolver, uri: Uri): Bitmap? {
         // 方式一：FileDescriptor（bounds 和解码各开一次 fd）
         try {
@@ -110,7 +110,7 @@ object StaticRecognizer {
                 BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, bounds)
                 if (bounds.outWidth > 0 && bounds.outHeight > 0) {
                     val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
-                    while (maxDim / (sample * 2) >= 2048) sample *= 2
+                    while (maxDim / (sample * 2) >= 4096) sample *= 2
                 }
             }
             if (sample > 0) {
@@ -133,7 +133,7 @@ object StaticRecognizer {
 
                 var sample = 1
                 val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
-                while (maxDim / (sample * 2) >= 2048) sample *= 2
+                while (maxDim / (sample * 2) >= 4096) sample *= 2
 
                 resolver.openInputStream(uri)?.use { ins2 ->
                     val opts = BitmapFactory.Options().apply { inSampleSize = sample }
