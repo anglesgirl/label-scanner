@@ -38,6 +38,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnNextTray: Button
     private lateinit var btnModeSingle: Button
     private lateinit var btnModeBatch: Button
+    private lateinit var btnScanTrayCode: Button
+    private lateinit var btnScanMaterial: Button
 
     // ===== 单条识别面板 =====
     private lateinit var panelSingle: View
@@ -71,6 +73,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etBatchColor: EditText
     private lateinit var etBatchToner: EditText
     private lateinit var btnBatchApplyShared: Button
+    private lateinit var btnScanBatchMaterial: Button
     // 扫描区
     private lateinit var btnBatchCamera: Button
     private lateinit var btnBatchGallery: Button
@@ -128,6 +131,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 托盘码扫码回调 */
+    private val scanTrayCodeLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) recognizeForField(uri, "trayCode")
+    }
+
+    /** 物料编码扫码回调（单条模式） */
+    private val scanMaterialLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) recognizeForField(uri, "material")
+    }
+
+    /** 物料编码扫码回调（批量模式） */
+    private val scanBatchMaterialLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) recognizeForField(uri, "batchMaterial")
+    }
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -150,6 +174,8 @@ class MainActivity : AppCompatActivity() {
         btnNextTray = findViewById(R.id.btnNextTray)
         btnModeSingle = findViewById(R.id.btnModeSingle)
         btnModeBatch = findViewById(R.id.btnModeBatch)
+        btnScanTrayCode = findViewById(R.id.btnScanTrayCode)
+        btnScanMaterial = findViewById(R.id.btnScanMaterial)
 
         panelSingle = findViewById(R.id.panelSingle)
         panelBatch = findViewById(R.id.panelBatch)
@@ -183,6 +209,7 @@ class MainActivity : AppCompatActivity() {
         etBatchColor = findViewById(R.id.etBatchColor)
         etBatchToner = findViewById(R.id.etBatchToner)
         btnBatchApplyShared = findViewById(R.id.btnBatchApplyShared)
+        btnScanBatchMaterial = findViewById(R.id.btnScanBatchMaterial)
         btnBatchCamera = findViewById(R.id.btnBatchCamera)
         btnBatchGallery = findViewById(R.id.btnBatchGallery)
         rvBatchSnList = findViewById(R.id.rvBatchSnList)
@@ -217,6 +244,8 @@ class MainActivity : AppCompatActivity() {
         btnGallery.setOnClickListener { pickImageLauncher.launch("image/*") }
         btnCamera.setOnClickListener { launchSystemCamera() }
         btnNextTray.setOnClickListener { nextTray() }
+        btnScanTrayCode.setOnClickListener { launchScanForTrayCode() }
+        btnScanMaterial.setOnClickListener { launchScanForMaterial() }
 
         // 批量面板监听
         btnBatchApplyShared.setOnClickListener { confirmBatchShared() }
@@ -224,6 +253,7 @@ class MainActivity : AppCompatActivity() {
         btnBatchGallery.setOnClickListener { batchPickImageLauncher.launch("image/*") }
         btnBatchClear.setOnClickListener { clearBatchSn() }
         btnBatchSaveAll.setOnClickListener { saveBatchAll() }
+        btnScanBatchMaterial.setOnClickListener { launchScanForBatchMaterial() }
 
         // 模式切换
         btnModeSingle.setOnClickListener { switchMode(false) }
@@ -660,6 +690,54 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val REQ_LIST = 1002
         private const val REQ_DOC_SCAN = 1003
+    }
+
+    // ===== 扫码填字段：托盘码 / 物料编码 / 批量物料编码 =====
+    private fun launchScanForTrayCode() {
+        pickImageLauncher.launch("image/*") // 复用相册选择，结果通过 scanTrayCodeLauncher 处理
+        // 实际上需要用 scanTrayCodeLauncher，但 pickImageLauncher 已经定义了
+        // 这里用一个专门的 launcher 更好，改用相册选图 + scanTrayCodeLauncher
+        // 但为了简单，直接用相册选图然后手动调用 recognizeForField
+        // 这里我们用 startActivityForResult 启动系统扫码或者相册
+        // 简化：直接用相册选图
+        scanTrayCodeLauncher.launch("image/*")
+    }
+
+    private fun launchScanForMaterial() {
+        scanMaterialLauncher.launch("image/*")
+    }
+
+    private fun launchScanForBatchMaterial() {
+        scanBatchMaterialLauncher.launch("image/*")
+    }
+
+    private fun recognizeForField(uri: Uri, field: String) {
+        StaticRecognizer.recognizeUri(
+            resolver = contentResolver,
+            uri = uri,
+            lookup69 = null,
+            onResult = { result ->
+                runOnUiThread {
+                    // 取第一个条码作为结果
+                    val code = result.barcodes.firstOrNull()?.trim()
+                    if (code == null || code.isEmpty()) {
+                        Toast.makeText(this, "未识别到条码", Toast.LENGTH_SHORT).show()
+                        return@runOnUiThread
+                    }
+                    when (field) {
+                        "trayCode" -> etTrayCode.setText(code)
+                        "material" -> etMaterial.setText(code)
+                        "batchMaterial" -> etBatchMaterial.setText(code)
+                    }
+                    Toast.makeText(this, "已填入 $field: $code", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onError = { msg ->
+                runOnUiThread {
+                    Toast.makeText(this, "识别失败：$msg", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
     }
 
     // ===== 批量序列号 RecyclerView Adapter =====

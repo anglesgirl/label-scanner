@@ -37,6 +37,18 @@
             android:textSize="15sp" />
 
         <Button
+            android:id="@+id/btnScanTrayCode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#00838f"
+            android:paddingHorizontal="16dp"
+            android:text="📷 扫码"
+            android:textColor="#ffffff"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <Button
             android:id="@+id/btnNextTray"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -171,9 +183,27 @@
 
                 <!-- 字段编辑 -->
                 <TextView style="@style/FieldLabel" android:text="物料编码（D列）" />
-                <EditText
-                    android:id="@+id/etMaterial"
-                    style="@style/FieldInput" />
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal">
+                                <EditText
+                                    android:id="@+id/etMaterial"
+                                    style="@style/FieldInput"
+                                    android:layout_width="0dp"
+                                    android:layout_weight="1" />
+                                <Button
+                                    android:id="@+id/btnScanMaterial"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="8dp"
+                                    android:backgroundTint="#00838f"
+                                    android:paddingHorizontal="16dp"
+                                    android:text="📷 扫码"
+                                    android:textColor="#ffffff"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
 
                 <TextView style="@style/FieldLabel" android:text="生产日期（I列 yyyymmdd）" />
                 <EditText
@@ -315,10 +345,28 @@
                 android:paddingBottom="8dp" />
 
             <TextView style="@style/FieldLabel" android:text="物料编码（必填）" />
-            <EditText
-                android:id="@+id/etBatchMaterial"
-                style="@style/FieldInput"
-                android:hint="如：1234567890" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <EditText
+                    android:id="@+id/etBatchMaterial"
+                    style="@style/FieldInput"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:hint="如：1234567890" />
+                <Button
+                    android:id="@+id/btnScanBatchMaterial"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="#00838f"
+                    android:paddingHorizontal="16dp"
+                    android:text="📷 扫码"
+                    android:textColor="#ffffff"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <TextView style="@style/FieldLabel" android:text="生产日期（必填，yyyymmdd）" />
             <EditText
