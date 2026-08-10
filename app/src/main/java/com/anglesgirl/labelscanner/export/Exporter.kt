@@ -6,7 +6,8 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import com.anglesgirl.labelscanner.model.LabelResult
-import java.nio.charset.Charsets
+import java.io.File
+import java.nio.charset.StandardCharsets
 
 /**
  * 导出工具：CSV / WMS 格式
@@ -26,31 +27,31 @@ import java.nio.charset.Charsets
  *   DATA11 库区编码         -> (留空)
  *   DATA12 库位编码         -> (留空)
  *   DATA13 箱号/序列号      -> serialNumber
- *   DATA14 备注             -> ean69 / color / tonerModel
+ *   DATA14 备注             -> ean69 / color / tonerModel / trayCode
  */
 object Exporter {
 
-    private const val FILE_NAME = "labels_${System.currentTimeMillis()}.csv"
-    private const val WMS_FILE_NAME = "wms_import_${System.currentTimeMillis()}.csv"
     private const val EXT_DIR = "Download/LabelScanner"
 
     /** 原有 CSV 导出（保留兼容） */
     fun export(context: Context, records: List<LabelResult>): Uri? {
+        val fileName = "labels_${System.currentTimeMillis()}.csv"
         return if (Build.VERSION.SDK_INT >= 29) {
-            exportViaMediaStore(context, records, FILE_NAME) { r ->
-                "\"${r.barcodes.joinToString(\"|\")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
+            exportViaMediaStore(context, records, fileName) { r ->
+                "\"${r.barcodes.joinToString("|")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
             }
         } else {
-            exportViaLegacyDir(context, records, FILE_NAME) { r ->
-                "\"${r.barcodes.joinToString(\"|\")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
+            exportViaLegacyDir(context, records, fileName) { r ->
+                "\"${r.barcodes.joinToString("|")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
             }
         }
     }
 
     /** WMS 导出：库存导入模板 DATA01~DATA14 */
     fun exportWms(context: Context, records: List<LabelResult>): Uri? {
+        val fileName = "wms_import_${System.currentTimeMillis()}.csv"
         return if (Build.VERSION.SDK_INT >= 29) {
-            exportViaMediaStore(context, records, WMS_FILE_NAME) { r ->
+            exportViaMediaStore(context, records, fileName) { r ->
                 val today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))
                 val remark = buildList {
                     if (r.ean69.isNotBlank()) add("69码:${r.ean69}")
@@ -61,7 +62,7 @@ object Exporter {
                 "\"${r.supplier}\",\"\",\"$today\",\"${r.materialCode}\",\"\",\"${r.model}\",\"PCS\",${r.quantity},\"${r.productionDate}\",\"\",\"\",\"\",\"${r.serialNumber}\",\"$remark\""
             }
         } else {
-            exportViaLegacyDir(context, records, WMS_FILE_NAME) { r ->
+            exportViaLegacyDir(context, records, fileName) { r ->
                 val today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))
                 val remark = buildList {
                     if (r.ean69.isNotBlank()) add("69码:${r.ean69}")
@@ -108,7 +109,7 @@ object Exporter {
             }
             val uri = context.contentResolver.insert(collection, values)
             if (uri != null) {
-                context.contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray(Charsets.UTF_8)) }
+                context.contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray(StandardCharsets.UTF_8)) }
                 values.clear()
                 values.put(MediaStore.Downloads.IS_PENDING, 0)
                 context.contentResolver.update(uri, values, null, null)
@@ -140,7 +141,7 @@ object Exporter {
                 appendLine(header)
                 for (r in records) appendLine(rowBuilder(r))
             }
-            file.writeText(csv, Charsets.UTF_8)
+            file.writeText(csv, StandardCharsets.UTF_8)
             return Uri.fromFile(file)
         } catch (e: Exception) {
             return null

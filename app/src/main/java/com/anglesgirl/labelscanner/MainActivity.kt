@@ -592,7 +592,6 @@ class MainActivity : AppCompatActivity() {
                 barcodes = listOf(sn),
                 ocrText = "",
                 supplier = "NA",
-                boxNumber = sn,
                 materialCode = material,
                 quantity = 1,
                 productionDate = if (date.isNotEmpty()) date else "19000101",
