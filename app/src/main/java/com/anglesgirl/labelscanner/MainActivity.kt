@@ -63,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCount: TextView
     private lateinit var tvExtras: TextView
     private lateinit var btnTestRecognize: Button
+    private lateinit var btnCopyBarcodes: Button
+    private lateinit var btnCopyOcr: Button
 
     // ===== 整板快速录入面板 =====
     private lateinit var panelBatch: View
@@ -209,6 +211,8 @@ class MainActivity : AppCompatActivity() {
         tvCount = findViewById(R.id.tvCount)
         tvExtras = findViewById(R.id.tvExtras)
         btnTestRecognize = findViewById(R.id.btnTestRecognize)
+        btnCopyBarcodes = findViewById(R.id.btnCopyBarcodes)
+        btnCopyOcr = findViewById(R.id.btnCopyOcr)
 
         // 批量面板
         etBatchMaterial = findViewById(R.id.etBatchMaterial)
@@ -266,6 +270,16 @@ class MainActivity : AppCompatActivity() {
 
         // 测试识别：仅打印原始条码+OCR，不解析不保存
         btnTestRecognize.setOnClickListener { testRecognizeLauncher.launch("image/*") }
+
+        // 复制按钮
+        btnCopyBarcodes.setOnClickListener {
+            val text = tvBarcodes.text.toString()
+            copyToClipboard("原始条码", text)
+        }
+        btnCopyOcr.setOnClickListener {
+            val text = tvExtras.text.toString()
+            copyToClipboard("原始 OCR", text)
+        }
 
         // 模式切换
         btnModeSingle.setOnClickListener { switchMode(false) }
@@ -833,5 +847,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun getItemCount() = snList.size
+    }
+
+    /** 复制到剪贴板并 Toast 提示 */
+    private fun copyToClipboard(label: String, text: String) {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText(label, text)
+        clipboard.primaryClip = clip
+        Toast.makeText(this, "✅ 已复制 $label 到剪贴板", Toast.LENGTH_SHORT).show()
     }
 }

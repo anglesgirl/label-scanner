@@ -162,6 +162,17 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
+                <Button
+                    android:id="@+id/btnCopyBarcodes"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="4dp"
+                    android:backgroundTint="#1976d2"
+                    android:paddingHorizontal="16dp"
+                    android:text="📋 复制条码"
+                    android:textColor="#ffffff"
+                    android:textSize="12sp" />
+
                 <TextView
                     android:id="@+id/resultPanel"
                     android:layout_width="match_parent"
@@ -179,6 +190,17 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:textColor="#ffd54f"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btnCopyOcr"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="4dp"
+                    android:backgroundTint="#f57c00"
+                    android:paddingHorizontal="16dp"
+                    android:text="📋 复制 OCR"
+                    android:textColor="#ffffff"
                     android:textSize="12sp" />
 
                 <!-- 字段编辑 -->
