@@ -41,7 +41,10 @@ object ZxingDecoder {
 
             val reader = BarcodeReader(
                 BarcodeReader.Options(
-                    tryHarder = true,          // 密集小码实测必需
+                    tryHarder = true,            // 密集小码实测必需
+                    tryRotate = true,            // 防拍歪
+                    tryInvert = true,            // 反色条码
+                    tryDownscale = true,         // 自动降采样多尺度（实测对多码全解关键）
                     maxNumberOfSymbols = MAX_SYMBOLS,
                 )
             )
