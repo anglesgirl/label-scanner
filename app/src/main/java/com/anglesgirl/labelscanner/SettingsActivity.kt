@@ -50,6 +50,42 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSaveTurso).setOnClickListener { saveConfig() }
         findViewById<Button>(R.id.btnTestTurso).setOnClickListener { testConnection() }
         findViewById<Button>(R.id.btnInsertSample).setOnClickListener { insertSample() }
+        findViewById<Button>(R.id.btnTestRecognize).setOnClickListener { testRecognizeLauncher.launch("image/*") }
+    }
+
+    /** 测试识别：相册选图 → 打印原始条码 + OCR（诊断用，不解析不保存） */
+    private val testRecognizeLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            tvStatus.text = "测试识别中..."
+            com.anglesgirl.labelscanner.camera.StaticRecognizer.recognizeUri(
+                resolver = contentResolver,
+                uri = uri,
+                lookup69 = null,
+                onResult = { result ->
+                    runOnUiThread {
+                        val barcodes = result.barcodes.joinToString("\n").ifEmpty { "（无）" }
+                        val ocr = result.ocrText.ifBlank { "（无 OCR 文本）" }
+                        tvStatus.text = "识别完成：条码 ${result.barcodes.size} 个"
+                        androidx.appcompat.app.AlertDialog.Builder(this)
+                            .setTitle("🔬 测试识别结果")
+                            .setMessage("【原始条码 ${result.barcodes.size} 个】\n$barcodes\n\n【原始 OCR】\n$ocr")
+                            .setPositiveButton("复制", { _, _ ->
+                                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                                    "识别结果", "条码:\n$barcodes\n\nOCR:\n$ocr"))
+                                Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show()
+                            })
+                            .setNeutralButton("关闭", null)
+                            .show()
+                    }
+                },
+                onError = { msg ->
+                    runOnUiThread { tvStatus.text = "识别失败：$msg" }
+                }
+            )
+        }
     }
 
     private fun saveConfig() {

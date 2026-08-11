@@ -19,98 +19,153 @@
             android:textStyle="bold"
             android:textColor="#14213D" />
 
+        <!-- ===== 69 码反查数据库 ===== -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="69 码反查数据库（Turso libsql，内部使用，参数手动填写）"
-            android:textSize="12sp"
-            android:textColor="#5A6B85" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="数据库连接地址"
-            android:textSize="12sp"
+            android:layout_marginTop="18dp"
+            android:text="🔁 69 码反查数据库"
+            android:textSize="15sp"
             android:textStyle="bold"
             android:textColor="#33405A" />
 
-        <EditText
-            android:id="@+id/etTursoUrl"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="如 https://xxx-org.aws-ap-northeast-1.turso.io"
-            android:textSize="14sp"
-            android:textColor="#14213D"
-            android:textColorHint="#9AA7BD" />
-
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="访问 Token"
+            android:layout_marginTop="2dp"
+            android:text="散货物料只有 69 码（无物料编码）时，自动查询此库反查物料，并缓存到本地。内部使用，参数手动填写，不对外。"
             android:textSize="12sp"
+            android:textColor="#5A6B85" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="数据库连接地址"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#33405A" />
+
+            <EditText
+                android:id="@+id/etTursoUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="https://xxx-org.aws-ap-northeast-1.turso.io"
+                android:textSize="14sp"
+                android:textColor="#14213D"
+                android:textColorHint="#9AA7BD" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="访问 Token"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#33405A" />
+
+            <EditText
+                android:id="@+id/etTursoToken"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="eyJ...（Turso 控制台生成）"
+                android:textSize="13sp"
+                android:textColor="#14213D"
+                android:textColorHint="#9AA7BD"
+                android:inputType="textPassword" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnSaveTurso"
+                    android:layout_width="0dp"
+                    android:layout_height="46dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#1B9E4B"
+                    android:text="💾 保存"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnTestTurso"
+                    android:layout_width="0dp"
+                    android:layout_height="46dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="#1B6EF3"
+                    android:text="🔌 测试连接"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnInsertSample"
+                    android:layout_width="0dp"
+                    android:layout_height="46dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="#F2F4F8"
+                    android:text="🧪 示例数据"
+                    android:textColor="#33405A"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvTursoStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text=""
+                android:textSize="13sp"
+                android:textColor="#1B6EF3"
+                android:minHeight="32dp" />
+        </LinearLayout>
+
+        <!-- ===== 开发者工具 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="🔬 开发者工具"
+            android:textSize="15sp"
             android:textStyle="bold"
             android:textColor="#33405A" />
 
-        <EditText
-            android:id="@+id/etTursoToken"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="eyJ...（Turso 控制台生成）"
-            android:textSize="13sp"
-            android:textColor="#14213D"
-            android:textColorHint="#9AA7BD"
-            android:inputType="textPassword" />
-
-        <Button
-            android:id="@+id/btnSaveTurso"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="14dp"
-            android:backgroundTint="#1B6EF3"
-            android:text="💾 保存配置"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp" />
-
-        <Button
-            android:id="@+id/btnTestTurso"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
             android:layout_marginTop="8dp"
-            android:backgroundTint="#1B9E4B"
-            android:text="🔌 测试连接"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp" />
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="12dp">
 
-        <Button
-            android:id="@+id/btnInsertSample"
-            android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:layout_marginTop="8dp"
-            android:backgroundTint="#F2F4F8"
-            android:text="🧪 写入示例数据（6936358033251）"
-            android:textColor="#33405A"
-            android:textSize="13sp" />
+            <Button
+                android:id="@+id/btnTestRecognize"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:backgroundTint="#7B1FA2"
+                android:text="🔬 测试识别（打印原始条码 + OCR）"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
 
-        <TextView
-            android:id="@+id/tvTursoStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text=""
-            android:textSize="13sp"
-            android:textColor="#1B6EF3"
-            android:minHeight="40dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="说明：识别到 69 码且本地表未命中时，自动用此配置查询数据库（查询结果会缓存到本地）。"
-            android:textSize="12sp"
-            android:textColor="#5A6B85" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="诊断用：只识别不保存，查看原始条码/OCR 便于排查识别问题。"
+                android:textSize="12sp"
+                android:textColor="#5A6B85" />
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>

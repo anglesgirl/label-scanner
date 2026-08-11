@@ -3,424 +3,72 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#1a1a2e">
+    android:background="#EDF1F7"
+    android:padding="20dp">
 
-    <!-- 托盘码栏：输入行 + 功能行（两行，避免窄屏挤压） -->
-    <LinearLayout
-        android:id="@+id/trayBar"
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="8dp"
-        android:background="#16213e">
+        android:layout_marginTop="24dp"
+        android:text="🏭 标签扫码入库"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="#14213D" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="📦 托盘码："
-                android:textColor="#00e5ff"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <EditText
-                android:id="@+id/etTrayCode"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:background="@android:color/white"
-                android:hint="扫描/输入托盘码"
-                android:inputType="textCapCharacters"
-                android:padding="8dp"
-                android:textColor="#000000"
-                android:textSize="14sp" />
-
-            <Button
-                android:id="@+id/btnScanTrayCode"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="#00838f"
-                android:paddingHorizontal="12dp"
-                android:text="📷 扫码"
-                android:textColor="#ffffff"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnNextTray"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:backgroundTint="#e65100"
-                android:text="✅ 下一托盘"
-                android:textColor="#ffffff"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/btnSettings"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="#4a5568"
-                android:text="⚙️ 设置"
-                android:textColor="#ffffff"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- 录入入口：单条识别（含多SN）/ 单箱入库 -->
-    <LinearLayout
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="8dp"
-        android:background="#0f1626"
-        android:gravity="center">
+        android:layout_marginTop="4dp"
+        android:text="识别标签 → 按托盘入库 → 导出 WMS 喂系统"
+        android:textSize="13sp"
+        android:textColor="#5A6B85" />
 
-        <Button
-            android:id="@+id/btnModeSingle"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:backgroundTint="#2e7d32"
-            android:text="📋 单条识别"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+    <Button
+        android:id="@+id/btnModeSingle"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:layout_marginTop="32dp"
+        android:backgroundTint="#2E7D32"
+        android:text="📋 单条入库\n一箱一码 / 单品标签 / 可多条序列号"
+        android:textSize="15sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnModeBox"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#6a1b9a"
-            android:text="📦 单箱入库"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+    <Button
+        android:id="@+id/btnModeBox"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:layout_marginTop="14dp"
+        android:backgroundTint="#6A1B9A"
+        android:text="📦 单箱入库\n一箱多 SN / 二维码集成 SN / 自动分箱号"
+        android:textSize="15sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnGotoCenter"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#1565c0"
-            android:text="🗂️ 托盘中心"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+    <Button
+        android:id="@+id/btnGotoCenter"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:layout_marginTop="14dp"
+        android:backgroundTint="#1565C0"
+        android:text="🗂️ 托盘中心\n多选托盘 / 导出 WMS（一次喂多个托盘）"
+        android:textSize="15sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
 
-    <!-- 单条识别面板（主面板，含多 SN 扩展） -->
-    <LinearLayout
-        android:id="@+id/panelSingle"
+    <View
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:layout_weight="1" />
 
-        <!-- 识别入口：拍照 / 文档扫描 / 相册 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:padding="12dp"
-            android:gravity="center">
+    <Button
+        android:id="@+id/btnSettings"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginBottom="12dp"
+        android:backgroundTint="#4A5568"
+        android:text="⚙️ 设置（69 码反查数据库 / 测试识别）"
+        android:textSize="14sp"
+        android:textColor="#FFFFFF" />
 
-            <Button
-                android:id="@+id/btnCamera"
-                android:layout_width="0dp"
-                android:layout_height="56dp"
-                android:layout_weight="1"
-                android:backgroundTint="#2e7d32"
-                android:text="📷 拍照识别"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/btnDocScan"
-                android:layout_width="0dp"
-                android:layout_height="56dp"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="#e65100"
-                android:text="📄 文档扫描"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/btnGallery"
-                android:layout_width="0dp"
-                android:layout_height="56dp"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="#00838f"
-                android:text="🖼 相册导入"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <!-- 识别结果区（滚动） -->
-        <ScrollView
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:padding="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tvBarcodes"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="等待识别..."
-                    android:textColor="#00e5ff"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <Button
-                    android:id="@+id/btnCopyBarcodes"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:layout_marginTop="4dp"
-                    android:backgroundTint="#1976d2"
-                    android:paddingHorizontal="16dp"
-                    android:text="📋 复制条码"
-                    android:textColor="#ffffff"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/resultPanel"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:minHeight="36dp"
-                    android:padding="8dp"
-                    android:textColor="#ffffff"
-                    android:textSize="13sp"
-                    android:background="@color/result_idle" />
-
-                <TextView
-                    android:id="@+id/tvExtras"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textColor="#ffd54f"
-                    android:textSize="12sp" />
-
-                <Button
-                    android:id="@+id/btnCopyOcr"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:layout_marginTop="4dp"
-                    android:backgroundTint="#f57c00"
-                    android:paddingHorizontal="16dp"
-                    android:text="📋 复制 OCR"
-                    android:textColor="#ffffff"
-                    android:textSize="12sp" />
-
-                <!-- 字段编辑 -->
-                <TextView style="@style/FieldLabel" android:text="物料编码（D列）" />
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-                    <EditText
-                        android:id="@+id/etMaterial"
-                        style="@style/FieldInput"
-                        android:layout_width="0dp"
-                        android:layout_weight="1" />
-                    <Button
-                        android:id="@+id/btnScanMaterial"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:backgroundTint="#00838f"
-                        android:paddingHorizontal="16dp"
-                        android:text="📷 扫码"
-                        android:textColor="#ffffff"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <TextView style="@style/FieldLabel" android:text="生产日期（I列 yyyymmdd）" />
-                <EditText
-                    android:id="@+id/etDate"
-                    style="@style/FieldInput"
-                    android:inputType="number" />
-
-                <!-- 序列号（多 SN 支持：识别主 SN + 手动/扫码追加） -->
-                <TextView style="@style/FieldLabel" android:text="序列号 / 箱号（一次可多条，每 SN 存一行）" />
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-                    <EditText
-                        android:id="@+id/etSn"
-                        style="@style/FieldInput"
-                        android:layout_width="0dp"
-                        android:layout_weight="1" />
-                    <Button
-                        android:id="@+id/btnScanAddSn"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:backgroundTint="#6a1b9a"
-                        android:paddingHorizontal="12dp"
-                        android:text="🔍 扫加"
-                        android:textColor="#ffffff"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
-                    <Button
-                        android:id="@+id/btnAddSn"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:backgroundTint="#1b9e4b"
-                        android:paddingHorizontal="12dp"
-                        android:text="＋ 新增"
-                        android:textColor="#ffffff"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/llSnList"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="vertical" />
-
-                <TextView style="@style/FieldLabel" android:text="69 商品码（反查钥匙）" />
-                <EditText
-                    android:id="@+id/etEan69"
-                    style="@style/FieldInput" />
-
-                <TextView style="@style/FieldLabel" android:text="型号" />
-                <EditText
-                    android:id="@+id/etModel"
-                    style="@style/FieldInput" />
-
-                <TextView style="@style/FieldLabel" android:text="颜色" />
-                <EditText
-                    android:id="@+id/etColor"
-                    style="@style/FieldInput" />
-
-                <TextView style="@style/FieldLabel" android:text="硒鼓/耗材型号" />
-                <EditText
-                    android:id="@+id/etToner"
-                    style="@style/FieldInput" />
-
-                <!-- 保存/丢弃按钮（加大） -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:orientation="horizontal">
-
-                    <Button
-                        android:id="@+id/btnSave"
-                        android:layout_width="0dp"
-                        android:layout_height="64dp"
-                        android:layout_weight="1"
-                        android:backgroundTint="#2e7d32"
-                        android:text="✅ 保存（N 条）"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
-
-                    <Button
-                        android:id="@+id/btnDiscard"
-                        android:layout_width="0dp"
-                        android:layout_height="64dp"
-                        android:layout_weight="1"
-                        android:layout_marginStart="12dp"
-                        android:backgroundTint="#c62828"
-                        android:text="✖ 丢弃"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <!-- 底部功能栏 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:id="@+id/tvCount"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="📋 已保存 0 条"
-                        android:textColor="#00e5ff"
-                        android:textSize="14sp" />
-
-                    <Button
-                        android:id="@+id/btnList"
-                        android:layout_width="wrap_content"
-                        android:layout_height="56dp"
-                        android:backgroundTint="#6a1b9a"
-                        android:paddingHorizontal="20dp"
-                        android:text="🗂️ 托盘中心"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <Button
-                        android:id="@+id/btnExport"
-                        android:layout_width="wrap_content"
-                        android:layout_height="56dp"
-                        android:layout_marginStart="8dp"
-                        android:backgroundTint="#1565c0"
-                        android:paddingHorizontal="20dp"
-                        android:text="📤 导出 CSV"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <Button
-                        android:id="@+id/btnExportWms"
-                        android:layout_width="wrap_content"
-                        android:layout_height="56dp"
-                        android:layout_marginStart="8dp"
-                        android:backgroundTint="#ad1457"
-                        android:paddingHorizontal="20dp"
-                        android:text="🏭 导出 WMS"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <!-- 测试识别：仅跑 StaticRecognizer 打印原始条码+OCR，不解析不保存 -->
-                <Button
-                    android:id="@+id/btnTestRecognize"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:layout_marginTop="12dp"
-                    android:backgroundTint="#7b1fa2"
-                    android:text="🔬 测试识别（打印原始条码+OCR）"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-        </ScrollView>
-    </LinearLayout>
 </LinearLayout>
