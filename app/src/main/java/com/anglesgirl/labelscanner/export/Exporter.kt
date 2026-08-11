@@ -50,16 +50,78 @@ object Exporter {
         }
     }
 
-    /** WMS 导出：库存导入模板 DATA01~DATA14（默认导出 .xlsx，兼容 CSV 兜底） */
+    /** WMS 导出：库存导入模板 DATA01~DATA14（默认 .xlsx；POI 在 Android 不稳
+ *  会 NoClassDefFoundError → 自动降级 .csv，保证导出不闪退） */
     fun exportWms(context: Context, records: List<LabelResult>): Uri? {
-        // 文件名用托盘码，如果有多个托盘码取第一个，或用时间戳兜底
         val trayCode = records.firstOrNull()?.trayCode?.takeIf { it.isNotBlank() }
-        val fileName = if (trayCode != null) "wms_${trayCode}.xlsx" else "wms_import_${System.currentTimeMillis()}.xlsx"
-        return if (Build.VERSION.SDK_INT >= 29) {
-            exportXlsxViaMediaStore(context, records, fileName)
-        } else {
-            exportXlsxViaLegacyDir(context, records, fileName)
+        val baseName = trayCode ?: "wms_import_${System.currentTimeMillis()}"
+        return try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                exportXlsxViaMediaStore(context, records, "$baseName.xlsx")
+            } else {
+                exportXlsxViaLegacyDir(context, records, "$baseName.xlsx")
+            }
+        } catch (e: Throwable) {
+            // POI 失败（Android 上常见 NoClassDefFoundError）→ 降级 CSV
+            try {
+                if (Build.VERSION.SDK_INT >= 29) {
+                    exportWmsCsvViaMediaStore(context, records, "$baseName.csv")
+                } else {
+                    exportWmsCsvViaLegacyDir(context, records, "$baseName.csv")
+                }
+            } catch (e2: Throwable) {
+                e2.printStackTrace()
+                null
+            }
         }
+    }
+
+    /** WMS CSV（降级方案）：第 1 行 1,DATA01..DATA14，第 2 行表头，数据行 */
+    private fun exportWmsCsvRaw(records: List<LabelResult>): String {
+        val header = arrayOf(
+            "库位", "卡板/托盘", "物料编码", "箱号", "数量", "工厂", "库存地",
+            "生产日期", "销售公司", "销售订单|行号", "供应商", "特别加工指示书编号",
+            "WCS库位", "SN码"
+        )
+        val sb = StringBuilder("1,")
+        sb.append(header.joinToString(",")).append("\n")
+        sb.append(header.joinToString(",")).append("\n")
+        for (r in records) {
+            sb.append(buildWmsRow(r).joinToString(",")).append("\n")
+        }
+        return sb.toString()
+    }
+
+    private fun exportWmsCsvViaMediaStore(context: Context, records: List<LabelResult>, fileName: String): Uri? {
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        context.contentResolver.delete(
+            collection,
+            "${MediaStore.Downloads.DISPLAY_NAME} = ?",
+            arrayOf(fileName)
+        )
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "text/csv")
+            put(MediaStore.Downloads.RELATIVE_PATH, EXT_DIR)
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = context.contentResolver.insert(collection, values) ?: return null
+        context.contentResolver.openOutputStream(uri)?.use { out ->
+            out.write(exportWmsCsvRaw(records).toByteArray(Charsets.UTF_8))
+        }
+        values.clear()
+        values.put(MediaStore.Downloads.IS_PENDING, 0)
+        context.contentResolver.update(uri, values, null, null)
+        return uri
+    }
+
+    private fun exportWmsCsvViaLegacyDir(context: Context, records: List<LabelResult>, fileName: String): Uri? {
+        val dir = File(context.getExternalFilesDir(null), "LabelScanner").apply { mkdirs() }
+        val file = File(dir, fileName)
+        file.writeText(exportWmsCsvRaw(records), Charsets.UTF_8)
+        return androidx.core.content.FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", file
+        )
     }
 
     private fun buildCsvRow(r: LabelResult): String {

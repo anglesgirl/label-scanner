@@ -97,15 +97,57 @@ class RecordListActivity : AppCompatActivity() {
             val snCount = g.items.size
             val boxCount = g.items.map { it.boxCode }.filter { it.isNotBlank() }.distinct().size
             val boxText = if (boxCount > 0) " ${boxCount}箱" else ""
-            row.text = "📦 ${g.trayCode}（${snCount} 条$boxText）"
+            row.text = if (g.trayCode == "（未分配）") {
+                "❓ ${g.trayCode}（${snCount} 条$boxText）— 长按分配托盘号"
+            } else {
+                "📦 ${g.trayCode}（${snCount} 条$boxText）"
+            }
             row.textSize = 14f
             row.isChecked = g.trayCode in checked
             row.setOnCheckedChangeListener { _, isChecked ->
                 if (isChecked) checked.add(g.trayCode) else checked.remove(g.trayCode)
                 rebuildDetail()
             }
+            // 未分配组：长按弹窗批量分配托盘号
+            if (g.trayCode == "（未分配）") {
+                row.setOnLongClickListener {
+                    showAssignTrayDialog(g)
+                    true
+                }
+            }
             llTrayGroups.addView(row)
         }
+    }
+
+    /** 给未分配记录批量分配托盘号 */
+    private fun showAssignTrayDialog(group: TrayGroup) {
+        val input = android.widget.EditText(this).apply {
+            hint = "输入托盘号（应用到未分配的 ${group.items.size} 条）"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("分配托盘号")
+            .setView(input)
+            .setPositiveButton("分配") { _, _ ->
+                val tray = input.text.toString().trim()
+                if (tray.isEmpty()) {
+                    Toast.makeText(this, "托盘号不能为空", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val full = RecordStore.load(this).toMutableList()
+                var count = 0
+                for (r in full) {
+                    if (r.trayCode.isBlank()) {
+                        r.trayCode = tray
+                        count++
+                    }
+                }
+                RecordStore.save(this, full)
+                Toast.makeText(this, "已分配 $count 条记录到托盘 $tray", Toast.LENGTH_SHORT).show()
+                refresh()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun rebuildDetail() {
