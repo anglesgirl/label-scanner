@@ -12,8 +12,13 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
@@ -39,12 +44,55 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private lateinit var etModel: EditText
     private lateinit var etManualSn: EditText
     private lateinit var llSnList: LinearLayout
+    private lateinit var llCodeCandidates: LinearLayout
     private lateinit var tvBoxStatus: TextView
 
     private val snList = mutableListOf<String>()
+    private val codeCandidates = mutableListOf<String>()
+
+    /** 字段补扫目标字段引用 */
+    private var scanTargetField: EditText? = null
+    /** 补扫结果加入 SN 列表（而非填单个字段） */
+    private var scanAppendToSn = false
 
     private var pendingPhotoUri: Uri? = null
     private var photoFile: File? = null
+
+    /** 字段补扫：相册 → 识别 → 取第一个条码填目标框（修正识别错误，避免手输） */
+    private val pickForField = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            tvBoxStatus.text = "补扫识别中..."
+            StaticRecognizer.recognizeUri(
+                resolver = contentResolver,
+                uri = uri,
+                lookup69 = null,
+                onResult = { result ->
+                    runOnUiThread {
+                        val first = result.barcodes.firstOrNull()
+                        if (first == null) {
+                            tvBoxStatus.text = "⚠️ 未识别到条码，请换图"
+                            return@runOnUiThread
+                        }
+                        if (scanAppendToSn) {
+                            if (first !in snList) {
+                                snList.add(first)
+                                rebuildSnList()
+                                tvBoxStatus.text = "✅ 已加入序列号: $first"
+                            } else {
+                                tvBoxStatus.text = "⚠️ 序列号已存在: $first"
+                            }
+                        } else {
+                            scanTargetField?.setText(first)
+                            tvBoxStatus.text = "✅ 已填入: $first（可手动修改）"
+                        }
+                    }
+                },
+                onError = { msg ->
+                    runOnUiThread { tvBoxStatus.text = "补扫失败：$msg" }
+                }
+            )
+        }
+    }
 
     /** 拍照（系统相机） */
     private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -68,6 +116,13 @@ class SingleBoxInboundActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge：状态栏/导航栏不留黑色遮罩
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(top = bars.top, bottom = bars.bottom)
+            insets
+        }
         setContentView(R.layout.activity_single_box)
 
         etMaterial = findViewById(R.id.etMaterial)
@@ -76,6 +131,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etModel = findViewById(R.id.etModel)
         etManualSn = findViewById(R.id.etManualSn)
         llSnList = findViewById(R.id.llSnList)
+        llCodeCandidates = findViewById(R.id.llCodeCandidates)
         tvBoxStatus = findViewById(R.id.tvBoxStatus)
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
@@ -85,7 +141,27 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSaveBox).setOnClickListener { saveBox() }
         findViewById<Button>(R.id.btnResetBox).setOnClickListener { resetBox() }
 
+        // 字段补扫按钮（修正识别错误，避免手输）
+        val scanMap = mapOf(
+            R.id.btnScanMaterial to etMaterial,
+            R.id.btnScanBox to etBox,
+            R.id.btnScanDate to etDate,
+            R.id.btnScanModel to etModel,
+        )
+        for ((btnId, field) in scanMap) {
+            findViewById<Button>(btnId).setOnClickListener {
+                scanAppendToSn = false
+                scanTargetField = field
+                pickForField.launch("image/*")
+            }
+        }
+        findViewById<Button>(R.id.btnScanSn).setOnClickListener {
+            scanAppendToSn = true
+            pickForField.launch("image/*")
+        }
+
         rebuildSnList()
+        rebuildCodeCandidates()
         updateStatus()
     }
 
@@ -150,6 +226,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     snList.clear()
                     snList.addAll(box.serialNumbers)
                     rebuildSnList()
+                    codeCandidates.clear()
+                    codeCandidates.addAll(result.barcodes)
+                    rebuildCodeCandidates()
 
                     val tips = mutableListOf<String>()
                     if (box.materialCode.isBlank()) tips.add("⚠️ 未识别到物料(SAP)，请手动输入")
@@ -228,7 +307,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etModel.setText("")
         etManualSn.setText("")
         snList.clear()
+        codeCandidates.clear()
         rebuildSnList()
+        rebuildCodeCandidates()
         updateStatus()
     }
 
@@ -251,5 +332,52 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             llSnList.addView(row)
         }
         updateStatus()
+    }
+
+    /** 重建「已识别条码」候选区：点击任一码 → 弹选择用途（修正识别错误） */
+    private fun rebuildCodeCandidates() {
+        llCodeCandidates.removeAllViews()
+        if (codeCandidates.isEmpty()) return
+        for ((index, code) in codeCandidates.withIndex()) {
+            val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
+            val tv = row.findViewById<TextView>(R.id.tvSnItem)
+            tv.text = "$code"
+            tv.setTextColor(0xFF1B6EF3.toInt())
+            row.findViewById<Button>(R.id.btnDelSn).text = "选"
+            row.findViewById<Button>(R.id.btnDelSn).setOnClickListener { showCodeActionDialog(code) }
+            row.setOnClickListener { showCodeActionDialog(code) }
+            llCodeCandidates.addView(row)
+        }
+    }
+
+    /** 条码用途选择：修正识别错误的入口 */
+    private fun showCodeActionDialog(code: String) {
+        AlertDialog.Builder(this)
+            .setTitle("条码: $code")
+            .setItems(
+                arrayOf(
+                    "📦 设为箱号",
+                    "🏷️ 设为物料编码",
+                    "📅 设为生产日期",
+                    "➕ 加入序列号列表",
+                    "❌ 取消"
+                )
+            ) { _, which ->
+                when (which) {
+                    0 -> { etBox.setText(code); Toast.makeText(this, "箱号已设为 $code", Toast.LENGTH_SHORT).show() }
+                    1 -> { etMaterial.setText(code); Toast.makeText(this, "物料已设为 $code", Toast.LENGTH_SHORT).show() }
+                    2 -> { etDate.setText(code); Toast.makeText(this, "日期已设为 $code", Toast.LENGTH_SHORT).show() }
+                    3 -> {
+                        if (code !in snList) {
+                            snList.add(code)
+                            rebuildSnList()
+                            Toast.makeText(this, "已加入序列号", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "序列号已存在", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+            .show()
     }
 }
