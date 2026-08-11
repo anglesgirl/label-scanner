@@ -23,7 +23,8 @@ import java.nio.charset.StandardCharsets
  *   DATA01 库位           -> 固定 "STAGE"
  *   DATA02 卡板/托盘      -> trayCode
  *   DATA03 物料编码       -> materialCode
- *   DATA04 箱号           -> serialNumber
+ *   DATA04 箱号           -> boxCode（旧数据/单条模式 boxCode 空 → 回退 serialNumber，
+ *                            因为以前一箱一个 SN，箱号=SN；一箱多 SN 后真正分开）
  *   DATA05 数量           -> 1 (固定)
  *   DATA06 工厂           -> 留空
  *   DATA07 库存地         -> 留空
@@ -33,7 +34,7 @@ import java.nio.charset.StandardCharsets
  *   DATA11 供应商         -> 留空
  *   DATA12 特别加工指示书编号 -> 留空
  *   DATA13 WCS库位        -> 留空
- *   DATA14 SN码           -> serialNumber (同 DATA04)
+ *   DATA14 SN码           -> serialNumber
  */
 object Exporter {
 
@@ -67,11 +68,13 @@ object Exporter {
 
     private fun buildWmsRow(r: LabelResult): Array<String> {
         val trayCode = r.trayCode.ifBlank { "" }
+        // 箱号：一箱多 SN 后 boxCode 独立；旧数据 boxCode 空 → 回退 SN（一箱一 SN 时箱号=SN）
+        val boxCode = r.boxCode.ifBlank { r.serialNumber }
         return arrayOf(
             "STAGE",              // DATA01 库位
             trayCode,             // DATA02 卡板/托盘
             r.materialCode,       // DATA03 物料编码
-            r.serialNumber,       // DATA04 箱号
+            boxCode,              // DATA04 箱号
             "1",                  // DATA05 数量
             "",                   // DATA06 工厂
             "",                   // DATA07 库存地
