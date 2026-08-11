@@ -21,7 +21,7 @@ import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
 import com.anglesgirl.labelscanner.model.LabelResult
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanner
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.File
@@ -58,7 +58,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     }
 
     /** 文档扫描（ML Kit，自动找边/裁切/增强） */
-    private val scanDoc = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    private val scanDoc = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             GmsDocumentScanningResult.fromActivityResultIntent(result.data)?.pages
                 ?.firstOrNull()?.imageUri?.let { recognizeLabel(it) }
@@ -121,8 +121,12 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 .setPageLimit(1)
                 .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
                 .build()
-            GmsDocumentScanner.getClient(options).getStartScanIntent(this)
-                .addOnSuccessListener { intent -> scanDoc.launch(intent) }
+            GmsDocumentScanning.getClient(options).getStartScanIntent(this)
+                .addOnSuccessListener { intentSender ->
+                    scanDoc.launch(
+                        androidx.activity.result.IntentSenderRequest.Builder(intentSender).build()
+                    )
+                }
                 .addOnFailureListener { e ->
                     Toast.makeText(this, "文档扫描不可用（设备无 Google 服务?）:\n${e.message}", Toast.LENGTH_LONG).show()
                 }
