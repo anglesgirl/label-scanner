@@ -121,6 +121,20 @@ class SingleInboundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnScanAddSn).setOnClickListener { scanAppendToSn = true; pickForField.launch("image/*") }
         findViewById<Button>(R.id.btnSave).setOnClickListener { confirmSave() }
         findViewById<Button>(R.id.btnReset).setOnClickListener { resetAll() }
+        findViewById<Button>(R.id.btnLookup69).setOnClickListener { manualLookup69() }
+
+        // 69 码输入完（失焦或输够 13 位）自动反查
+        etEan69.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val ean = s?.toString()?.trim().orEmpty()
+                // 13 位 69 开头即自动反查（物料为空时才填）
+                if (ean.length == 13 && ean.startsWith("69") && etMaterial.text.toString().isBlank()) {
+                    doLookup69(ean, auto = true)
+                }
+            }
+        })
 
         val scanMap = mapOf(
             R.id.btnScanMaterial to etMaterial,
@@ -225,6 +239,53 @@ class SingleInboundActivity : AppCompatActivity() {
         snList.add(sn)
         rebuildSnList()
         etSn.setText("")
+    }
+
+    /** 手动点「🔁 查」：无论物料是否已填都强制反查 */
+    private fun manualLookup69() {
+        val ean = etEan69.text.toString().trim()
+        if (ean.isEmpty()) {
+            Toast.makeText(this, "先输入/扫描 69 商品码", Toast.LENGTH_SHORT).show()
+            return
+        }
+        doLookup69(ean, auto = false)
+    }
+
+    /**
+     * 69 码反查物料：本地表 → 远程 Turso 库。
+     * auto=true 时静默（自动触发），失败不弹提示；手动查会明确报告结果。
+     */
+    private fun doLookup69(ean: String, auto: Boolean) {
+        // 1. 本地表命中直接填
+        val local = lookup69().lookup(ean)
+        if (local != null) {
+            etMaterial.setText(local)
+            tvStatus.text = "🔁 本地反查命中：$ean → $local"
+            return
+        }
+        // 2. 未配置远程库
+        val url = SettingsActivity.getUrl(this)
+        val token = SettingsActivity.getToken(this)
+        if (url.isEmpty() || token.isEmpty()) {
+            if (!auto) {
+                tvStatus.text = "⚠️ 未配置反查数据库，请到 ⚙️ 设置 填写连接地址和 Token"
+                Toast.makeText(this, "请先在设置里配置反查数据库", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        // 3. 远程查
+        tvStatus.text = "🔁 反查中：$ean ..."
+        lookup69().lookupRemote(ean) { material ->
+            runOnUiThread {
+                if (material != null) {
+                    etMaterial.setText(material)
+                    tvStatus.text = "✅ 反查成功：$ean → $material（已缓存本地）"
+                } else {
+                    tvStatus.text = "❌ 数据库中无此 69 码：$ean（可手动填物料，保存后自动学习）"
+                    if (!auto) Toast.makeText(this, "库中无此 69 码", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     private fun rebuildSnList() {

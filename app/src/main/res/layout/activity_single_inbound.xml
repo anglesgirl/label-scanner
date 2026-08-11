@@ -291,6 +291,19 @@
                 android:minWidth="64dp"
                 android:insetTop="0dp"
                 android:insetBottom="0dp" />
+
+            <Button
+                android:id="@+id/btnLookup69"
+                android:layout_width="wrap_content"
+                android:layout_height="42dp"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#E65100"
+                android:text="🔁 查"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
         </LinearLayout>
 
         <TextView
