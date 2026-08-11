@@ -37,6 +37,34 @@ class Barcode69Lookup(context: Context) {
         return map.optString(ean69.trim()).takeIf { it.isNotBlank() }
     }
 
+    /** 远程反查（Turso 库，设置页配置）：本地 miss 时调用；命中自动缓存到本地表 */
+    fun lookupRemote(ean69: String, onResult: (String?) -> Unit) {
+        val ean = ean69.trim()
+        if (ean.isEmpty()) {
+            onResult(null); return
+        }
+        // 本地先查（可能并行调用已在本地命中）
+        lookup(ean)?.let { onResult(it); return }
+        val baseUrl = com.anglesgirl.labelscanner.SettingsActivity.getUrl(appContext)
+        val token = com.anglesgirl.labelscanner.SettingsActivity.getToken(appContext)
+        if (baseUrl.isEmpty() || token.isEmpty()) {
+            onResult(null); return
+        }
+        Thread {
+            try {
+                val hit = Turso69Client.lookup(ean, baseUrl, token)
+                if (hit != null) {
+                    learn(ean, hit.first)
+                    onResult(hit.first)
+                } else {
+                    onResult(null)
+                }
+            } catch (e: Exception) {
+                onResult(null)
+            }
+        }.start()
+    }
+
     /** 学习：保存 69码→物料 映射（两值都非空才存），内部+外部双写 */
     fun learn(ean69: String, materialCode: String) {
         val e = ean69.trim()

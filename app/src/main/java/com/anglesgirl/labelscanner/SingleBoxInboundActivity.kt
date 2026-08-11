@@ -20,6 +20,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
+import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
 import com.anglesgirl.labelscanner.model.LabelResult
@@ -49,6 +50,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
 
     private val snList = mutableListOf<String>()
     private val codeCandidates = mutableListOf<String>()
+    private val lookup69Lazy = lazy { Barcode69Lookup(this) }
+    private fun lookup69(): Barcode69Lookup = lookup69Lazy.value
 
     /** 字段补扫目标字段引用 */
     private var scanTargetField: EditText? = null
@@ -236,6 +239,22 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     if (box.productionDate.isBlank()) tips.add("⚠️ 未识别到日期，请手动输入")
                     if (snList.isEmpty()) tips.add("⚠️ 未识别到序列号，请手动添加")
                     tvBoxStatus.text = "✅ 识别完成：物料=${box.materialCode.ifBlank { "?" }} 箱号=${box.boxCode.ifBlank { "?" }} SN×${snList.size}\n${tips.joinToString("\n")}"
+
+                    // 物料空但有条码 → 远程反查（Turso 库）
+                    if (box.materialCode.isBlank()) {
+                        val ean = result.barcodes.firstOrNull { it.length == 13 && it.startsWith("69") }
+                            ?: box.ean69
+                        if (ean.isNotBlank()) {
+                            lookup69().lookupRemote(ean) { material ->
+                                runOnUiThread {
+                                    if (material != null && etMaterial.text.toString().isBlank()) {
+                                        etMaterial.setText(material)
+                                        tvBoxStatus.text = "🔁 69码远程反查物料: $material（可修改）"
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             },
             onError = { msg ->

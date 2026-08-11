@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     // ===== 共享 UI =====
     private lateinit var etTrayCode: EditText
     private lateinit var btnNextTray: Button
+    private lateinit var btnSettings: Button
     private lateinit var btnModeSingle: Button
     private lateinit var btnModeBatch: Button
     private lateinit var btnScanTrayCode: Button
@@ -182,6 +183,7 @@ class MainActivity : AppCompatActivity() {
         // 共享 UI
         etTrayCode = findViewById(R.id.etTrayCode)
         btnNextTray = findViewById(R.id.btnNextTray)
+        btnSettings = findViewById(R.id.btnSettings)
         btnModeSingle = findViewById(R.id.btnModeSingle)
         btnModeBatch = findViewById(R.id.btnModeBatch)
         btnScanTrayCode = findViewById(R.id.btnScanTrayCode)
@@ -258,6 +260,9 @@ class MainActivity : AppCompatActivity() {
         btnCamera.setOnClickListener { launchSystemCamera() }
         btnNextTray.setOnClickListener { nextTray() }
         btnScanTrayCode.setOnClickListener { launchScanForTrayCode() }
+        btnSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         btnScanMaterial.setOnClickListener { launchScanForMaterial() }
 
         // 批量面板监听
@@ -547,6 +552,22 @@ class MainActivity : AppCompatActivity() {
             // 物料编码为空：提示需人工输入
             if (result.materialCode.isEmpty()) {
                 add("⚠️ 未识别到物料编码，请手动输入")
+                // 远程反查（Turso 库，设置了配置时自动尝试）
+                if (result.ean69.isNotBlank()) {
+                    lookup69?.lookupRemote(result.ean69) { material ->
+                        runOnUiThread {
+                            if (material != null && etMaterial.text.toString().isBlank()) {
+                                etMaterial.setText(material)
+                                currentResult?.materialCode = material
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "🔁 69码远程反查物料: $material",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                }
             }
             // 生产日期为默认值：提示
             if (result.productionDate == "19000101") {
