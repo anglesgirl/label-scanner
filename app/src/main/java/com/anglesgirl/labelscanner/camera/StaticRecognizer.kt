@@ -103,6 +103,8 @@ object StaticRecognizer {
             future.get(15, TimeUnit.SECONDS)
         } catch (e: Exception) {
             Log.w(TAG, "zxing timed out: ${e.message}")
+            // 必须中断线程：否则 ZXing 解码继续占用单线程池，后续识别任务全部排队 → 累积卡死
+            future.cancel(true)
             emptyList()
         }
 
