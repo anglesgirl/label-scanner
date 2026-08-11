@@ -126,6 +126,8 @@ class SingleInboundActivity : AppCompatActivity() {
             R.id.btnScanMaterial to etMaterial,
             R.id.btnScanTrayCode to etTrayCode,
             R.id.btnScanDate to etDate,
+            R.id.btnScanModel to etModel,
+            R.id.btnScanEan69 to etEan69,
         )
         for ((btnId, field) in scanMap) {
             findViewById<Button>(btnId).setOnClickListener {
@@ -258,13 +260,16 @@ class SingleInboundActivity : AppCompatActivity() {
             .setTitle("条码: $code")
             .setItems(arrayOf(
                 "🏷️ 设为物料编码", "📦 设为托盘号", "📅 设为生产日期",
+                "🔢 设为 69 商品码", "🏷️ 设为型号",
                 "➕ 加入序列号列表", "❌ 取消"
             )) { _, which ->
                 when (which) {
                     0 -> { etMaterial.setText(code); Toast.makeText(this, "物料已设为 $code", Toast.LENGTH_SHORT).show() }
                     1 -> { etTrayCode.setText(code); Toast.makeText(this, "托盘号已设为 $code", Toast.LENGTH_SHORT).show() }
                     2 -> { etDate.setText(code); Toast.makeText(this, "日期已设为 $code", Toast.LENGTH_SHORT).show() }
-                    3 -> {
+                    3 -> { etEan69.setText(code); Toast.makeText(this, "69 码已设为 $code", Toast.LENGTH_SHORT).show() }
+                    4 -> { etModel.setText(code); Toast.makeText(this, "型号已设为 $code", Toast.LENGTH_SHORT).show() }
+                    5 -> {
                         if (code !in snList) { snList.add(code); rebuildSnList(); Toast.makeText(this, "已加入序列号", Toast.LENGTH_SHORT).show() }
                         else Toast.makeText(this, "序列号已存在", Toast.LENGTH_SHORT).show()
                     }
@@ -317,6 +322,8 @@ class SingleInboundActivity : AppCompatActivity() {
     }
 
     private fun updateSaveButton() {
-        findViewById<Button>(R.id.btnSave).text = if (snList.size <= 1) "✅ 保存" else "✅ 保存 ${snList.size} 条（共享字段）"
+        findViewById<Button>(R.id.btnSave).text =
+            if (snList.size <= 1) "✅ 保存入库（每 SN 一行）"
+            else "✅ 保存入库（${snList.size} 条，共享字段）"
     }
 }
