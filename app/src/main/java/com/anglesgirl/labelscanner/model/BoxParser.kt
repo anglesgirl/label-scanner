@@ -82,6 +82,17 @@ object BoxParser {
                 }
             }
         }
+        // 第 2.1 步 条码前缀提取物料（不依赖 OCR，更稳）：
+        // 混合码前 12 位是纯数字 → 该 12 位即 SAP 物料（201051012201V00224 → 201051012201）
+        if (material.isEmpty()) {
+            for (code in barcodes) {
+                val c = code.trim()
+                if (c.length > 12 && c.take(12).all { it.isDigit() } && c.any { it.isLetter() }) {
+                    material = c.take(12)
+                    break
+                }
+            }
+        }
         for (line in ocrText.lines()) {
             val l = line.trim()
             if (l.isEmpty()) continue

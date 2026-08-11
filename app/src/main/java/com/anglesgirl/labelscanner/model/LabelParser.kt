@@ -87,6 +87,32 @@ object LabelParser {
             lookup69(result.ean69)?.let { result.materialCode = it }
         }
 
+        // 3.1 条码前缀提取物料（不依赖 OCR）：
+        // 混合码前 12 位是纯数字 → 该 12 位即 SAP 物料（201051012201V00224 → 201051012201）
+        if (result.materialCode.isEmpty()) {
+            for (code in barcodes) {
+                val c = code.trim()
+                if (c.length > 12 && c.take(12).all { it.isDigit() } && c.any { it.isLetter() }) {
+                    result.materialCode = c.take(12)
+                    break
+                }
+            }
+        }
+
+        // 3.2 SN 修正：箱号（独立格式码）可能排在混合码前面被误选为 SN →
+        // 物料已知时，SN 必须是以物料开头的混合码（201051012201V00224 型）
+        if (result.materialCode.isNotEmpty() && result.serialNumber.isNotEmpty() &&
+            !result.serialNumber.startsWith(result.materialCode)
+        ) {
+            for (code in barcodes) {
+                val c = code.trim()
+                if (c.length > 12 && c.startsWith(result.materialCode) && c.any { it.isLetter() }) {
+                    result.serialNumber = c
+                    break
+                }
+            }
+        }
+
         // 4. 规则：SN 以 12 位纯数字 + "01" 结尾 → 取前 12 位当物料编码
         if (result.materialCode.isEmpty() && result.serialNumber.isNotEmpty()) {
             val sn = result.serialNumber
