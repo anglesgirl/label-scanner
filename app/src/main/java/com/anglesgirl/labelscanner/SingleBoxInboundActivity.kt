@@ -31,7 +31,7 @@ import com.anglesgirl.labelscanner.model.LabelResult
 class SingleBoxInboundActivity : AppCompatActivity() {
 
     private lateinit var etMaterial: EditText
-    private lateinit var etTray: EditText
+    private lateinit var etBox: EditText
     private lateinit var etDate: EditText
     private lateinit var etModel: EditText
     private lateinit var etManualSn: EditText
@@ -50,7 +50,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         setContentView(R.layout.activity_single_box)
 
         etMaterial = findViewById(R.id.etMaterial)
-        etTray = findViewById(R.id.etTray)
+        etBox = findViewById(R.id.etBox)
         etDate = findViewById(R.id.etDate)
         etModel = findViewById(R.id.etModel)
         etManualSn = findViewById(R.id.etManualSn)
@@ -85,7 +85,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                         return@runOnUiThread
                     }
                     etMaterial.setText(box.materialCode)
-                    etTray.setText(box.trayCode)
+                    etBox.setText(box.boxCode)
                     etDate.setText(box.productionDate)
                     etModel.setText(box.model)
                     snList.clear()
@@ -94,10 +94,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
 
                     val tips = mutableListOf<String>()
                     if (box.materialCode.isBlank()) tips.add("⚠️ 未识别到物料(SAP)，请手动输入")
-                    if (box.trayCode.isBlank()) tips.add("⚠️ 未识别到外箱LPN，请手动输入")
+                    if (box.boxCode.isBlank()) tips.add("⚠️ 未识别到箱号，请手动输入")
                     if (box.productionDate.isBlank()) tips.add("⚠️ 未识别到日期，请手动输入")
                     if (snList.isEmpty()) tips.add("⚠️ 未识别到序列号，请手动添加")
-                    tvBoxStatus.text = "✅ 识别完成：物料=${box.materialCode.ifBlank { "?" }} LPN=${box.trayCode.ifBlank { "?" }} SN×${snList.size}\n${tips.joinToString("\n")}"
+                    tvBoxStatus.text = "✅ 识别完成：物料=${box.materialCode.ifBlank { "?" }} 箱号=${box.boxCode.ifBlank { "?" }} SN×${snList.size}\n${tips.joinToString("\n")}"
                 }
             },
             onError = { msg ->
@@ -128,7 +128,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     /** 保存：每个 SN 展开为一条记录（共享物料/LPN/日期/型号），去重后追加 */
     private fun saveBox() {
         val material = etMaterial.text.toString().trim()
-        val tray = etTray.text.toString().trim()
+        val box = etBox.text.toString().trim()
         val date = etDate.text.toString().trim()
         val model = etModel.text.toString().trim()
 
@@ -140,8 +140,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             Toast.makeText(this, "物料编码为空（识别不到请手动输入）", Toast.LENGTH_SHORT).show()
             return
         }
-        if (tray.isEmpty()) {
-            Toast.makeText(this, "外箱 LPN 为空（识别不到请手动输入）", Toast.LENGTH_SHORT).show()
+        if (box.isEmpty()) {
+            Toast.makeText(this, "箱号为空（识别不到请手动输入）", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -153,18 +153,18 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 quantity = 1,
                 productionDate = date,
                 model = model,
-                trayCode = tray,
+                boxCode = box,
             )
         }
         RecordStore.append(this, records)
-        tvBoxStatus.text = "✅ 已保存 ${records.size} 条（物料 $material / LPN $tray）"
+        tvBoxStatus.text = "✅ 已保存 ${records.size} 条（物料 $material / 箱号 $box）"
         Toast.makeText(this, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
         resetBox()
     }
 
     private fun resetBox() {
         etMaterial.setText("")
-        etTray.setText("")
+        etBox.setText("")
         etDate.setText("")
         etModel.setText("")
         etManualSn.setText("")

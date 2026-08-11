@@ -55,11 +55,11 @@
             android:background="@android:drawable/editbox_background" />
 
         <EditText
-            android:id="@+id/etTray"
+            android:id="@+id/etBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:hint="外箱 LPN / 托盘码（CA 开头）"
+            android:hint="箱号 / LPN（自动识别候选，可修改）"
             android:inputType="text"
             android:background="@android:drawable/editbox_background" />
 

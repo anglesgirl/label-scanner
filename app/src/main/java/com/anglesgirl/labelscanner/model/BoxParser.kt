@@ -7,14 +7,15 @@ import java.util.regex.Pattern
  *
  * 字段来源规则（2026-08-11 真实标签 DL-5120P 实测）：
  *  - 物料编码 = SAP 号（条码前缀 12 位纯数字，如 201101002301）
- *  - 外箱 LPN = CA 开头的条码（如 CA70565P10013014）→ 托盘码 trayCode
- *  - 序列号 = 其余字母数字混合条码（一个箱子多个 SN 正常）
+ *  - 箱号 = 独立于物料前缀的混合码（DL-5120P 为 CA70565P10013014；
+ *    ⚠️ 箱号格式不固定，仅作候选，由人工确认/输入）
+ *  - 序列号 = 以物料(SAP)开头的条码（一个箱子多个 SN 正常）
  *  - 生产日期 = OCR 的 DATE 行（2026.05.07 → 20260507）
  *  - 型号 = OCR 的 MODEL 行
  */
 data class BoxParseResult(
     val materialCode: String = "",
-    val trayCode: String = "",
+    val boxCode: String = "",
     val productionDate: String = "",
     val model: String = "",
     val ean69: String = "",
@@ -23,18 +24,22 @@ data class BoxParseResult(
 ) {
     val hasData: Boolean
         get() = allBarcodes.isNotEmpty() || materialCode.isNotBlank() ||
-                trayCode.isNotBlank() || serialNumbers.isNotEmpty() ||
+                boxCode.isNotBlank() || serialNumbers.isNotEmpty() ||
                 productionDate.isNotBlank()
 }
 
 /**
  * 单箱标签解析：条码通道为主（准确），OCR 补日期/型号/物料兜底。
  *
- * 条码分类优先级：
+ * 条码分类优先级（2026-08-11 真实标签 DL-5120P 校准）：
  *  1. EAN13（69 开头 13 位）→ 商品码
  *  2. 12 位纯数字 → SAP 号 = 物料编码
- *  3. CA 开头（字母+数字混合）→ 外箱 LPN → 托盘码
- *  4. 其余字母数字混合 → 序列号（多 SN 全部保留）
+ *  3. 字母数字混合码：
+ *     - 以物料代码（SAP）开头的 → 序列号（一箱多个全部保留）
+ *     - 不以物料开头的独立混合码 → 箱号/LPN 候选（第一个；⚠️ 箱号格式
+ *       不固定（DL-5120P 是 CA 开头，其他标签可能是别的），不可靠时留空
+ *       由人工输入）
+ *  4. 无物料代码时：混合码全部归序列号，箱号留空（无法可靠区分）
  */
 object BoxParser {
 
@@ -42,15 +47,17 @@ object BoxParser {
     private val SAP12 = Pattern.compile("^\\d{12}$")
     private val DATE_SEP = Pattern.compile("^\\d{4}[-/. ]\\d{2}[-/. ]\\d{2}$")
     private val DATE8 = Pattern.compile("^\\d{8}$")
-    private val LPN = Pattern.compile("^CA[A-Za-z0-9]{8,}$", Pattern.CASE_INSENSITIVE)
 
     fun parse(barcodes: List<String>, ocrText: String): BoxParseResult {
         var material = ""
-        var tray = ""
         var ean = ""
+        var box = ""
+        var date = ""
+        var model = ""
         val sns = mutableListOf<String>()
         val classified = mutableListOf<String>()
 
+        // 第 1 轮条码：EAN13 / 纯 12 位数字(SAP)
         for (code in barcodes) {
             val c = code.trim()
             if (c.isEmpty()) continue
@@ -58,17 +65,23 @@ object BoxParser {
             when {
                 EAN13.matcher(c).matches() && ean.isEmpty() -> ean = c
                 SAP12.matcher(c).matches() && material.isEmpty() -> material = c
-                LPN.matcher(c).matches() && tray.isEmpty() -> tray = c
-                c.any { it.isLetter() } && !c.all { it.isDigit() } -> {
-                    if (c !in sns) sns.add(c)
-                }
-                else -> { /* 其他纯数字（PO/SO 等）忽略 */ }
             }
         }
 
-        // OCR 兜底：日期 / 型号 / SAP 物料 / 额外 SN 候选
-        var date = ""
-        var model = ""
+        // 第 2 步 OCR：**先**提取物料（SAP 行）+ 日期 + 型号。
+        // 注意顺序：物料必须在条码分类之前确定——DL-5120P 的 SAP 只出现在
+        // OCR（条码全是 混合码），若先分类条码会因不知道物料前缀而把箱号误归 SN。
+        for (line in ocrText.lines()) {
+            val l = line.trim()
+            if (l.isEmpty()) continue
+            val upper = l.uppercase()
+            when {
+                material.isEmpty() && SAP12.matcher(l).matches() -> material = l
+                upper.startsWith("SAP") || upper.startsWith("SAP.") -> {
+                    Regex("(\\d{12})").find(l)?.groupValues?.get(1)?.let { material = it }
+                }
+            }
+        }
         for (line in ocrText.lines()) {
             val l = line.trim()
             if (l.isEmpty()) continue
@@ -84,7 +97,6 @@ object BoxParser {
                 }
                 date.isEmpty() && (upper.startsWith("DATE") || upper.startsWith("MFG") ||
                     upper.startsWith("生产日期") || upper.startsWith("PD")) -> {
-                    // 带字段前缀：DATE: 2026.05.07 / MFG:DATE: 20260507
                     Regex("(\\d{4}[-/. ]\\d{2}[-/. ]\\d{2}|\\d{8})").find(l)
                         ?.groupValues?.get(1)?.let { raw ->
                             val digits = raw.replace(Regex("[^0-9]"), "")
@@ -100,11 +112,25 @@ object BoxParser {
                         ?.groupValues?.get(1)?.takeIf { it.length in 2..40 }
                         ?.let { model = it }
                 }
-                material.isEmpty() && SAP12.matcher(l).matches() -> material = l
-                upper.startsWith("SAP") || upper.startsWith("SAP.") -> {
-                    // SAP.: 201101002301
-                    Regex("(\\d{12})").find(l)?.groupValues?.get(1)?.let { material = it }
-                }
+            }
+        }
+
+        // 第 3 轮条码：混合码区分 SN / 箱号（material 已定，才能判前缀）。
+        // 箱号与 SN 规则明显不一致（SN=物料前缀+后缀；箱号=独立格式的码）——
+        // 以物料开头的混合码 → SN；独立混合码 → 箱号候选（可人工改）。
+        for (code in barcodes) {
+            val c = code.trim()
+            if (c.isEmpty() || c == material || c == ean) continue
+            if (!c.any { it.isLetter() }) continue // 纯数字非 SAP（PO/SO）忽略
+            val isSnPrefix = material.isNotEmpty() && c.startsWith(material)
+            if (material.isNotEmpty() && isSnPrefix) {
+                if (c !in sns) sns.add(c)
+            } else if (material.isNotEmpty()) {
+                if (box.isEmpty()) { box = c }            // 独立码 → 箱号
+                else if (c != box && c !in sns) sns.add(c) // 多条独立码：其余进 SN 人工挑
+            } else {
+                // 无物料：无法区分箱号/SN，全归 SN（箱号人工输入）
+                if (c !in sns) sns.add(c)
             }
         }
 
@@ -113,14 +139,14 @@ object BoxParser {
             for (line in ocrText.lines()) {
                 val l = line.trim()
                 if (l.length in 6..40 && l.all { it.isLetterOrDigit() } && l.any { it.isLetter() }) {
-                    if (l != material && l != tray && l != ean && l !in sns) sns.add(l)
+                    if (l != material && l != box && l != ean && l !in sns) sns.add(l)
                 }
             }
         }
 
         return BoxParseResult(
             materialCode = material,
-            trayCode = tray,
+            boxCode = box,
             productionDate = date,
             model = model,
             ean69 = ean,

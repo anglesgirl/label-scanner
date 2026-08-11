@@ -32,7 +32,8 @@ data class LabelResult(
     var model: String = "",
     var color: String = "",
     var tonerModel: String = "",
-    var trayCode: String = "",  // 托盘码：WMS 托盘关联，不修改原始标签数据
+    var trayCode: String = "",       // 托盘码：整个托盘，一个托盘多箱（WMS DATA13）
+    var boxCode: String = "",        // 箱号/LPN：一个箱子内多个序列号（与托盘不同层级）
 ) {
     /** 是否有任何可用数据 */
     val hasData: Boolean
