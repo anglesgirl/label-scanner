@@ -129,15 +129,24 @@ object BoxParser {
         // 第 3 轮条码：混合码区分 SN / 箱号（material 已定，才能判前缀）。
         // 箱号与 SN 规则明显不一致（SN=物料前缀+后缀；箱号=独立格式的码）——
         // 以物料开头的混合码 → SN；独立混合码 → 箱号候选（可人工改）。
+        // ⚠️ 二维码可能是多值（逗号分隔的多个 SN，如 PANTUM 箱标签 QR：
+        //    "SN1,SN2,...,SN32"）→ 先拆分再分类。
         for (code in barcodes) {
             val c = code.trim()
             if (c.isEmpty() || c == material || c == ean) continue
+            if (c.contains(',') || c.contains(';')) {
+                // 多值码（QR 集成 SN）：逗号/分号分隔 → 拆分成多个 SN 全部加入
+                c.split(Regex("[,;，；\\s]+")).filter { it.length >= 6 }.forEach { sn ->
+                    if (sn != material && sn != ean && sn !in sns) sns.add(sn)
+                }
+                continue
+            }
             if (!c.any { it.isLetter() }) continue // 纯数字非 SAP（PO/SO）忽略
             val isSnPrefix = material.isNotEmpty() && c.startsWith(material)
             if (material.isNotEmpty() && isSnPrefix) {
                 if (c !in sns) sns.add(c)
             } else if (material.isNotEmpty()) {
-                if (box.isEmpty()) { box = c }            // 独立码 → 箱号
+                if (box.isEmpty()) { box = c }            // 独立码 → 箱号（PA/CA 开头等）
                 else if (c != box && c !in sns) sns.add(c) // 多条独立码：其余进 SN 人工挑
             } else {
                 // 无物料：无法区分箱号/SN，全归 SN（箱号人工输入）
