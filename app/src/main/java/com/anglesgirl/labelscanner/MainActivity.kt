@@ -254,7 +254,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateCount()
-        updateBatchCount()
     }
 
     // ===== 模式切换 =====
@@ -643,8 +642,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         companion object {
-            const val REQ_LIST = 1001
-        }
+                const val REQ_LIST = 1001
+                const val REQ_DOC_SCAN = 1002
+                const val REQ_EDIT = 1003
+            }
 
         override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
             super.onActivityResult(requestCode, resultCode, data)
@@ -652,6 +653,11 @@ class MainActivity : AppCompatActivity() {
                 // 从托盘中心返回：刷新记录数
                 savedResults = com.anglesgirl.labelscanner.data.RecordStore.load(this)
                 updateCount()
+            } else if (requestCode == REQ_DOC_SCAN && resultCode == RESULT_OK && data != null) {
+                // 文档扫描结果 → 识别
+                val uri = com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+                    .fromActivityResultIntent(data)?.pages?.firstOrNull()?.imageUri
+                if (uri != null) recognizeStatic(uri)
             }
         }
 
