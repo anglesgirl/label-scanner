@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -13,12 +14,17 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
 import com.anglesgirl.labelscanner.model.LabelResult
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanner
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import java.io.File
 
 /**
  * 📦 单箱入库：一个外箱（LPN）对应多个序列号。
@@ -41,7 +47,26 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private val snList = mutableListOf<String>()
     private lateinit var snAdapter: SnAdapter
 
-    private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    private var pendingPhotoUri: Uri? = null
+    private var photoFile: File? = null
+
+    /** 拍照（系统相机） */
+    private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            pendingPhotoUri?.let { recognizeLabel(it) }
+        }
+    }
+
+    /** 文档扫描（ML Kit，自动找边/裁切/增强） */
+    private val scanDoc = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            GmsDocumentScanningResult.fromActivityResultIntent(result.data)?.pages
+                ?.firstOrNull()?.imageUri?.let { recognizeLabel(it) }
+        }
+    }
+
+    /** 相册选图 */
+    private val pickGallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) recognizeLabel(uri)
     }
 
@@ -57,9 +82,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         rvSnList = findViewById(R.id.rvSnList)
         tvBoxStatus = findViewById(R.id.tvBoxStatus)
 
-        findViewById<Button>(R.id.btnRecognize).setOnClickListener {
-            pickImage.launch("image/*")
-        }
+        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
+        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
+        findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
         findViewById<Button>(R.id.btnAddSn).setOnClickListener { addManualSn() }
         findViewById<Button>(R.id.btnSaveBox).setOnClickListener { saveBox() }
         findViewById<Button>(R.id.btnResetBox).setOnClickListener { resetBox() }
@@ -68,6 +93,42 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         rvSnList.layoutManager = LinearLayoutManager(this)
         rvSnList.adapter = snAdapter
         updateStatus()
+    }
+
+    /** 系统相机拍照 → 全分辨率存 captures/ → 识别 */
+    private fun launchCamera() {
+        try {
+            val dir = File(cacheDir, "captures").apply { mkdirs() }
+            val file = File(dir, "box_photo_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            pendingPhotoUri = uri
+            photoFile = file
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+            takePhoto.launch(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "无法启动相机: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** ML Kit 文档扫描（GMS；自动找边/裁切/增强，标签拍摄最佳） */
+    private fun launchDocScan() {
+        try {
+            val options = GmsDocumentScannerOptions.Builder()
+                .setGalleryImportAllowed(true)   // 也允许从相册导入文档
+                .setPageLimit(1)
+                .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+                .build()
+            GmsDocumentScanner.getClient(options).getStartScanIntent(this)
+                .addOnSuccessListener { intent -> scanDoc.launch(intent) }
+                .addOnFailureListener { e ->
+                    Toast.makeText(this, "文档扫描不可用（设备无 Google 服务?）:\n${e.message}", Toast.LENGTH_LONG).show()
+                }
+        } catch (e: Exception) {
+            Toast.makeText(this, "文档扫描不可用: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     /** 相册选图 → 静态识别（ML Kit + ZXing 双解码）→ BoxParser 解析填表 */

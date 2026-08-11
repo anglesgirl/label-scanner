@@ -23,19 +23,45 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="识别标签（外箱）→ 自动填物料/箱号/日期 + 全部序列号 → 保存（每 SN 一行）"
+            android:text="识别外箱标签 → 自动填物料/箱号/日期 + 全部序列号 → 保存（每 SN 一行）"
             android:textSize="12sp"
             android:textColor="#888888" />
 
-        <Button
-            android:id="@+id/btnRecognize"
+        <!-- 识别来源：拍照 / 文档扫描 / 相册 -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="🔍 识别标签（相册选图）"
-            android:textSize="15sp" />
+            android:orientation="horizontal">
 
-        <!-- 共享字段 -->
+            <Button
+                android:id="@+id/btnTakePhoto"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="📷 拍照"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnScanDoc"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="📄 文档扫描"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnPickGallery"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="🖼️ 相册"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- 共享字段（每项：外部标识 + 输入框） -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -45,39 +71,71 @@
             android:textStyle="bold"
             android:textColor="#555555" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="物料编码（SAP 号）"
+            android:textSize="12sp"
+            android:textColor="#333333" />
+
         <EditText
             android:id="@+id/etMaterial"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="物料编码（SAP 号）"
+            android:layout_marginTop="2dp"
+            android:hint="识别不到请手动输入"
             android:inputType="text"
             android:background="@android:drawable/editbox_background" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="箱号 / LPN"
+            android:textSize="12sp"
+            android:textColor="#333333" />
 
         <EditText
             android:id="@+id/etBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="箱号 / LPN（自动识别候选，可修改）"
+            android:layout_marginTop="2dp"
+            android:hint="识别不到请手动输入"
             android:inputType="text"
             android:background="@android:drawable/editbox_background" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="生产日期（yyyyMMdd）"
+            android:textSize="12sp"
+            android:textColor="#333333" />
 
         <EditText
             android:id="@+id/etDate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="生产日期（yyyyMMdd）"
+            android:layout_marginTop="2dp"
+            android:hint="识别不到请手动输入"
             android:inputType="date"
             android:background="@android:drawable/editbox_background" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="型号"
+            android:textSize="12sp"
+            android:textColor="#333333" />
 
         <EditText
             android:id="@+id/etModel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="型号（参考）"
+            android:layout_marginTop="2dp"
+            android:hint="参考信息，可不填"
             android:inputType="text"
             android:background="@android:drawable/editbox_background" />
 
