@@ -284,6 +284,9 @@ class MainActivity : AppCompatActivity() {
         // 模式切换
         btnModeSingle.setOnClickListener { switchMode(false) }
         btnModeBatch.setOnClickListener { switchMode(true) }
+        findViewById<Button>(R.id.btnModeBox).setOnClickListener {
+            startActivity(Intent(this, SingleBoxInboundActivity::class.java))
+        }
 
         updateCount()
         updateBatchCount()
