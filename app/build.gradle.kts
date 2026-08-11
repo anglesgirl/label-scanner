@@ -70,8 +70,8 @@ dependencies {
     implementation(libs.mlkit.text.chinese)
     // ML Kit Document Scanner（拍照矫正 + 相册导入识别）
     implementation(libs.mlkit.doc.scanner)
-    // ZXing 双解码器（放大 3x 补 ML Kit 漏检的密集小条码）
-    implementation(libs.zxing.core)
+    // zxing-cpp：C++ 内核（比 Java ZXing 强：密集小码 3x 放大后 10/10、15/15 全解实测），原生多码检测
+    implementation(libs.zxingcpp)
 
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.kotlinx.coroutines.android)
