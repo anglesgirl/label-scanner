@@ -38,7 +38,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnNextTray: Button
     private lateinit var btnSettings: Button
     private lateinit var btnModeSingle: Button
-    private lateinit var btnModeBatch: Button
     private lateinit var btnScanTrayCode: Button
     private lateinit var btnScanMaterial: Button
 
@@ -48,6 +47,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etMaterial: EditText
     private lateinit var etDate: EditText
     private lateinit var etSn: EditText
+    private lateinit var llSnList: android.widget.LinearLayout
+    private lateinit var btnAddSn: Button
+    private lateinit var btnScanAddSn: Button
+    private val snList = mutableListOf<String>()
     private lateinit var etEan69: EditText
     private lateinit var etModel: EditText
     private lateinit var etColor: EditText
@@ -67,37 +70,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnCopyBarcodes: Button
     private lateinit var btnCopyOcr: Button
 
-    // ===== 整板快速录入面板 =====
-    private lateinit var panelBatch: View
-    // 共享字段
-    private lateinit var etBatchMaterial: EditText
-    private lateinit var etBatchDate: EditText
-    private lateinit var etBatchEan69: EditText
-    private lateinit var etBatchModel: EditText
-    private lateinit var etBatchColor: EditText
-    private lateinit var etBatchToner: EditText
-    private lateinit var btnBatchApplyShared: Button
-    private lateinit var btnScanBatchMaterial: Button
-    // 扫描区
-    private lateinit var btnBatchCamera: Button
-    private lateinit var btnBatchGallery: Button
-    private lateinit var rvBatchSnList: RecyclerView
-    private lateinit var tvBatchScannedCount: TextView
-    private lateinit var tvBatchCount: TextView
-    private lateinit var btnBatchClear: Button
-    private lateinit var btnBatchSaveAll: Button
-
     // ===== 数据/状态 =====
     private var currentResult: LabelResult? = null
     private lateinit var savedResults: MutableList<LabelResult>
     private var lookup69: com.anglesgirl.labelscanner.data.Barcode69Lookup? = null
     private var pendingCaptureUri: Uri? = null
-
-    // 批量模式状态
-    private var batchModeEnabled = false
-    private var batchSharedConfirmed = false
-    private var batchSnList = mutableListOf<String>()
-    private var batchSnAdapter: BatchSnAdapter? = null
 
     /** 相册选图回调（单条） */
     private val pickImageLauncher = registerForActivityResult(
@@ -118,22 +95,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** 批量模式：相册选图回调 */
-    private val batchPickImageLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) recognizeBatchSn(uri)
-    }
 
     /** 批量模式：系统相机拍照回调 */
-    private val batchTakePictureLauncher = registerForActivityResult(
-        ActivityResultContracts.TakePicture()
-    ) { success: Boolean ->
-        val uri = pendingCaptureUri
-        pendingCaptureUri = null
-        if (success && uri != null) {
-            recognizeBatchSn(uri)
-        }
-    }
 
     /** 测试识别：相册选图回调（仅打印原始条码+OCR） */
     private val testRecognizeLauncher = registerForActivityResult(
@@ -152,17 +115,38 @@ class MainActivity : AppCompatActivity() {
     /** 物料编码扫码回调（单条模式） */
     private val scanMaterialLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    ) { uri ->
         if (uri != null) recognizeForField(uri, "material")
+    }
+    /** 扫码添加 SN：相册选图 → 识别第一个条码加入 SN 列表 */
+    private val scanSnLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            StaticRecognizer.recognizeUri(
+                resolver = contentResolver,
+                uri = uri,
+                lookup69 = null,
+                onResult = { result ->
+                    runOnUiThread {
+                        val first = result.barcodes.firstOrNull()
+                        if (first == null) {
+                            Toast.makeText(this, "未识别到条码", Toast.LENGTH_SHORT).show()
+                        } else if (first in snList) {
+                            Toast.makeText(this, "序列号已存在: $first", Toast.LENGTH_SHORT).show()
+                        } else {
+                            snList.add(first)
+                            rebuildSnList()
+                            Toast.makeText(this, "✅ 已添加 SN: $first", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onError = { msg -> Toast.makeText(this, "识别失败: $msg", Toast.LENGTH_SHORT).show() }
+            )
+        }
     }
 
     /** 物料编码扫码回调（批量模式） */
-    private val scanBatchMaterialLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) recognizeForField(uri, "batchMaterial")
-    }
-
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -185,18 +169,24 @@ class MainActivity : AppCompatActivity() {
         btnNextTray = findViewById(R.id.btnNextTray)
         btnSettings = findViewById(R.id.btnSettings)
         btnModeSingle = findViewById(R.id.btnModeSingle)
-        btnModeBatch = findViewById(R.id.btnModeBatch)
         btnScanTrayCode = findViewById(R.id.btnScanTrayCode)
         btnScanMaterial = findViewById(R.id.btnScanMaterial)
 
         panelSingle = findViewById(R.id.panelSingle)
-        panelBatch = findViewById(R.id.panelBatch)
 
         // 单条面板
         resultPanel = findViewById(R.id.resultPanel)
         etMaterial = findViewById(R.id.etMaterial)
         etDate = findViewById(R.id.etDate)
         etSn = findViewById(R.id.etSn)
+        llSnList = findViewById(R.id.llSnList)
+        btnAddSn = findViewById(R.id.btnAddSn)
+        btnScanAddSn = findViewById(R.id.btnScanAddSn)
+        btnAddSn.setOnClickListener { addSnFromInput() }
+        btnScanAddSn.setOnClickListener {
+            // 扫码补扫一个 SN 加入列表
+            scanSnLauncher.launch("image/*")
+        }
         etEan69 = findViewById(R.id.etEan69)
         etModel = findViewById(R.id.etModel)
         etColor = findViewById(R.id.etColor)
@@ -215,33 +205,6 @@ class MainActivity : AppCompatActivity() {
         btnTestRecognize = findViewById(R.id.btnTestRecognize)
         btnCopyBarcodes = findViewById(R.id.btnCopyBarcodes)
         btnCopyOcr = findViewById(R.id.btnCopyOcr)
-
-        // 批量面板
-        etBatchMaterial = findViewById(R.id.etBatchMaterial)
-        etBatchDate = findViewById(R.id.etBatchDate)
-        etBatchEan69 = findViewById(R.id.etBatchEan69)
-        etBatchModel = findViewById(R.id.etBatchModel)
-        etBatchColor = findViewById(R.id.etBatchColor)
-        etBatchToner = findViewById(R.id.etBatchToner)
-        btnBatchApplyShared = findViewById(R.id.btnBatchApplyShared)
-        btnScanBatchMaterial = findViewById(R.id.btnScanBatchMaterial)
-        btnBatchCamera = findViewById(R.id.btnBatchCamera)
-        btnBatchGallery = findViewById(R.id.btnBatchGallery)
-        rvBatchSnList = findViewById(R.id.rvBatchSnList)
-        tvBatchScannedCount = findViewById(R.id.tvBatchScannedCount)
-        tvBatchCount = findViewById(R.id.tvBatchCount)
-        btnBatchClear = findViewById(R.id.btnBatchClear)
-        btnBatchSaveAll = findViewById(R.id.btnBatchSaveAll)
-
-        // RecyclerView
-        rvBatchSnList.layoutManager = LinearLayoutManager(this)
-        batchSnAdapter = BatchSnAdapter(batchSnList) { sn ->
-            // 长按删除
-            batchSnList.remove(sn)
-            batchSnAdapter?.notifyDataSetChanged()
-            updateBatchCount()
-        }
-        rvBatchSnList.adapter = batchSnAdapter
 
         // 初始化
         lookup69 = com.anglesgirl.labelscanner.data.Barcode69Lookup(this)
@@ -265,14 +228,6 @@ class MainActivity : AppCompatActivity() {
         }
         btnScanMaterial.setOnClickListener { launchScanForMaterial() }
 
-        // 批量面板监听
-        btnBatchApplyShared.setOnClickListener { confirmBatchShared() }
-        btnBatchCamera.setOnClickListener { launchBatchCamera() }
-        btnBatchGallery.setOnClickListener { batchPickImageLauncher.launch("image/*") }
-        btnBatchClear.setOnClickListener { clearBatchSn() }
-        btnBatchSaveAll.setOnClickListener { saveBatchAll() }
-        btnScanBatchMaterial.setOnClickListener { launchScanForBatchMaterial() }
-
         // 测试识别：仅打印原始条码+OCR，不解析不保存
         btnTestRecognize.setOnClickListener { testRecognizeLauncher.launch("image/*") }
 
@@ -287,10 +242,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 模式切换
-        btnModeSingle.setOnClickListener { switchMode(false) }
-        btnModeBatch.setOnClickListener { switchMode(true) }
+        btnModeSingle.setOnClickListener {
+            // 单条识别即本面板；点击仅提示（已激活）
+            Toast.makeText(this, "单条识别：支持一条或多条序列号", Toast.LENGTH_SHORT).show()
+        }
         findViewById<Button>(R.id.btnModeBox).setOnClickListener {
             startActivity(Intent(this, SingleBoxInboundActivity::class.java))
+        }
+        findViewById<Button>(R.id.btnGotoCenter).setOnClickListener {
+            startActivityForResult(Intent(this, RecordListActivity::class.java), REQ_LIST)
         }
 
         updateCount()
@@ -298,81 +258,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ===== 模式切换 =====
-    private fun switchMode(isBatch: Boolean) {
-        batchModeEnabled = isBatch
-        if (isBatch) {
-            panelSingle.visibility = View.GONE
-            panelBatch.visibility = View.VISIBLE
-            btnModeSingle.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF424242.toInt())
-            btnModeBatch.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF1565C0.toInt())
-            btnModeSingle.setTextColor(0xFFB0BEC5.toInt())
-            btnModeBatch.setTextColor(0xFFFFFFFF.toInt())
-            // 进入批量模式时重置
-            if (!batchSharedConfirmed) {
-                resetBatchMode()
-            }
-        } else {
-            panelSingle.visibility = View.VISIBLE
-            panelBatch.visibility = View.GONE
-            btnModeSingle.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF2E7D32.toInt())
-            btnModeBatch.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF424242.toInt())
-            btnModeSingle.setTextColor(0xFFFFFFFF.toInt())
-            btnModeBatch.setTextColor(0xFFB0BEC5.toInt())
-        }
-    }
 
-    private fun resetBatchMode() {
-        batchSharedConfirmed = false
-        batchSnList.clear()
-        batchSnAdapter?.notifyDataSetChanged()
-        // 共享字段可编辑
-        etBatchMaterial.isEnabled = true
-        etBatchDate.isEnabled = true
-        etBatchEan69.isEnabled = true
-        etBatchModel.isEnabled = true
-        etBatchColor.isEnabled = true
-        etBatchToner.isEnabled = true
-        btnBatchApplyShared.text = "✅ 确认共享信息，开始扫描序列号"
-        btnBatchApplyShared.isEnabled = true
-        btnBatchCamera.isEnabled = false
-        btnBatchGallery.isEnabled = false
-        updateBatchCount()
-    }
 
-    private fun confirmBatchShared() {
-        val material = etBatchMaterial.text.toString().trim()
-        val date = etBatchDate.text.toString().trim()
-        if (material.isEmpty()) {
-            Toast.makeText(this, "请填写物料编码", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (date.isEmpty()) {
-            Toast.makeText(this, "请填写生产日期 (yyyymmdd)", Toast.LENGTH_SHORT).show()
-            return
-        }
-        // 锁定共享字段
-        etBatchMaterial.isEnabled = false
-        etBatchDate.isEnabled = false
-        etBatchEan69.isEnabled = false
-        etBatchModel.isEnabled = false
-        etBatchColor.isEnabled = false
-        etBatchToner.isEnabled = false
-        btnBatchApplyShared.text = "🔒 共享信息已锁定"
-        btnBatchApplyShared.isEnabled = false
-        btnBatchCamera.isEnabled = true
-        btnBatchGallery.isEnabled = true
-        batchSharedConfirmed = true
-        Toast.makeText(this, "共享信息已确认，开始扫描序列号", Toast.LENGTH_SHORT).show()
-    }
 
-    private fun clearBatchSn() {
-        batchSnList.clear()
-        batchSnAdapter?.notifyDataSetChanged()
-        updateBatchCount()
-        Toast.makeText(this, "已清空，重新扫描", Toast.LENGTH_SHORT).show()
-    }
 
-    // ===== 托盘码：下一托盘 =====
     private fun nextTray() {
         val trayCode = etTrayCode.text.toString().trim()
         if (trayCode.isEmpty()) {
@@ -386,10 +275,6 @@ class MainActivity : AppCompatActivity() {
         RecordStore.save(this, savedResults)
         updateCount()
         etTrayCode.setText("") // 可选：清空让用户扫下一个
-        // 批量模式也清空
-        if (batchModeEnabled) {
-            resetBatchMode()
-        }
     }
 
     // ===== 单条：系统相机/文档扫描/相册 =====
@@ -471,64 +356,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ===== 批量：仅识别序列号 =====
-    private fun launchBatchCamera() {
-        try {
-            val dir = File(cacheDir, "captures").apply { mkdirs() }
-            val file = File(dir, "batch_${System.currentTimeMillis()}.jpg")
-            val uri = FileProvider.getUriForFile(
-                this,
-                "${packageName}.fileprovider",
-                file
-            )
-            pendingCaptureUri = uri
-            batchTakePictureLauncher.launch(uri)
-        } catch (e: Exception) {
-            Toast.makeText(this, "无法唤起相机：${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
 
-    private fun recognizeBatchSn(uri: Uri) {
-        tvBatchScannedCount.text = "识别中..."
-        StaticRecognizer.recognizeUri(
-            resolver = contentResolver,
-            uri = uri,
-            lookup69 = null, // 批量模式不需要 69 码反查
-            onResult = { result ->
-                runOnUiThread {
-                    // 仅提取条码作为序列号，去重添加
-                    for (code in result.barcodes) {
-                        val sn = code.trim()
-                        if (sn.isNotEmpty() && sn !in batchSnList) {
-                            batchSnList.add(sn)
-                        }
-                    }
-                    // 如果没有条码但有 OCR 文本，尝试从中提取可能的序列号
-                    if (result.barcodes.isEmpty() && result.ocrText.isNotBlank()) {
-                        val lines = result.ocrText.lines()
-                        for (line in lines) {
-                            val trimmed = line.trim()
-                            if (trimmed.length >= 8 && trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' }) {
-                                if (trimmed !in batchSnList) {
-                                    batchSnList.add(trimmed)
-                                }
-                            }
-                        }
-                    }
-                    batchSnAdapter?.notifyDataSetChanged()
-                    updateBatchCount()
-                    tvBatchScannedCount.text = "已扫 ${batchSnList.size} 个"
-                }
-            },
-            onError = { msg ->
-                runOnUiThread {
-                    tvBatchScannedCount.text = "识别失败：$msg"
-                    Toast.makeText(this@MainActivity, "识别失败：$msg", Toast.LENGTH_SHORT).show()
-                }
-            }
-        )
-    }
 
-    // ===== 单条：展示识别结果 =====
     private fun showResult(result: LabelResult) {
         currentResult = result
 
@@ -538,6 +367,10 @@ class MainActivity : AppCompatActivity() {
         etMaterial.setText(result.materialCode)
         etDate.setText(result.productionDate)
         etSn.setText(result.serialNumber)
+        // 多 SN：识别主 SN 自动进入列表（可追加/删除）
+        snList.clear()
+        if (result.serialNumber.isNotBlank()) snList.add(result.serialNumber)
+        rebuildSnList()
         etEan69.setText(result.ean69)
         etModel.setText(result.model)
         etColor.setText(result.color)
@@ -594,31 +427,56 @@ class MainActivity : AppCompatActivity() {
         // 人工确认/修正后的值
         r.materialCode = etMaterial.text.toString().trim()
         r.productionDate = etDate.text.toString().trim()
-        r.serialNumber = etSn.text.toString().trim()
         r.ean69 = etEan69.text.toString().trim()
         r.model = etModel.text.toString().trim()
         r.color = etColor.text.toString().trim()
         r.tonerModel = etToner.text.toString().trim()
 
-        if (r.serialNumber.isEmpty()) {
-            Toast.makeText(this, "序列号不能为空", Toast.LENGTH_SHORT).show()
-            return
+        // 多 SN：优先用列表（可手动追加/扫码添加）；列表空则用输入框
+        if (etSn.text.toString().isNotBlank() &&
+            etSn.text.toString().trim() !in snList &&
+            snList.isNotEmpty()
+        ) {
+            // 输入框有新值且不在列表 → 视为追加项
+            snList.add(etSn.text.toString().trim())
+        }
+        if (snList.isEmpty()) {
+            val single = etSn.text.toString().trim()
+            if (single.isEmpty()) {
+                Toast.makeText(this, "序列号不能为空", Toast.LENGTH_SHORT).show()
+                return
+            }
+            snList.add(single)
         }
 
-        // 托盘码：记录到 trayCode 字段，不修改原始 serialNumber
         val trayCode = etTrayCode.text.toString().trim()
-        if (trayCode.isNotEmpty()) {
-            r.trayCode = trayCode
-        }
 
-        savedResults.add(r)
+        // 每 SN 一条记录（共享物料/日期/托盘）
+        val added = mutableListOf<LabelResult>()
+        for (sn in snList) {
+            val rec = LabelResult(
+                materialCode = r.materialCode,
+                productionDate = r.productionDate,
+                serialNumber = sn,
+                ean69 = r.ean69,
+                model = r.model,
+                color = r.color,
+                tonerModel = r.tonerModel,
+                trayCode = trayCode,
+                boxCode = r.boxCode,
+                barcodes = r.barcodes,
+                ocrText = r.ocrText,
+            )
+            savedResults.add(rec)
+            added.add(rec)
+            // 自动学习：69码 → 物料编码 映射（为以后反查积累）
+            lookup69?.learn(rec.ean69, rec.materialCode)
+        }
         RecordStore.save(this, savedResults)
-        // 自动学习：69码 → 物料编码 映射（为以后反查积累）
-        lookup69?.learn(r.ean69, r.materialCode)
         updateCount()
         Toast.makeText(
             this,
-            "✅ 已保存（共 ${savedResults.size} 条，反查表 ${lookup69?.size() ?: 0} 条）",
+            "✅ 已保存 ${added.size} 条（共 ${savedResults.size} 条，反查表 ${lookup69?.size() ?: 0} 条）",
             Toast.LENGTH_SHORT
         ).show()
         clearCurrent()
@@ -675,99 +533,47 @@ class MainActivity : AppCompatActivity() {
         etMaterial.setText("")
         etDate.setText("")
         etSn.setText("")
+        snList.clear()
+        rebuildSnList()
         etEan69.setText("")
         etModel.setText("")
         etColor.setText("")
         etToner.setText("")
     }
 
+    /** 手动新增 SN：输入框内容加入列表 */
+    private fun addSnFromInput() {
+        val sn = etSn.text.toString().trim()
+        if (sn.isEmpty()) {
+            Toast.makeText(this, "先在序列号框输入内容", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (sn in snList) {
+            Toast.makeText(this, "序列号已存在", Toast.LENGTH_SHORT).show()
+            return
+        }
+        snList.add(sn)
+        rebuildSnList()
+        etSn.setText("")
+    }
+
+    /** 重建 SN 列表行（动态 LinearLayout，支持删除） */
+    private fun rebuildSnList() {
+        llSnList.removeAllViews()
+        for ((index, sn) in snList.withIndex()) {
+            val row = layoutInflater.inflate(R.layout.item_sn_row, llSnList, false)
+            row.findViewById<TextView>(R.id.tvSnItem).text = "${index + 1}. $sn"
+            row.findViewById<Button>(R.id.btnDelSn).setOnClickListener {
+                snList.remove(sn)
+                rebuildSnList()
+            }
+            llSnList.addView(row)
+        }
+    }
+
     // ===== 批量：保存全部 =====
-    private fun saveBatchAll() {
-        if (!batchSharedConfirmed) {
-            Toast.makeText(this, "请先确认共享信息", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (batchSnList.isEmpty()) {
-            Toast.makeText(this, "没有扫描到任何序列号", Toast.LENGTH_SHORT).show()
-            return
-        }
 
-        val material = etBatchMaterial.text.toString().trim()
-        val date = etBatchDate.text.toString().trim()
-        val ean69 = etBatchEan69.text.toString().trim()
-        val model = etBatchModel.text.toString().trim()
-        val color = etBatchColor.text.toString().trim()
-        val toner = etBatchToner.text.toString().trim()
-        val trayCode = etTrayCode.text.toString().trim()
 
-        var saved = 0
-        for (sn in batchSnList) {
-            val result = LabelResult(
-                barcodes = listOf(sn),
-                ocrText = "",
-                supplier = "NA",
-                materialCode = material,
-                quantity = 1,
-                productionDate = if (date.isNotEmpty()) date else "19000101",
-                ean69 = ean69,
-                model = model,
-                color = color,
-                tonerModel = toner,
-                serialNumber = sn,
-                trayCode = trayCode
-            )
-            savedResults.add(result)
-            saved++
-        }
-        RecordStore.save(this, savedResults)
-        updateCount()
-
-        Toast.makeText(this, "✅ 批量保存 $saved 条（托盘：${trayCode.ifBlank { "无" }}）", Toast.LENGTH_LONG).show()
-
-        // 重置批量模式，准备下一托盘
-        batchSnList.clear()
-        batchSnAdapter?.notifyDataSetChanged()
-        resetBatchMode()
-        updateBatchCount()
-    }
-
-    private fun updateBatchCount() {
-        tvBatchScannedCount.text = "已扫 ${batchSnList.size} 个"
-        tvBatchCount.text = "📋 本托盘 ${batchSnList.size} 条"
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        when (requestCode) {
-            REQ_LIST -> {
-                savedResults = RecordStore.load(this)
-                updateCount()
-            }
-            REQ_DOC_SCAN -> {
-                if (resultCode == RESULT_OK && data != null) {
-                    val result = GmsDocumentScanningResult.fromActivityResultIntent(data)
-                    val uri: Uri? = result?.pages?.firstOrNull()?.imageUri
-                    if (uri != null) {
-                        recognizeStatic(uri)
-                    } else {
-                        Toast.makeText(this, "扫描结果为空", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        StaticRecognizer.close()
-    }
-
-    companion object {
-        private const val REQ_LIST = 1002
-        private const val REQ_DOC_SCAN = 1003
-    }
-
-    // ===== 扫码填字段：托盘码 / 物料编码 / 批量物料编码 =====
     private fun launchScanForTrayCode() {
         pickImageLauncher.launch("image/*") // 复用相册选择，结果通过 scanTrayCodeLauncher 处理
         // 实际上需要用 scanTrayCodeLauncher，但 pickImageLauncher 已经定义了
@@ -782,9 +588,6 @@ class MainActivity : AppCompatActivity() {
         scanMaterialLauncher.launch("image/*")
     }
 
-    private fun launchScanForBatchMaterial() {
-        scanBatchMaterialLauncher.launch("image/*")
-    }
 
     private fun recognizeForField(uri: Uri, field: String) {
         StaticRecognizer.recognizeUri(
@@ -819,7 +622,6 @@ class MainActivity : AppCompatActivity() {
         when (field) {
             "trayCode" -> etTrayCode.setText(code)
             "material" -> etMaterial.setText(code)
-            "batchMaterial" -> etBatchMaterial.setText(code)
         }
         Toast.makeText(this, "已填入 $field: $code", Toast.LENGTH_SHORT).show()
     }
@@ -828,7 +630,6 @@ class MainActivity : AppCompatActivity() {
         val fieldLabel = when (field) {
             "trayCode" -> "托盘码"
             "material" -> "物料编码"
-            "batchMaterial" -> "批量物料编码"
             else -> field
         }
         val items = barcodes.map { "📦 $it" }.toTypedArray()
@@ -842,42 +643,3 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ===== 批量序列号 RecyclerView Adapter =====
-    private class BatchSnAdapter(
-        private val snList: List<String>,
-        private val onLongClick: (String) -> Unit
-    ) : RecyclerView.Adapter<BatchSnAdapter.VH>() {
-
-        inner class VH(view: View) : RecyclerView.ViewHolder(view) {
-            val tvSn: TextView = view.findViewById(android.R.id.text1)
-            val tvIndex: TextView = view.findViewById(android.R.id.text2)
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-            val view = LayoutInflater.from(parent.context)
-                .inflate(android.R.layout.simple_list_item_2, parent, false)
-            return VH(view)
-        }
-
-        override fun onBindViewHolder(holder: VH, position: Int) {
-            val sn = snList[position]
-            holder.tvSn.text = "#${position + 1}  $sn"
-            holder.tvIndex.text = if (sn.length >= 12 && sn.take(12).all { it.isDigit() } && sn.substring(10, 12) == "01")
-                "⚠️ 疑似含物料编码(12位+01)，建议确认"
-            else ""
-            holder.itemView.setOnLongClickListener {
-                onLongClick(sn)
-                true
-            }
-        }
-
-        override fun getItemCount() = snList.size
-    }
-
-    /** 复制到剪贴板并 Toast 提示 */
-    private fun copyToClipboard(label: String, text: String) {
-        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val clip = android.content.ClipData.newPlainText(label, text)
-        clipboard.setPrimaryClip(clip)
-        Toast.makeText(this, "✅ 已复制 $label 到剪贴板", Toast.LENGTH_SHORT).show()
-    }
-}

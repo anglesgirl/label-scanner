@@ -49,31 +49,31 @@
             android:textStyle="bold" />
 
         <Button
-                                android:id="@+id/btnNextTray"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="8dp"
-                                android:backgroundTint="#e65100"
-                                android:paddingHorizontal="16dp"
-                                android:text="下一托盘"
-                                android:textColor="#ffffff"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
+            android:id="@+id/btnNextTray"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#e65100"
+            android:paddingHorizontal="16dp"
+            android:text="下一托盘"
+            android:textColor="#ffffff"
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
-                            <Button
-                                android:id="@+id/btnSettings"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="8dp"
-                                android:backgroundTint="#4a5568"
-                                android:paddingHorizontal="12dp"
-                                android:text="⚙️"
-                                android:textColor="#ffffff"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
+        <Button
+            android:id="@+id/btnSettings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#4a5568"
+            android:paddingHorizontal="12dp"
+            android:text="⚙️"
+            android:textColor="#ffffff"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
-    <!-- 模式切换：单条识别 / 整板快速录入 -->
+    <!-- 录入入口：单条识别（含多SN）/ 单箱入库 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -93,17 +93,6 @@
             android:textStyle="bold" />
 
         <Button
-            android:id="@+id/btnModeBatch"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#1565c0"
-            android:text="⚡ 整板快速录入"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-
-        <Button
             android:id="@+id/btnModeBox"
             android:layout_width="0dp"
             android:layout_height="44dp"
@@ -113,9 +102,20 @@
             android:text="📦 单箱入库"
             android:textSize="14sp"
             android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnGotoCenter"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#1565c0"
+            android:text="🗂️ 托盘中心"
+            android:textSize="14sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 单条识别面板 -->
+    <!-- 单条识别面板（主面板，含多 SN 扩展） -->
     <LinearLayout
         android:id="@+id/panelSingle"
         android:layout_width="match_parent"
@@ -228,27 +228,27 @@
 
                 <!-- 字段编辑 -->
                 <TextView style="@style/FieldLabel" android:text="物料编码（D列）" />
-                            <LinearLayout
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:orientation="horizontal">
-                                <EditText
-                                    android:id="@+id/etMaterial"
-                                    style="@style/FieldInput"
-                                    android:layout_width="0dp"
-                                    android:layout_weight="1" />
-                                <Button
-                                    android:id="@+id/btnScanMaterial"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginStart="8dp"
-                                    android:backgroundTint="#00838f"
-                                    android:paddingHorizontal="16dp"
-                                    android:text="📷 扫码"
-                                    android:textColor="#ffffff"
-                                    android:textSize="13sp"
-                                    android:textStyle="bold" />
-                            </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <EditText
+                        android:id="@+id/etMaterial"
+                        style="@style/FieldInput"
+                        android:layout_width="0dp"
+                        android:layout_weight="1" />
+                    <Button
+                        android:id="@+id/btnScanMaterial"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:backgroundTint="#00838f"
+                        android:paddingHorizontal="16dp"
+                        android:text="📷 扫码"
+                        android:textColor="#ffffff"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
 
                 <TextView style="@style/FieldLabel" android:text="生产日期（I列 yyyymmdd）" />
                 <EditText
@@ -256,10 +256,48 @@
                     style="@style/FieldInput"
                     android:inputType="number" />
 
-                <TextView style="@style/FieldLabel" android:text="序列号/箱号（E列+O列）" />
-                <EditText
-                    android:id="@+id/etSn"
-                    style="@style/FieldInput" />
+                <!-- 序列号（多 SN 支持：识别主 SN + 手动/扫码追加） -->
+                <TextView style="@style/FieldLabel" android:text="序列号 / 箱号（一次可多条，每 SN 存一行）" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <EditText
+                        android:id="@+id/etSn"
+                        style="@style/FieldInput"
+                        android:layout_width="0dp"
+                        android:layout_weight="1" />
+                    <Button
+                        android:id="@+id/btnScanAddSn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:backgroundTint="#6a1b9a"
+                        android:paddingHorizontal="12dp"
+                        android:text="🔍 扫加"
+                        android:textColor="#ffffff"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                    <Button
+                        android:id="@+id/btnAddSn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:backgroundTint="#1b9e4b"
+                        android:paddingHorizontal="12dp"
+                        android:text="＋ 新增"
+                        android:textColor="#ffffff"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/llSnList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:orientation="vertical" />
 
                 <TextView style="@style/FieldLabel" android:text="69 商品码（反查钥匙）" />
                 <EditText
@@ -294,7 +332,7 @@
                         android:layout_height="64dp"
                         android:layout_weight="1"
                         android:backgroundTint="#2e7d32"
-                        android:text="✅ 保存本条"
+                        android:text="✅ 保存（N 条）"
                         android:textSize="18sp"
                         android:textStyle="bold" />
 
@@ -333,7 +371,7 @@
                         android:layout_height="56dp"
                         android:backgroundTint="#6a1b9a"
                         android:paddingHorizontal="20dp"
-                        android:text="📋 数据列表"
+                        android:text="🗂️ 托盘中心"
                         android:textSize="15sp"
                         android:textStyle="bold" />
 
@@ -372,226 +410,5 @@
                     android:textStyle="bold" />
             </LinearLayout>
         </ScrollView>
-    </LinearLayout>
-
-    <!-- 整板快速录入面板 -->
-    <LinearLayout
-        android:id="@+id/panelBatch"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:visibility="gone">
-
-        <!-- 共享字段设置（只需填一次） -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="12dp"
-            android:background="#16213e">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="📦 整板共享信息（填一次，自动应用到所有条码）"
-                android:textColor="#00e5ff"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:paddingBottom="8dp" />
-
-            <TextView style="@style/FieldLabel" android:text="物料编码（必填）" />
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                <EditText
-                    android:id="@+id/etBatchMaterial"
-                    style="@style/FieldInput"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:hint="如：1234567890" />
-                <Button
-                    android:id="@+id/btnScanBatchMaterial"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:backgroundTint="#00838f"
-                    android:paddingHorizontal="16dp"
-                    android:text="📷 扫码"
-                    android:textColor="#ffffff"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <TextView style="@style/FieldLabel" android:text="生产日期（必填，yyyymmdd）" />
-            <EditText
-                android:id="@+id/etBatchDate"
-                style="@style/FieldInput"
-                android:inputType="number"
-                android:hint="如：20250809" />
-
-            <TextView style="@style/FieldLabel" android:text="69 商品码（选填，用于反查）" />
-            <EditText
-                android:id="@+id/etBatchEan69"
-                style="@style/FieldInput"
-                android:hint="69开头13位" />
-
-            <TextView style="@style/FieldLabel" android:text="型号/颜色/硒鼓（选填）" />
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                <EditText
-                    android:id="@+id/etBatchModel"
-                    style="@style/FieldInput"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:hint="型号" />
-                <EditText
-                    android:id="@+id/etBatchColor"
-                    style="@style/FieldInput"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp"
-                    android:hint="颜色" />
-                <EditText
-                    android:id="@+id/etBatchToner"
-                    style="@style/FieldInput"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp"
-                    android:hint="硒鼓" />
-            </LinearLayout>
-
-            <Button
-                android:id="@+id/btnBatchApplyShared"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_marginTop="12dp"
-                android:backgroundTint="#6a1b9a"
-                android:text="✅ 确认共享信息，开始扫描序列号"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <!-- 序列号扫描区 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:padding="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingBottom="8dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📷 扫描序列号条码（仅识别 SN，自动去重）"
-                    android:textColor="#00e5ff"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvBatchScannedCount"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:gravity="end"
-                    android:text="已扫 0 个"
-                    android:textColor="#ffd54f"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <!-- 扫描入口 -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingBottom="12dp">
-
-                <Button
-                    android:id="@+id/btnBatchCamera"
-                    android:layout_width="0dp"
-                    android:layout_height="56dp"
-                    android:layout_weight="1"
-                    android:backgroundTint="#2e7d32"
-                    android:text="📷 拍照扫码"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <Button
-                    android:id="@+id/btnBatchGallery"
-                    android:layout_width="0dp"
-                    android:layout_height="56dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp"
-                    android:backgroundTint="#00838f"
-                    android:text="🖼 相册导入"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <!-- 已扫序列号列表 -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="已扫序列号（可长按删除）"
-                android:textColor="#ffffff"
-                android:textSize="13sp"
-                android:paddingBottom="4dp" />
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvBatchSnList"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <!-- 底部操作栏 -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tvBatchCount"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="📋 本托盘 0 条"
-                    android:textColor="#00e5ff"
-                    android:textSize="14sp" />
-
-                <Button
-                    android:id="@+id/btnBatchClear"
-                    android:layout_width="wrap_content"
-                    android:layout_height="56dp"
-                    android:backgroundTint="#c62828"
-                    android:paddingHorizontal="20dp"
-                    android:text="🗑 清空重扫"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <Button
-                    android:id="@+id/btnBatchSaveAll"
-                    android:layout_width="wrap_content"
-                    android:layout_height="56dp"
-                    android:layout_marginStart="8dp"
-                    android:backgroundTint="#2e7d32"
-                    android:paddingHorizontal="20dp"
-                    android:text="💾 批量保存"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
