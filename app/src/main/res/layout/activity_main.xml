@@ -5,72 +5,84 @@
     android:orientation="vertical"
     android:background="#1a1a2e">
 
-    <!-- 托盘码栏（顶部固定） -->
+    <!-- 托盘码栏：输入行 + 功能行（两行，避免窄屏挤压） -->
     <LinearLayout
         android:id="@+id/trayBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:background="#16213e"
-        android:gravity="center_vertical">
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:background="#16213e">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="📦 托盘码："
-            android:textColor="#00e5ff"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <EditText
-            android:id="@+id/etTrayCode"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:background="@android:color/white"
-            android:hint="扫描/输入托盘码"
-            android:inputType="textCapCharacters"
-            android:padding="10dp"
-            android:textColor="#000000"
-            android:textSize="15sp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📦 托盘码："
+                android:textColor="#00e5ff"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnScanTrayCode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#00838f"
-            android:paddingHorizontal="16dp"
-            android:text="📷 扫码"
-            android:textColor="#ffffff"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            <EditText
+                android:id="@+id/etTrayCode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@android:color/white"
+                android:hint="扫描/输入托盘码"
+                android:inputType="textCapCharacters"
+                android:padding="8dp"
+                android:textColor="#000000"
+                android:textSize="14sp" />
 
-        <Button
-            android:id="@+id/btnNextTray"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#e65100"
-            android:paddingHorizontal="16dp"
-            android:text="下一托盘"
-            android:textColor="#ffffff"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            <Button
+                android:id="@+id/btnScanTrayCode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#00838f"
+                android:paddingHorizontal="12dp"
+                android:text="📷 扫码"
+                android:textColor="#ffffff"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/btnSettings"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#4a5568"
-            android:paddingHorizontal="12dp"
-            android:text="⚙️"
-            android:textColor="#ffffff"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnNextTray"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:backgroundTint="#e65100"
+                android:text="✅ 下一托盘"
+                android:textColor="#ffffff"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnSettings"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#4a5568"
+                android:text="⚙️ 设置"
+                android:textColor="#ffffff"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 录入入口：单条识别（含多SN）/ 单箱入库 -->

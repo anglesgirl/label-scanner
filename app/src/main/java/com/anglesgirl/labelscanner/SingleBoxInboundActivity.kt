@@ -44,6 +44,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private lateinit var etDate: EditText
     private lateinit var etModel: EditText
     private lateinit var etManualSn: EditText
+    private lateinit var etTrayCode: EditText
     private lateinit var llSnList: LinearLayout
     private lateinit var llCodeCandidates: LinearLayout
     private lateinit var tvBoxStatus: TextView
@@ -133,6 +134,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etDate = findViewById(R.id.etDate)
         etModel = findViewById(R.id.etModel)
         etManualSn = findViewById(R.id.etManualSn)
+        etTrayCode = findViewById(R.id.etTrayCode)
         llSnList = findViewById(R.id.llSnList)
         llCodeCandidates = findViewById(R.id.llCodeCandidates)
         tvBoxStatus = findViewById(R.id.tvBoxStatus)
@@ -150,6 +152,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             R.id.btnScanBox to etBox,
             R.id.btnScanDate to etDate,
             R.id.btnScanModel to etModel,
+            R.id.btnScanTrayCode to etTrayCode,
         )
         for ((btnId, field) in scanMap) {
             findViewById<Button>(btnId).setOnClickListener {
@@ -288,6 +291,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         val box = etBox.text.toString().trim()
         val date = etDate.text.toString().trim()
         val model = etModel.text.toString().trim()
+        val tray = etTrayCode.text.toString().trim()
 
         if (snList.isEmpty()) {
             Toast.makeText(this, "序列号列表为空，无法保存", Toast.LENGTH_SHORT).show()
@@ -311,6 +315,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 productionDate = date,
                 model = model,
                 boxCode = box,
+                trayCode = tray,
             )
         }
         RecordStore.append(this, records)
@@ -325,6 +330,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etDate.setText("")
         etModel.setText("")
         etManualSn.setText("")
+        etTrayCode.setText("")
         snList.clear()
         codeCandidates.clear()
         rebuildSnList()
