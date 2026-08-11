@@ -172,12 +172,12 @@
                 android:text="＋添加" />
         </LinearLayout>
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvSnList"
+        <LinearLayout
+            android:id="@+id/llSnList"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:nestedScrollingEnabled="false" />
+            android:layout_marginTop="4dp"
+            android:orientation="vertical" />
 
         <!-- 操作按钮 -->
         <Button

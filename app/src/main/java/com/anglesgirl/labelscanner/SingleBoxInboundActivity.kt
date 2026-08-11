@@ -6,17 +6,14 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
@@ -41,11 +38,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private lateinit var etDate: EditText
     private lateinit var etModel: EditText
     private lateinit var etManualSn: EditText
-    private lateinit var rvSnList: RecyclerView
+    private lateinit var llSnList: LinearLayout
     private lateinit var tvBoxStatus: TextView
 
     private val snList = mutableListOf<String>()
-    private lateinit var snAdapter: SnAdapter
 
     private var pendingPhotoUri: Uri? = null
     private var photoFile: File? = null
@@ -79,7 +75,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etDate = findViewById(R.id.etDate)
         etModel = findViewById(R.id.etModel)
         etManualSn = findViewById(R.id.etManualSn)
-        rvSnList = findViewById(R.id.rvSnList)
+        llSnList = findViewById(R.id.llSnList)
         tvBoxStatus = findViewById(R.id.tvBoxStatus)
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
@@ -89,9 +85,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSaveBox).setOnClickListener { saveBox() }
         findViewById<Button>(R.id.btnResetBox).setOnClickListener { resetBox() }
 
-        snAdapter = SnAdapter(snList) { sn -> snList.remove(sn); snAdapter.notifyDataSetChanged(); updateStatus() }
-        rvSnList.layoutManager = LinearLayoutManager(this)
-        rvSnList.adapter = snAdapter
+        rebuildSnList()
         updateStatus()
     }
 
@@ -155,7 +149,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     etModel.setText(box.model)
                     snList.clear()
                     snList.addAll(box.serialNumbers)
-                    snAdapter.notifyDataSetChanged()
+                    rebuildSnList()
 
                     val tips = mutableListOf<String>()
                     if (box.materialCode.isBlank()) tips.add("⚠️ 未识别到物料(SAP)，请手动输入")
@@ -182,7 +176,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         }
         if (sn !in snList) {
             snList.add(sn)
-            snAdapter.notifyDataSetChanged()
+            rebuildSnList()
             etManualSn.setText("")
             updateStatus()
         } else {
@@ -234,7 +228,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etModel.setText("")
         etManualSn.setText("")
         snList.clear()
-        snAdapter.notifyDataSetChanged()
+        rebuildSnList()
         updateStatus()
     }
 
@@ -243,29 +237,19 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         tvBoxStatus.text = if (n == 0) "序列号 0 个" else "📦 序列号 $n 个，保存后每 SN 一行"
     }
 
-    /** SN 列表适配器：单行文本 + 删除按钮 */
-    class SnAdapter(
-        private val items: MutableList<String>,
-        private val onRemove: (String) -> Unit,
-    ) : RecyclerView.Adapter<SnAdapter.VH>() {
-
-        class VH(view: View) : RecyclerView.ViewHolder(view) {
-            val tvSn: TextView = view.findViewById(R.id.tvSnItem)
-            val btnDel: Button = view.findViewById(R.id.btnDelSn)
+    /** 重建 SN 行列表（LinearLayout 动态加行，避免 RecyclerView 在 ScrollView 内显示不全） */
+    private fun rebuildSnList() {
+        llSnList.removeAllViews()
+        for ((index, sn) in snList.withIndex()) {
+            val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llSnList, false)
+            row.findViewById<TextView>(R.id.tvSnItem).text = "${index + 1}. $sn"
+            row.findViewById<Button>(R.id.btnDelSn).setOnClickListener {
+                snList.remove(sn)
+                rebuildSnList()
+                updateStatus()
+            }
+            llSnList.addView(row)
         }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-            val v = LayoutInflater.from(parent.context)
-                .inflate(R.layout.item_sn_row, parent, false)
-            return VH(v)
-        }
-
-        override fun onBindViewHolder(holder: VH, position: Int) {
-            val sn = items[position]
-            holder.tvSn.text = "${position + 1}. $sn"
-            holder.btnDel.setOnClickListener { onRemove(sn) }
-        }
-
-        override fun getItemCount() = items.size
+        updateStatus()
     }
 }
