@@ -627,19 +627,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showBarcodePickerDialog(field: String, barcodes: List<String>) {
-        val fieldLabel = when (field) {
-            "trayCode" -> "托盘码"
-            "material" -> "物料编码"
-            else -> field
-        }
-        val items = barcodes.map { "📦 $it" }.toTypedArray()
-        android.app.AlertDialog.Builder(this)
-            .setTitle("识别到 ${barcodes.size} 个条码，请选择填入【$fieldLabel】")
-            .setItems(items) { _, which ->
-                fillField(field, barcodes[which])
+            val fieldLabel = when (field) {
+                "trayCode" -> "托盘码"
+                "material" -> "物料编码"
+                else -> field
             }
-            .setNegativeButton("取消", null)
-            .show()
-    }
+            val items = barcodes.map { "📦 $it" }.toTypedArray()
+            android.app.AlertDialog.Builder(this)
+                .setTitle("识别到 ${barcodes.size} 个条码，请选择填入【$fieldLabel】")
+                .setItems(items) { _, which ->
+                    fillField(field, barcodes[which])
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
 
-    // ===== 批量序列号 RecyclerView Adapter =====
+        companion object {
+            const val REQ_LIST = 1001
+        }
+
+        override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+            super.onActivityResult(requestCode, resultCode, data)
+            if (requestCode == REQ_LIST) {
+                // 从托盘中心返回：刷新记录数
+                savedResults = com.anglesgirl.labelscanner.data.RecordStore.load(this)
+                updateCount()
+            }
+        }
+
+        private fun copyToClipboard(label: String, text: String) {
+            if (text.isBlank()) return
+            val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+            Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show()
+        }
+    }
