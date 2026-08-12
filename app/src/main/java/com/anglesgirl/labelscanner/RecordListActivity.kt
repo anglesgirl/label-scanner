@@ -98,9 +98,9 @@ class RecordListActivity : AppCompatActivity() {
             val boxCount = g.items.map { it.boxCode }.filter { it.isNotBlank() }.distinct().size
             val boxText = if (boxCount > 0) " ${boxCount}箱" else ""
             row.text = if (g.trayCode == "（未分配）") {
-                "❓ ${g.trayCode}（${snCount} 条$boxText）— 长按分配托盘号"
+                "❓ ${g.trayCode}（${snCount} 条$boxText）— 长按操作"
             } else {
-                "📦 ${g.trayCode}（${snCount} 条$boxText）"
+                "📦 ${g.trayCode}（${snCount} 条$boxText）— 长按操作"
             }
             row.textSize = 14f
             row.isChecked = g.trayCode in checked
@@ -108,27 +108,48 @@ class RecordListActivity : AppCompatActivity() {
                 if (isChecked) checked.add(g.trayCode) else checked.remove(g.trayCode)
                 rebuildDetail()
             }
-            // 未分配组：长按弹窗批量分配托盘号
-            if (g.trayCode == "（未分配）") {
-                row.setOnLongClickListener {
-                    showAssignTrayDialog(g)
-                    true
-                }
+            // 长按 → 托盘级操作（编辑托盘号 / 删除整个托盘）
+            row.setOnLongClickListener {
+                showTrayActions(g)
+                true
             }
             llTrayGroups.addView(row)
         }
     }
 
-    /** 给未分配记录批量分配托盘号 */
-    private fun showAssignTrayDialog(group: TrayGroup) {
+    /** 托盘级操作菜单：编辑托盘号 / 删除整个托盘 */
+    private fun showTrayActions(group: TrayGroup) {
+        val isUnassigned = group.trayCode == "（未分配）"
+        val actions = arrayOf(
+            "✏️ ${if (isUnassigned) "分配托盘号" else "编辑托盘号"}",
+            "🗑️ 删除托盘（${group.items.size} 条）",
+        )
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(if (isUnassigned) "未分配记录" else "托盘 ${group.trayCode}")
+            .setItems(actions) { _, which ->
+                when (which) {
+                    0 -> showEditTrayDialog(group, isUnassigned)
+                    1 -> showDeleteTrayDialog(group, isUnassigned)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 编辑托盘号：未分配组 = 批量分配；已分配组 = 整体改名 */
+    private fun showEditTrayDialog(group: TrayGroup, isUnassigned: Boolean) {
         val input = android.widget.EditText(this).apply {
-            hint = "输入托盘号（应用到未分配的 ${group.items.size} 条）"
+            hint = if (isUnassigned) {
+                "输入托盘号（应用到 ${group.items.size} 条）"
+            } else {
+                "输入新托盘号（${group.items.size} 条）"
+            }
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("分配托盘号")
+            .setTitle(if (isUnassigned) "分配托盘号" else "编辑托盘号")
             .setView(input)
-            .setPositiveButton("分配") { _, _ ->
+            .setPositiveButton(if (isUnassigned) "分配" else "保存") { _, _ ->
                 val tray = input.text.toString().trim()
                 if (tray.isEmpty()) {
                     Toast.makeText(this, "托盘号不能为空", Toast.LENGTH_SHORT).show()
@@ -137,13 +158,43 @@ class RecordListActivity : AppCompatActivity() {
                 val full = RecordStore.load(this).toMutableList()
                 var count = 0
                 for (r in full) {
-                    if (r.trayCode.isBlank()) {
+                    val matches = if (isUnassigned) r.trayCode.isBlank() else r.trayCode == group.trayCode
+                    if (matches) {
                         r.trayCode = tray
                         count++
                     }
                 }
                 RecordStore.save(this, full)
-                Toast.makeText(this, "已分配 $count 条记录到托盘 $tray", Toast.LENGTH_SHORT).show()
+                checked.remove(group.trayCode)
+                Toast.makeText(
+                    this,
+                    if (isUnassigned) "已分配 $count 条记录到托盘 $tray"
+                    else "已将 $count 条记录改到托盘 $tray",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                refresh()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 删除整个托盘（含其下全部记录），二次确认防误删 */
+    private fun showDeleteTrayDialog(group: TrayGroup, isUnassigned: Boolean) {
+        val count = group.items.size
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("删除托盘")
+            .setMessage(
+                if (isUnassigned) "将删除全部未分配记录（$count 条），此操作不可恢复！"
+                else "将删除托盘 ${group.trayCode} 及其全部 $count 条记录，此操作不可恢复！",
+            )
+            .setPositiveButton("删除") { _, _ ->
+                val full = RecordStore.load(this).toMutableList()
+                val kept = full.filterNot {
+                    if (isUnassigned) it.trayCode.isBlank() else it.trayCode == group.trayCode
+                }
+                RecordStore.save(this, kept)
+                checked.remove(group.trayCode)
+                Toast.makeText(this, "已删除托盘，共 $count 条记录", Toast.LENGTH_SHORT).show()
                 refresh()
             }
             .setNegativeButton("取消", null)
