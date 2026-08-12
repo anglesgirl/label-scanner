@@ -50,8 +50,15 @@ object Exporter {
         }
     }
 
-    /** WMS 导出：库存导入模板 DATA01~DATA14（默认 .xlsx；POI 在 Android 不稳
- *  会 NoClassDefFoundError → 自动降级 .csv，保证导出不闪退） */
+    /**
+     * WMS 导出：库存导入模板 DATA01~DATA14（默认 .xlsx；POI 在 Android 不稳
+     * 会 NoClassDefFoundError → 自动降级 .csv，保证导出不闪退）
+     *
+     * 模板结构（用户确认，xlsx 与 csv 完全一致）：
+     *   第 1 行：1, DATA01, DATA02, ..., DATA14   （顶部 DATA 编码行，保留）
+     *   第 2 行： , 库位, 卡板/托盘, 物料编码, 箱号, ..., SN码  （中文说明行，保留）
+     *   第 3 行起：数据（A 列空，B~O 列 14 个值，与 DATA01..14 对齐）
+     */
     fun exportWms(context: Context, records: List<LabelResult>): Uri? {
         val trayCode = records.firstOrNull()?.trayCode?.takeIf { it.isNotBlank() }
         val baseName = trayCode ?: "wms_import_${System.currentTimeMillis()}"
@@ -76,18 +83,29 @@ object Exporter {
         }
     }
 
-    /** WMS CSV（降级方案）：第 1 行 1,DATA01..DATA14，第 2 行表头，数据行 */
+    /** WMS 模板：第 1 行 DATA 编码行（1, DATA01..DATA14），第 2 行中文说明行 */
+    private val WMS_DATA_HEADERS = arrayOf(
+        "DATA01", "DATA02", "DATA03", "DATA04", "DATA05",
+        "DATA06", "DATA07", "DATA08", "DATA09", "DATA10",
+        "DATA11", "DATA12", "DATA13", "DATA14"
+    )
+
+    private val WMS_LABEL_HEADERS = arrayOf(
+        "库位", "卡板/托盘", "物料编码", "箱号", "数量", "工厂", "库存地",
+        "生产日期", "销售公司", "销售订单|行号", "供应商", "特别加工指示书编号",
+        "WCS库位", "SN码"
+    )
+
+    /** WMS CSV（降级方案）：15 列对齐 —— A 列固定标记，B~O 列 DATA/说明/数据 */
     private fun exportWmsCsvRaw(records: List<LabelResult>): String {
-        val header = arrayOf(
-            "库位", "卡板/托盘", "物料编码", "箱号", "数量", "工厂", "库存地",
-            "生产日期", "销售公司", "销售订单|行号", "供应商", "特别加工指示书编号",
-            "WCS库位", "SN码"
-        )
-        val sb = StringBuilder("1,")
-        sb.append(header.joinToString(",")).append("\n")
-        sb.append(header.joinToString(",")).append("\n")
+        val sb = StringBuilder()
+        // 第 1 行：DATA 编码行（顶部保留）
+        sb.append("1,").append(WMS_DATA_HEADERS.joinToString(",")).append("\n")
+        // 第 2 行：中文说明行（A 列空，与 DATA01 对齐）
+        sb.append(",").append(WMS_LABEL_HEADERS.joinToString(",")).append("\n")
+        // 数据行：A 列空，B~O 列 14 个值
         for (r in records) {
-            sb.append(buildWmsRow(r).joinToString(",")).append("\n")
+            sb.append(",").append(buildWmsRow(r).joinToString(",")).append("\n")
         }
         return sb.toString()
     }
@@ -159,9 +177,6 @@ object Exporter {
     ): Uri? {
         try {
             val workbook = buildWmsWorkbook(records)
-            val csv = buildString {
-                // 这里不需要 CSV 内容，只是占位
-            }
 
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             // 先删同名
@@ -226,37 +241,52 @@ object Exporter {
         headerStyle.fillForegroundColor = IndexedColors.GREY_25_PERCENT.index
         headerStyle.fillPattern = FillPatternType.SOLID_FOREGROUND
 
+        // 说明行样式：居中、浅黄背景（与数据行区分，WMS 导入时可忽略）
+        val labelStyle = workbook.createCellStyle()
+        labelStyle.alignment = HorizontalAlignment.CENTER
+        labelStyle.fillForegroundColor = IndexedColors.LIGHT_YELLOW.index
+        labelStyle.fillPattern = FillPatternType.SOLID_FOREGROUND
+
         // 数据样式：居中
         val dataStyle = workbook.createCellStyle()
         dataStyle.alignment = HorizontalAlignment.CENTER
 
-        // 表头行
-        val headerRow = sheet.createRow(0)
-        val headers = arrayOf(
-            "DATA01", "DATA02", "DATA03", "DATA04", "DATA05",
-            "DATA06", "DATA07", "DATA08", "DATA09", "DATA10",
-            "DATA11", "DATA12", "DATA13", "DATA14"
-        )
-        for (i in headers.indices) {
-            val cell = headerRow.createCell(i)
-            cell.setCellValue(headers[i])
-            cell.cellStyle = headerStyle
+        // 第 1 行：顶部 DATA 编码行（保留）—— A 列 "1"，B~O 列 DATA01..DATA14
+        val dataHeaderRow = sheet.createRow(0)
+        dataHeaderRow.createCell(0).apply {
+            setCellValue("1")
+            cellStyle = headerStyle
+        }
+        for (i in WMS_DATA_HEADERS.indices) {
+            dataHeaderRow.createCell(i + 1).apply {
+                setCellValue(WMS_DATA_HEADERS[i])
+                cellStyle = headerStyle
+            }
         }
 
-        // 数据行
+        // 第 2 行：中文说明行（保留）—— A 列空，B~O 列 库位/卡板/物料编码/箱号...
+        val labelRow = sheet.createRow(1)
+        for (i in WMS_LABEL_HEADERS.indices) {
+            labelRow.createCell(i + 1).apply {
+                setCellValue(WMS_LABEL_HEADERS[i])
+                cellStyle = labelStyle
+            }
+        }
+
+        // 数据行（第 3 行起）：A 列空，B~O 列 14 个值，与 DATA01..14 对齐
         for (rowIndex in records.indices) {
             val r = records[rowIndex]
-            val row = sheet.createRow(rowIndex + 1)
+            val row = sheet.createRow(rowIndex + 2)
             val values = buildWmsRow(r)
             for (colIndex in values.indices) {
-                val cell = row.createCell(colIndex)
+                val cell = row.createCell(colIndex + 1)
                 cell.setCellValue(values[colIndex])
                 cell.cellStyle = dataStyle
             }
         }
 
-        // 自动调整列宽
-        for (i in headers.indices) {
+        // 自动调整列宽（含 A 列）
+        for (i in 0..WMS_DATA_HEADERS.size) {
             sheet.autoSizeColumn(i)
             // 设置最小宽度，防止太窄
             if (sheet.getColumnWidth(i) < 3000) {
