@@ -100,6 +100,46 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
+            android:text="托盘号（必填，WMS 按托盘导入）"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="#33405A" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <EditText
+                android:id="@+id/etTrayCode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="扫描/输入托盘码"
+                android:textSize="15sp"
+                android:textColor="#14213D"
+                android:textColorHint="#9AA7BD"
+                android:inputType="text" />
+
+            <Button
+                android:id="@+id/btnScanTrayCode"
+                android:layout_width="wrap_content"
+                android:layout_height="42dp"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#33405A"
+                android:text="🔍 扫"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
             android:text="物料编码（SAP 号）"
             android:textSize="12sp"
             android:textStyle="bold"
@@ -164,46 +204,6 @@
 
             <Button
                 android:id="@+id/btnScanBox"
-                android:layout_width="wrap_content"
-                android:layout_height="42dp"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="#33405A"
-                android:text="🔍 扫"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:minWidth="64dp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp" />
-        </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="托盘号（选填，WMS 按托盘导入）"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:textColor="#33405A" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <EditText
-                android:id="@+id/etTrayCode"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="扫描/输入托盘码"
-                android:textSize="15sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
-                android:inputType="text" />
-
-            <Button
-                android:id="@+id/btnScanTrayCode"
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"

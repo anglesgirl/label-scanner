@@ -352,6 +352,7 @@ class SingleInboundActivity : AppCompatActivity() {
         if (material.isEmpty()) { Toast.makeText(this, "物料编码为空（识别不到请扫码或手输）", Toast.LENGTH_SHORT).show(); return }
 
         val tray = etTrayCode.text.toString().trim()
+        if (tray.isEmpty()) { Toast.makeText(this, "托盘号必填（扫描或输入托盘码）", Toast.LENGTH_SHORT).show(); return }
         val date = etDate.text.toString().trim()
         val ean = etEan69.text.toString().trim()
         val model = etModel.text.toString().trim()

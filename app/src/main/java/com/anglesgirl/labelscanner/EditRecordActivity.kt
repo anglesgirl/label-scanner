@@ -21,6 +21,7 @@ class EditRecordActivity : AppCompatActivity() {
 
     private lateinit var etSupplier: EditText
     private lateinit var etSn: EditText
+    private lateinit var etTrayCode: EditText
     private lateinit var etMaterial: EditText
     private lateinit var etQty: EditText
     private lateinit var etDate: EditText
@@ -48,6 +49,7 @@ class EditRecordActivity : AppCompatActivity() {
 
         etSupplier = findViewById(R.id.etSupplier)
         etSn = findViewById(R.id.etSn)
+        etTrayCode = findViewById(R.id.etTrayCode)
         etMaterial = findViewById(R.id.etMaterial)
         etQty = findViewById(R.id.etQty)
         etDate = findViewById(R.id.etDate)
@@ -67,6 +69,7 @@ class EditRecordActivity : AppCompatActivity() {
 
         etSupplier.setText(r.supplier)
         etSn.setText(r.serialNumber)
+        etTrayCode.setText(r.trayCode)
         etMaterial.setText(r.materialCode)
         etQty.setText(r.quantity.toString())
         etDate.setText(r.productionDate)
@@ -86,9 +89,15 @@ class EditRecordActivity : AppCompatActivity() {
             return
         }
         val old = records[index]
+        val trayCode = etTrayCode.text.toString().trim()
+        if (trayCode.isEmpty()) {
+            Toast.makeText(this, "托盘号必填", Toast.LENGTH_SHORT).show()
+            return
+        }
         val updated = old.copy(
             supplier = etSupplier.text.toString().trim().ifBlank { "NA" },
             serialNumber = etSn.text.toString().trim(),
+            trayCode = trayCode,
             materialCode = etMaterial.text.toString().trim(),
             quantity = etQty.text.toString().trim().toIntOrNull() ?: old.quantity,
             productionDate = etDate.text.toString().trim(),

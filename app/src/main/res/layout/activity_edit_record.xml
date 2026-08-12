@@ -26,6 +26,9 @@
         <TextView style="@style/FieldLabel" android:text="箱号 / 序列号（段2）" />
         <EditText android:id="@+id/etSn" style="@style/FieldInput" />
 
+        <TextView style="@style/FieldLabel" android:text="托盘号（必填）" />
+        <EditText android:id="@+id/etTrayCode" style="@style/FieldInput" />
+
         <TextView style="@style/FieldLabel" android:text="物料编码（段3）" />
         <EditText android:id="@+id/etMaterial" style="@style/FieldInput" />
 

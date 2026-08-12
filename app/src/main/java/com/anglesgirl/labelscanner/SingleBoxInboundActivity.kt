@@ -305,6 +305,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             Toast.makeText(this, "箱号为空（识别不到请手动输入）", Toast.LENGTH_SHORT).show()
             return
         }
+        if (tray.isEmpty()) {
+            Toast.makeText(this, "托盘号必填（扫描或输入托盘码）", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         val records = snList.map { sn ->
             LabelResult(
