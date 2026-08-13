@@ -46,6 +46,17 @@
         android:textStyle="bold" />
 
     <Button
+        android:id="@+id/btnSplitCode"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="14dp"
+        android:backgroundTint="#E65100"
+        android:text="🧩 集成码拆分\n扫集成码拆 SN / 每 SN 生成独立条码"
+        android:textSize="15sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
+
+    <Button
         android:id="@+id/btnGotoCenter"
         android:layout_width="match_parent"
         android:layout_height="72dp"

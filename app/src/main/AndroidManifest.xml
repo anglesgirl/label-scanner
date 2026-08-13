@@ -49,6 +49,12 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".SplitCodeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".SettingsActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

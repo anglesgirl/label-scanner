@@ -23,6 +23,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnModeBox).setOnClickListener {
             startActivity(Intent(this, SingleBoxInboundActivity::class.java))
         }
+        findViewById<Button>(R.id.btnSplitCode).setOnClickListener {
+            startActivity(Intent(this, SplitCodeActivity::class.java))
+        }
         findViewById<Button>(R.id.btnGotoCenter).setOnClickListener {
             startActivity(Intent(this, RecordListActivity::class.java))
         }

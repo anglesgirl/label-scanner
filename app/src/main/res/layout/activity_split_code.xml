@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#EDF1F7"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🧩 集成码拆分"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#14213D" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="扫集成码（多个 SN 逗号分隔）→ 按逗号拆分 → 每个 SN 生成独立条码（下方带内容）"
+            android:textSize="12sp"
+            android:textColor="#5A6B85" />
+
+        <!-- 识别来源：拍照 / 文档扫描 / 相册 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnTakePhoto"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:backgroundTint="#1B6EF3"
+                android:text="📷 拍照"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnScanDoc"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#1B6EF3"
+                android:text="📄 文档扫描"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnPickGallery"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#1B6EF3"
+                android:text="🖼️ 相册"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- 手动粘贴集成码 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="粘贴集成码（逗号分隔，如 SN1,SN2,SN3）"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="#33405A" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <EditText
+                android:id="@+id/etManualCode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="SN1,SN2,SN3"
+                android:textSize="14sp"
+                android:textColor="#14213D"
+                android:textColorHint="#9AA7BD"
+                android:inputType="text" />
+
+            <Button
+                android:id="@+id/btnSplit"
+                android:layout_width="wrap_content"
+                android:layout_height="42dp"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#E65100"
+                android:text="🧩 拆分"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:minWidth="72dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
+
+        <!-- 集成码原文 -->
+        <TextView
+            android:id="@+id/tvSourceCode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textSize="12sp"
+            android:textColor="#5A6B85"
+            android:visibility="gone" />
+
+        <!-- 拆分结果列表：每个 SN 一行（二维码 + SN + 保存） -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="拆分结果（每 SN 一个条码）"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#33405A" />
+
+        <LinearLayout
+            android:id="@+id/llSplitResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="vertical" />
+
+        <!-- 操作按钮 -->
+        <Button
+            android:id="@+id/btnSaveAll"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="16dp"
+            android:backgroundTint="#1B9E4B"
+            android:text="💾 全部保存到相册"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnResetSplit"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="#F2F4F8"
+            android:text="🔄 清空重来"
+            android:textColor="#33405A"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tvSplitStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text=""
+            android:textSize="13sp"
+            android:textColor="#1B6EF3"
+            android:minHeight="40dp" />
+
+    </LinearLayout>
+</ScrollView>

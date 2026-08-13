@@ -72,6 +72,8 @@ dependencies {
     implementation(libs.mlkit.doc.scanner)
     // zxing-cpp：C++ 内核（比 Java ZXing 强：密集小码 3x 放大后 10/10、15/15 全解实测），原生多码检测
     implementation(libs.zxingcpp)
+    // zxing-core：二维码【生成】（zxing-cpp 只解码不编码；集成码拆分用）
+    implementation(libs.zxing-core)
 
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.kotlinx.coroutines.android)
