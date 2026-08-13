@@ -222,7 +222,7 @@ class SplitCodeActivity : AppCompatActivity() {
             } else {
                 row.findViewById<ImageView>(R.id.ivBarcode).setBackgroundColor(0xFFEEEEEE.toInt())
             }
-            row.findViewById<TextView>(R.id.tvSplitSn).text = sn
+            row.findViewById<TextView>(R.id.tvSplitSn).text = (index + 1).toString()
             row.findViewById<Button>(R.id.btnSaveOne).setOnClickListener {
                 val ok = bmp?.let { saveBarcodeToGallery(it, index + 1, sn) } == true
                 Toast.makeText(

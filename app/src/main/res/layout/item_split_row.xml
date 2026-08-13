@@ -16,7 +16,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="SN"
+            android:text="序号"
             android:textSize="11sp"
             android:textColor="#5A6B85" />
 
