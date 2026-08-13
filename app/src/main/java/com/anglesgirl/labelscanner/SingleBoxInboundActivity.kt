@@ -58,45 +58,11 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private var scanTargetField: EditText? = null
     /** 补扫结果加入 SN 列表（而非填单个字段） */
     private var scanAppendToSn = false
+    /** true = 本次文档扫描用于字段补扫（只取第一个条码填目标框），false = 完整识别 */
+    private var fieldScanMode = false
 
     private var pendingPhotoUri: Uri? = null
     private var photoFile: File? = null
-
-    /** 字段补扫：相册 → 识别 → 取第一个条码填目标框（修正识别错误，避免手输） */
-    private val pickForField = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            tvBoxStatus.text = "补扫识别中..."
-            StaticRecognizer.recognizeUri(
-                resolver = contentResolver,
-                uri = uri,
-                lookup69 = null,
-                onResult = { result ->
-                    runOnUiThread {
-                        val first = result.barcodes.firstOrNull()
-                        if (first == null) {
-                            tvBoxStatus.text = "⚠️ 未识别到条码，请换图"
-                            return@runOnUiThread
-                        }
-                        if (scanAppendToSn) {
-                            if (first !in snList) {
-                                snList.add(first)
-                                rebuildSnList()
-                                tvBoxStatus.text = "✅ 已加入序列号: $first"
-                            } else {
-                                tvBoxStatus.text = "⚠️ 序列号已存在: $first"
-                            }
-                        } else {
-                            scanTargetField?.setText(first)
-                            tvBoxStatus.text = "✅ 已填入: $first（可手动修改）"
-                        }
-                    }
-                },
-                onError = { msg ->
-                    runOnUiThread { tvBoxStatus.text = "补扫失败：$msg" }
-                }
-            )
-        }
-    }
 
     /** 拍照（系统相机） */
     private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -105,17 +71,53 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         }
     }
 
-    /** 文档扫描（ML Kit，自动找边/裁切/增强） */
+    /** 文档扫描（ML Kit，自动找边/裁切/增强）统一回调：补扫模式取首个条码填字段，否则完整识别 */
     private val scanDoc = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             GmsDocumentScanningResult.fromActivityResultIntent(result.data)?.pages
-                ?.firstOrNull()?.imageUri?.let { recognizeLabel(it) }
+                ?.firstOrNull()?.imageUri?.let { uri ->
+                    if (fieldScanMode) applyFieldScan(uri) else recognizeLabel(uri)
+                }
         }
     }
 
     /** 相册选图 */
     private val pickGallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) recognizeLabel(uri)
+    }
+
+    /** 字段补扫：识别 → 取第一个条码填目标框 / 加入 SN 列表（修正识别错误，避免手输） */
+    private fun applyFieldScan(uri: Uri) {
+        tvBoxStatus.text = "补扫识别中..."
+        StaticRecognizer.recognizeUri(
+            resolver = contentResolver,
+            uri = uri,
+            lookup69 = null,
+            onResult = { result ->
+                runOnUiThread {
+                    val first = result.barcodes.firstOrNull()
+                    if (first == null) {
+                        tvBoxStatus.text = "⚠️ 未识别到条码，请换图"
+                        return@runOnUiThread
+                    }
+                    if (scanAppendToSn) {
+                        if (first !in snList) {
+                            snList.add(first)
+                            rebuildSnList()
+                            tvBoxStatus.text = "✅ 已加入序列号: $first"
+                        } else {
+                            tvBoxStatus.text = "⚠️ 序列号已存在: $first"
+                        }
+                    } else {
+                        scanTargetField?.setText(first)
+                        tvBoxStatus.text = "✅ 已填入: $first（可手动修改）"
+                    }
+                }
+            },
+            onError = { msg ->
+                runOnUiThread { tvBoxStatus.text = "补扫失败：$msg" }
+            }
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -140,7 +142,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         tvBoxStatus = findViewById(R.id.tvBoxStatus)
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
-        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
+        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { fieldScanMode = false; launchDocScan() }
         findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
         findViewById<Button>(R.id.btnAddSn).setOnClickListener { addManualSn() }
         findViewById<Button>(R.id.btnSaveBox).setOnClickListener { saveBox() }
@@ -158,12 +160,14 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             findViewById<Button>(btnId).setOnClickListener {
                 scanAppendToSn = false
                 scanTargetField = field
-                pickForField.launch("image/*")
+                fieldScanMode = true
+                launchDocScan()
             }
         }
         findViewById<Button>(R.id.btnScanSn).setOnClickListener {
             scanAppendToSn = true
-            pickForField.launch("image/*")
+            fieldScanMode = true
+            launchDocScan()
         }
 
         rebuildSnList()

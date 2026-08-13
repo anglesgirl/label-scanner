@@ -51,45 +51,50 @@ class SingleInboundActivity : AppCompatActivity() {
 
     private var scanTargetField: EditText? = null
     private var scanAppendToSn = false
+    /** true = 本次文档扫描用于字段补扫（只取第一个条码填目标框），false = 完整识别 */
+    private var fieldScanMode = false
     private var pendingPhotoUri: Uri? = null
     private var photoFile: File? = null
 
     private val pickGallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) recognizeStatic(uri)
     }
-    private val pickForField = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            tvStatus.text = "补扫识别中..."
-            StaticRecognizer.recognizeUri(
-                resolver = contentResolver, uri = uri, lookup69 = null,
-                onResult = { result ->
-                    runOnUiThread {
-                        val first = result.barcodes.firstOrNull()
-                        if (first == null) { tvStatus.text = "⚠️ 未识别到条码，请换图"; return@runOnUiThread }
-                        if (scanAppendToSn) {
-                            if (first !in snList) { snList.add(first); rebuildSnList(); tvStatus.text = "✅ 已加入序列号: $first" }
-                            else tvStatus.text = "⚠️ 序列号已存在: $first"
-                        } else {
-                            scanTargetField?.setText(first)
-                            tvStatus.text = "✅ 已填入: $first（可手动修改）"
-                        }
-                    }
-                },
-                onError = { msg -> runOnUiThread { tvStatus.text = "补扫失败：$msg" } }
-            )
-        }
-    }
     private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && pendingPhotoUri != null) {
             recognizeStatic(pendingPhotoUri!!)
         }
     }
+    /** 文档扫描（ML Kit FULL）统一回调：补扫模式取首个条码填字段，否则完整识别 */
     private val scanDoc = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val uri = com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
                 .fromActivityResultIntent(result.data)?.pages?.firstOrNull()?.imageUri
-            if (uri != null) recognizeStatic(uri)
+            if (uri != null) {
+                if (fieldScanMode) applyFieldScan(uri) else recognizeStatic(uri)
+            }
         }
+    }
+
+    /** 字段补扫：识别 → 取第一个条码填入目标框 / 加入 SN 列表 */
+    private fun applyFieldScan(uri: Uri) {
+        tvStatus.text = "补扫识别中..."
+        StaticRecognizer.recognizeUri(
+            resolver = contentResolver, uri = uri, lookup69 = null,
+            onResult = { result ->
+                runOnUiThread {
+                    val first = result.barcodes.firstOrNull()
+                    if (first == null) { tvStatus.text = "⚠️ 未识别到条码，请换图"; return@runOnUiThread }
+                    if (scanAppendToSn) {
+                        if (first !in snList) { snList.add(first); rebuildSnList(); tvStatus.text = "✅ 已加入序列号: $first" }
+                        else tvStatus.text = "⚠️ 序列号已存在: $first"
+                    } else {
+                        scanTargetField?.setText(first)
+                        tvStatus.text = "✅ 已填入: $first（可手动修改）"
+                    }
+                }
+            },
+            onError = { msg -> runOnUiThread { tvStatus.text = "补扫失败：$msg" } }
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -115,10 +120,10 @@ class SingleInboundActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
-        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
+        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { fieldScanMode = false; launchDocScan() }
         findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
         findViewById<Button>(R.id.btnAddSn).setOnClickListener { addSnFromInput() }
-        findViewById<Button>(R.id.btnScanAddSn).setOnClickListener { scanAppendToSn = true; pickForField.launch("image/*") }
+        findViewById<Button>(R.id.btnScanAddSn).setOnClickListener { scanAppendToSn = true; fieldScanMode = true; launchDocScan() }
         findViewById<Button>(R.id.btnSave).setOnClickListener { confirmSave() }
         findViewById<Button>(R.id.btnReset).setOnClickListener { resetAll() }
         findViewById<Button>(R.id.btnLookup69).setOnClickListener { manualLookup69() }
@@ -145,7 +150,7 @@ class SingleInboundActivity : AppCompatActivity() {
         )
         for ((btnId, field) in scanMap) {
             findViewById<Button>(btnId).setOnClickListener {
-                scanAppendToSn = false; scanTargetField = field; pickForField.launch("image/*")
+                scanAppendToSn = false; scanTargetField = field; fieldScanMode = true; launchDocScan()
             }
         }
 
