@@ -65,7 +65,7 @@ object BarcodeGenerator {
             val bounds = Rect()
             paint.getTextBounds(text, 0, text.length, bounds)
             val x = ((width - bounds.width()) / 2f) - bounds.left
-            val y = barHeight + pad + size
+            val y = (barHeight + pad + size).toFloat()
             canvas.drawText(text, x, y, paint)
 
             bmp
