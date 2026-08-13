@@ -195,6 +195,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             val options = GmsDocumentScannerOptions.Builder()
                 .setGalleryImportAllowed(true)   // 也允许从相册导入文档
                 .setPageLimit(1)
+                // FULL 模式（最强）：自动找边 + 裁切 + 透视矫正 + 图像增强。
+                // 对 PDF417 集成码/密集条码至关重要——系统相机拍照有透视变形，
+                // 二维堆叠码对透视极敏感，矫正后才能稳定解出。
+                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
                 .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
                 .build()
             GmsDocumentScanning.getClient(options).getStartScanIntent(this)
