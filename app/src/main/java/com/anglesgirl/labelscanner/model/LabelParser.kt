@@ -180,7 +180,10 @@ object LabelParser {
             line.contains("S/N", ignoreCase = true) || line.contains("SN", ignoreCase = true) ||
                 line.contains("序列号") -> {
                 val m = Regex("[:：]?\\s*([A-Za-z0-9]{6,30})").find(line.replace("S/N", "SN").replace("s/n", "SN"))
-                if (m != null && result.serialNumber.isEmpty()) result.serialNumber = m.groupValues[1]
+                // ⚠️ 69 码（EAN13）是商品码不是序列号：S/N 行扫到 69 开头 13 位纯数字 → 不能进 SN
+                if (m != null && result.serialNumber.isEmpty() && !EAN13.matcher(m.groupValues[1]).matches()) {
+                    result.serialNumber = m.groupValues[1]
+                }
                 return
             }
         }

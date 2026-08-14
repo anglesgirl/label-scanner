@@ -136,9 +136,12 @@ object BoxParser {
             if (c.isEmpty() || c == material || c == ean) continue
             if (c.contains(',') || c.contains(';')) {
                 // 多值码（QR 集成 SN）：逗号/分号分隔 → 拆分成多个 SN 全部加入
-                c.split(Regex("[,;，；\\s]+")).filter { it.length >= 6 }.forEach { sn ->
-                    if (sn != material && sn != ean && sn !in sns) sns.add(sn)
-                }
+                // ⚠️ 拆分出的 69 码（EAN13）是商品码，绝不进序列号列表
+                c.split(Regex("[,;，；\\s]+")).filter { it.length >= 6 }
+                    .filterNot { EAN13.matcher(it).matches() }
+                    .forEach { sn ->
+                        if (sn != material && sn != ean && sn !in sns) sns.add(sn)
+                    }
                 continue
             }
             if (!c.any { it.isLetter() }) continue // 纯数字非 SAP（PO/SO）忽略
@@ -155,11 +158,12 @@ object BoxParser {
         }
 
         // 序列号兜底：OCR 行中的混合码（条码为空或不足时），排除已分类值
+        // ⚠️ 69 码（EAN13）不含字母已被 isLetter 挡掉，这里再显式过滤一次保险
         if (sns.isEmpty()) {
             for (line in ocrText.lines()) {
                 val l = line.trim()
                 if (l.length in 6..40 && l.all { it.isLetterOrDigit() } && l.any { it.isLetter() }) {
-                    if (l != material && l != box && l != ean && l !in sns) sns.add(l)
+                    if (l != material && l != box && l != ean && l !in sns && !EAN13.matcher(l).matches()) sns.add(l)
                 }
             }
         }

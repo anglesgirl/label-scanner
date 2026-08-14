@@ -22,13 +22,25 @@ class SettingsActivity : AppCompatActivity() {
         const val KEY_URL = "turso_url"
         const val KEY_TOKEN = "turso_token"
 
-        fun getUrl(context: Context): String =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_URL, "").orEmpty().trim()
+        /**
+         * 内置默认反查库（内部使用，长期维护 69 码→物料映射）。
+         * 设置页未填写时使用内置值 → 反查开箱即用，无需手动配置。
+         * 设置页可覆盖（换库/测试用）。
+         */
+        private const val DEFAULT_URL = ""
+        private const val DEFAULT_TOKEN = ""
 
-        fun getToken(context: Context): String =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        fun getUrl(context: Context): String {
+            val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_URL, "").orEmpty().trim()
+            return saved.ifEmpty { DEFAULT_URL }
+        }
+
+        fun getToken(context: Context): String {
+            val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString(KEY_TOKEN, "").orEmpty().trim()
+            return saved.ifEmpty { DEFAULT_TOKEN }
+        }
     }
 
     private lateinit var etUrl: EditText
