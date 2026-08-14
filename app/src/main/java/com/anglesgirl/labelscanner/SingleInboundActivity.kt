@@ -24,6 +24,7 @@ import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
+import com.anglesgirl.labelscanner.util.TrayPrefs
 import java.io.File
 
 /**
@@ -51,50 +52,46 @@ class SingleInboundActivity : AppCompatActivity() {
 
     private var scanTargetField: EditText? = null
     private var scanAppendToSn = false
-    /** true = 本次文档扫描用于字段补扫（只取第一个条码填目标框），false = 完整识别 */
-    private var fieldScanMode = false
     private var pendingPhotoUri: Uri? = null
     private var photoFile: File? = null
 
     private val pickGallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) recognizeStatic(uri)
     }
+    /** 字段补扫：实时扫码相机 → 确认框 → 填目标框（不拍照，自动识别） */
+    private val liveScan = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val code = result.data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)
+            if (code != null) onScannedCode(code)
+        }
+    }
+
+    private fun onScannedCode(code: String) {
+        if (scanAppendToSn) {
+            if (code !in snList) {
+                snList.add(code)
+                rebuildSnList()
+                tvStatus.text = "✅ 已加入序列号: $code"
+            } else {
+                tvStatus.text = "⚠️ 序列号已存在: $code"
+            }
+        } else {
+            scanTargetField?.setText(code)
+            tvStatus.text = "✅ 已填入: $code（可手动修改）"
+        }
+    }
     private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && pendingPhotoUri != null) {
             recognizeStatic(pendingPhotoUri!!)
         }
     }
-    /** 文档扫描（ML Kit FULL）统一回调：补扫模式取首个条码填字段，否则完整识别 */
+    /** 文档扫描（ML Kit FULL） */
     private val scanDoc = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val uri = com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
                 .fromActivityResultIntent(result.data)?.pages?.firstOrNull()?.imageUri
-            if (uri != null) {
-                if (fieldScanMode) applyFieldScan(uri) else recognizeStatic(uri)
-            }
+            if (uri != null) recognizeStatic(uri)
         }
-    }
-
-    /** 字段补扫：识别 → 取第一个条码填入目标框 / 加入 SN 列表 */
-    private fun applyFieldScan(uri: Uri) {
-        tvStatus.text = "补扫识别中..."
-        StaticRecognizer.recognizeUri(
-            resolver = contentResolver, uri = uri, lookup69 = null,
-            onResult = { result ->
-                runOnUiThread {
-                    val first = result.barcodes.firstOrNull()
-                    if (first == null) { tvStatus.text = "⚠️ 未识别到条码，请换图"; return@runOnUiThread }
-                    if (scanAppendToSn) {
-                        if (first !in snList) { snList.add(first); rebuildSnList(); tvStatus.text = "✅ 已加入序列号: $first" }
-                        else tvStatus.text = "⚠️ 序列号已存在: $first"
-                    } else {
-                        scanTargetField?.setText(first)
-                        tvStatus.text = "✅ 已填入: $first（可手动修改）"
-                    }
-                }
-            },
-            onError = { msg -> runOnUiThread { tvStatus.text = "补扫失败：$msg" } }
-        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,13 +117,29 @@ class SingleInboundActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
-        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { fieldScanMode = false; launchDocScan() }
+        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
         findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
         findViewById<Button>(R.id.btnAddSn).setOnClickListener { addSnFromInput() }
-        findViewById<Button>(R.id.btnScanAddSn).setOnClickListener { scanAppendToSn = true; fieldScanMode = true; launchDocScan() }
+        findViewById<Button>(R.id.btnScanAddSn).setOnClickListener {
+            scanAppendToSn = true
+            liveScan.launch(
+                Intent(this, LiveScanActivity::class.java)
+                    .putExtra(LiveScanActivity.EXTRA_TITLE, "序列号")
+            )
+        }
         findViewById<Button>(R.id.btnSave).setOnClickListener { confirmSave() }
         findViewById<Button>(R.id.btnReset).setOnClickListener { resetAll() }
         findViewById<Button>(R.id.btnLookup69).setOnClickListener { manualLookup69() }
+
+        // 托盘号：采集开始时填一次，整批沿用（保存/清空都不重置，换托盘时手动改）
+        etTrayCode.setText(TrayPrefs.get(this))
+        etTrayCode.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                TrayPrefs.set(this@SingleInboundActivity, s?.toString()?.trim().orEmpty())
+            }
+        })
 
         // 69 码输入完（失焦或输够 13 位）自动反查
         etEan69.addTextChangedListener(object : android.text.TextWatcher {
@@ -141,16 +154,24 @@ class SingleInboundActivity : AppCompatActivity() {
             }
         })
 
+        // 字段补扫按钮：弹实时扫码相机 → 确认框 → 填入（不拍照后识别）
         val scanMap = mapOf(
-            R.id.btnScanMaterial to etMaterial,
-            R.id.btnScanTrayCode to etTrayCode,
-            R.id.btnScanDate to etDate,
-            R.id.btnScanModel to etModel,
-            R.id.btnScanEan69 to etEan69,
+            R.id.btnScanMaterial to (etMaterial to "物料编码"),
+            R.id.btnScanTrayCode to (etTrayCode to "托盘号"),
+            R.id.btnScanDate to (etDate to "生产日期"),
+            R.id.btnScanModel to (etModel to "型号"),
+            R.id.btnScanEan69 to (etEan69 to "69 商品码"),
         )
-        for ((btnId, field) in scanMap) {
+        for ((btnId, pair) in scanMap) {
+            val field = pair.first
+            val label = pair.second
             findViewById<Button>(btnId).setOnClickListener {
-                scanAppendToSn = false; scanTargetField = field; fieldScanMode = true; launchDocScan()
+                scanAppendToSn = false
+                scanTargetField = field
+                liveScan.launch(
+                    Intent(this, LiveScanActivity::class.java)
+                        .putExtra(LiveScanActivity.EXTRA_TITLE, label)
+                )
             }
         }
 
@@ -385,7 +406,8 @@ class SingleInboundActivity : AppCompatActivity() {
     }
 
     private fun resetAll() {
-        etMaterial.setText(""); etTrayCode.setText(""); etDate.setText("")
+        // 托盘号保留（整批沿用），其余清空
+        etMaterial.setText(""); etDate.setText("")
         etSn.setText(""); etEan69.setText(""); etModel.setText(""); etColor.setText(""); etToner.setText("")
         snList.clear(); codeCandidates.clear()
         rebuildSnList(); rebuildCodeCandidates()
