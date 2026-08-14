@@ -27,8 +27,10 @@ class SettingsActivity : AppCompatActivity() {
          * 设置页未填写时使用内置值 → 反查开箱即用，无需手动配置。
          * 设置页可覆盖（换库/测试用）。
          */
-        private const val DEFAULT_URL = ""
-        private const val DEFAULT_TOKEN = ""
+        private const val DEFAULT_URL =
+            "https://5omr56cb5ywl5bqt-anglesgirl.aws-ap-northeast-1.turso.io"
+        private const val DEFAULT_TOKEN =
+            "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODY0MzI2MDAsImlkIjoiMDE5ZmVmYWQtNzcwMS03OTdiLThlNDMtOTAyNzNhYWI1OTNjIiwia2lkIjoidWFjWFBDcGRfRmRwLS1DSTA1ckdfYlM2enBEVm5NU1B3U0oxWFhHRUt3ayIsInJpZCI6ImJmMDU5MjA3LWNhMjMtNDkzOS04YWViLTEyYzFkZjNhY2ZkMiJ9.FUrHSAb-64nHNVqe1GNXcB-8w5dTx0efxXy9srdFHTjeTQwMjLHy8Y82HghmlIKZnLw5ItZf5Rs1_JM4IeQzAg"
 
         fun getUrl(context: Context): String {
             val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

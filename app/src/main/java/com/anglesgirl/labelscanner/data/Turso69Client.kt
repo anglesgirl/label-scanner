@@ -69,7 +69,9 @@ object Turso69Client {
 
     private fun post(baseUrl: String, token: String, body: JSONObject): JSONObject? {
         return try {
-            val u = URL(if (baseUrl.endsWith("/v2/pipeline")) baseUrl else "$baseUrl/v2/pipeline")
+            // 兼容 libsql:// 前缀（Turso 客户端协议名）：HTTP API 必须用 https://
+            val httpUrl = baseUrl.trim().replaceFirst("libsql://", "https://")
+            val u = URL(if (httpUrl.endsWith("/v2/pipeline")) httpUrl else "$httpUrl/v2/pipeline")
             val conn = u.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.connectTimeout = 8000
