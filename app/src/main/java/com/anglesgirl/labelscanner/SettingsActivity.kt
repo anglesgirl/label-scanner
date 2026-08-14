@@ -8,12 +8,15 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import com.anglesgirl.labelscanner.data.Turso69Client
 import java.util.concurrent.Executors
 
 /**
- * ⚙️ 设置：69 码反查数据库（Turso libsql）连接参数。
- * 内部使用不对外：连接地址 + token 由用户手动填写（不内置在 App）。
+ * ⚙️ 设置：69 码反查数据库（Turso libsql）连接参数 + 映射管理入口。
  */
 class SettingsActivity : AppCompatActivity() {
 
@@ -52,6 +55,13 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge：状态栏/导航栏不留黑色遮罩
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(top = bars.top, bottom = bars.bottom)
+            insets
+        }
         setContentView(R.layout.activity_settings)
 
         etUrl = findViewById(R.id.etTursoUrl)
@@ -64,6 +74,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSaveTurso).setOnClickListener { saveConfig() }
         findViewById<Button>(R.id.btnTestTurso).setOnClickListener { testConnection() }
         findViewById<Button>(R.id.btnInsertSample).setOnClickListener { insertSample() }
+        findViewById<Button>(R.id.btnEan69Manage).setOnClickListener {
+            startActivity(android.content.Intent(this, Ean69ManageActivity::class.java))
+        }
         findViewById<Button>(R.id.btnTestRecognize).setOnClickListener { testRecognizeLauncher.launch("image/*") }
     }
 

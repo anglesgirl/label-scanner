@@ -65,6 +65,44 @@ object Turso69Client {
         else first.optJSONObject("error")?.optString("message") ?: "未知错误"
     }
 
+    /** 查询全部映射（管理端列表用）：返回 (ean, materialCode, materialName) 列表 */
+    fun listAll(baseUrl: String, token: String): List<Triple<String, String, String>> {
+        val body = JSONObject().put("requests", JSONArray().put(
+            JSONObject().put("type", "execute").put("stmt", JSONObject()
+                .put("sql", "SELECT ean, material_code, material_name FROM ean69_lookup ORDER BY ean"))
+        ))
+        val resp = post(baseUrl, token, body) ?: return emptyList()
+        val first = resp.optJSONArray("results")?.optJSONObject(0) ?: return emptyList()
+        if (first.optString("type") != "ok") return emptyList()
+        val rows = first.optJSONObject("response")?.optJSONObject("result")?.optJSONArray("rows")
+            ?: return emptyList()
+        return buildList {
+            for (i in 0 until rows.length()) {
+                val row = rows.optJSONArray(i) ?: continue
+                val ean = row.optJSONObject(0)?.optString("value", "") ?: ""
+                val code = row.optJSONObject(1)?.optString("value", "") ?: ""
+                val name = row.optJSONObject(2)?.optString("value", "") ?: ""
+                if (ean.isNotEmpty() && code.isNotEmpty()) {
+                    add(Triple(ean, code, name.ifBlank { "" }))
+                }
+            }
+        }
+    }
+
+    /** 删除一条映射：成功返回 null，失败返回错误信息 */
+    fun delete(baseUrl: String, token: String, ean: String): String? {
+        val body = JSONObject().put("requests", JSONArray().put(
+            JSONObject().put("type", "execute").put("stmt", JSONObject()
+                .put("sql", "DELETE FROM ean69_lookup WHERE ean = ?")
+                .put("args", JSONArray().put(txt(ean))))
+        ))
+        val resp = post(baseUrl, token, body) ?: return "请求失败"
+        val first = resp.optJSONArray("results")?.optJSONObject(0)
+            ?: return "响应异常: ${resp.optString("error")}"
+        return if (first.optString("type") == "ok") null
+        else first.optJSONObject("error")?.optString("message") ?: "未知错误"
+    }
+
     private fun txt(v: String) = JSONObject().put("type", "text").put("value", v)
 
     private fun post(baseUrl: String, token: String, body: JSONObject): JSONObject? {

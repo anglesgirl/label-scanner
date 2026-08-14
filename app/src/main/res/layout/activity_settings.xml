@@ -129,6 +129,16 @@
                 android:textSize="13sp"
                 android:textColor="#1B6EF3"
                 android:minHeight="32dp" />
+
+            <Button
+                android:id="@+id/btnEan69Manage"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:layout_marginTop="4dp"
+                android:backgroundTint="#1B6EF3"
+                android:text="📋 69码映射管理（查看/新增/删除）"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
         </LinearLayout>
 
         <!-- ===== 开发者工具 ===== -->
