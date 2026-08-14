@@ -55,7 +55,7 @@ class LiveScanActivity : AppCompatActivity() {
         previewView = findViewById(R.id.pvScan)
         val tvHint = findViewById<TextView>(R.id.tvScanHint)
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
-        tvHint.text = if (title.isEmpty()) "对准条码，自动识别" else "对准$title条码，自动识别"
+        tvHint.text = if (title.isEmpty()) "对准条码，自动识别" else "对准${title}条码，自动识别"
         findViewById<Button>(R.id.btnCloseScan).setOnClickListener { finish() }
 
         barcodeScanner = BarcodeScanning.getClient(
