@@ -22,6 +22,9 @@ class CropActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_INPUT_URI = "extra_input_uri"
         const val EXTRA_OUTPUT_URI = "extra_output_uri"
+        private const val MODE_ORIGIN = 0
+        private const val MODE_ENHANCE = 1
+        private const val MODE_BW = 2
     }
 
     private lateinit var ivCrop: ImageView
@@ -131,11 +134,5 @@ class CropActivity : AppCompatActivity() {
         val outUri = Uri.fromFile(outFile)
         setResult(RESULT_OK, Intent().putExtra(EXTRA_OUTPUT_URI, outUri.toString()))
         finish()
-    }
-
-    private companion object {
-        const val MODE_ORIGIN = 0
-        const val MODE_ENHANCE = 1
-        const val MODE_BW = 2
     }
 }
