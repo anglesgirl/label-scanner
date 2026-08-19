@@ -71,7 +71,7 @@ object ImageWarp {
         return w to h
     }
 
-    private fun dist(a: PointF, b: PointF): Float = android.util.MathUtils.dist(a.x, a.y, b.x, b.y)
+    private fun dist(a: PointF, b: PointF): Float = kotlin.math.hypot((a.x - b.x).toDouble(), (a.y - b.y).toDouble()).toFloat()
 
     /**
      * 图像增强：对比度 + 锐化（移植 doc_scanner 的 _autoEnhance）。
