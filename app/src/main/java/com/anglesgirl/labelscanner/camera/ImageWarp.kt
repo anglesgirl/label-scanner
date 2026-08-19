@@ -94,7 +94,9 @@ object ImageWarp {
         for (y in 0 until out.height) {
             for (x in 0 until out.width) {
                 val pixel = out.getPixel(x, y)
-                val lum = (pixel.red * 0.299 + pixel.green * 0.587 + pixel.blue * 0.114).toInt()
+                val lum = (android.graphics.Color.red(pixel) * 0.299
+                    + android.graphics.Color.green(pixel) * 0.587
+                    + android.graphics.Color.blue(pixel) * 0.114).toInt()
                 val v = if (lum > 128) 255 else 0
                 out.setPixel(x, y, android.graphics.Color.argb(255, v, v, v))
             }
@@ -119,9 +121,9 @@ object ImageWarp {
         for (y in 0 until src.height) {
             for (x in 0 until src.width) {
                 val px = src.getPixel(x, y)
-                val r = clamp((f * (px.red - 128) + 128)).toInt()
-                val g = clamp((f * (px.green - 128) + 128)).toInt()
-                val b = clamp((f * (px.blue - 128) + 128)).toInt()
+                val r = clamp(f * (android.graphics.Color.red(px) - 128f) + 128f).toInt()
+                val g = clamp(f * (android.graphics.Color.green(px) - 128f) + 128f).toInt()
+                val b = clamp(f * (android.graphics.Color.blue(px) - 128f) + 128f).toInt()
                 out.setPixel(x, y, android.graphics.Color.argb(255, r, g, b))
             }
         }
@@ -137,9 +139,15 @@ object ImageWarp {
                 val b = src.getPixel(x, y + 1)
                 val l = src.getPixel(x - 1, y)
                 val r = src.getPixel(x + 1, y)
-                val nr = clamp((5 * c.red - t.red - b.red - l.red - r.red)).toInt()
-                val ng = clamp((5 * c.green - t.green - b.green - l.green - r.green)).toInt()
-                val nb = clamp((5 * c.blue - t.blue - b.blue - l.blue - r.blue)).toInt()
+                val nr = clamp((5f * android.graphics.Color.red(c)
+                    - android.graphics.Color.red(t) - android.graphics.Color.red(b)
+                    - android.graphics.Color.red(l) - android.graphics.Color.red(r))).toInt()
+                val ng = clamp((5f * android.graphics.Color.green(c)
+                    - android.graphics.Color.green(t) - android.graphics.Color.green(b)
+                    - android.graphics.Color.green(l) - android.graphics.Color.green(r))).toInt()
+                val nb = clamp((5f * android.graphics.Color.blue(c)
+                    - android.graphics.Color.blue(t) - android.graphics.Color.blue(b)
+                    - android.graphics.Color.blue(l) - android.graphics.Color.blue(r))).toInt()
                 out.setPixel(x, y, android.graphics.Color.argb(255, nr, ng, nb))
             }
         }
