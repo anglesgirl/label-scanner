@@ -68,7 +68,9 @@ object StaticRecognizer {
             onError("无法读取图片")
             return
         }
-        recognize(bmp, lookup69, onResult, onError)
+        // 相册导入路径未走拉正页：OCR 前先做增强（对比度+锐化），提升日期/文字识别率
+        val enhanced = com.anglesgirl.labelscanner.camera.ImageWarp.enhance(bmp)
+        recognize(enhanced, lookup69, onResult, onError)
     }
 
     /** 识别单张 Bitmap：ML Kit 条码 + ZXing 双解码并行，结果合并，再跑 OCR */

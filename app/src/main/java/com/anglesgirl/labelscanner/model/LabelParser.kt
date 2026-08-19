@@ -17,7 +17,8 @@ import java.util.regex.Pattern
 object LabelParser {
 
     private val DATE8 = Pattern.compile("^\\d{8}$")
-    private val DATE_SEP = Pattern.compile("^\\d{4}[-/. ]\\d{2}[-/. ]\\d{2}$")
+    private val DATE_SEP = Pattern.compile("^\\d{4}[-/. _]\\d{1,2}[-/. _]\\d{1,2}$")
+    private val DATE_CN = Pattern.compile("^\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日$")
     private val EAN13 = Pattern.compile("^69\\d{11}$")
     private val MAT10 = Pattern.compile("^\\d{10}$")
     private val MAT12 = Pattern.compile("^\\d{12}$")
@@ -28,14 +29,22 @@ object LabelParser {
         val v = value.trim()
         if (v.isEmpty()) return null
 
-        // 日期：8 位纯数字（yyyymmdd）或带符号（2025-05-08 / 2025.05.08）
-        // → 统一归一为 8 位无符号 yyyymmdd
-        if (DATE8.matcher(v).matches() || DATE_SEP.matcher(v).matches()) {
-            val digits = v.replace(Regex("[^0-9]"), "")
+        // 日期：8 位纯数字（yyyymmdd）、带符号（2025-05-08 / 2025.05.08 / 2025_05_08）、
+        //       中文（2025年05月08日）、月日无前导0（2025 6 22）
+        //       → 统一归一为 8 位 yyyymmdd；OCR 易把 0 认成 O，先规整
+        val vNorm = v.replace('O', '0').replace('o', '0')
+        if (DATE8.matcher(vNorm).matches() || DATE_SEP.matcher(vNorm).matches() || DATE_CN.matcher(vNorm).matches()) {
+            val digits = vNorm.replace(Regex("[^0-9]"), "")
             if (digits.length == 8) {
                 val m = digits.substring(4, 6).toInt()
                 val d = digits.substring(6, 8).toInt()
                 if (m in 1..12 && d in 1..31) return "date" to digits
+            } else if (digits.length == 6 && DATE_SEP.matcher(vNorm).matches()) {
+                // 月日无前导0：2026 6 22 → 20260622
+                val y = digits.substring(0, 4)
+                val m = digits.substring(4, 5).toInt()
+                val d = digits.substring(5, 6).toInt()
+                if (m in 1..12 && d in 1..31) return "date" to String.format("%s%02d%02d", y, m, d)
             }
         }
 

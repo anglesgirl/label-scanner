@@ -44,6 +44,11 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".camera.CropActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".SingleBoxInboundActivity"
             android:exported="false"
             android:screenOrientation="portrait"
