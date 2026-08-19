@@ -82,18 +82,8 @@ class SingleInboundActivity : AppCompatActivity() {
     }
     private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && pendingPhotoUri != null) {
-            // 系统相机高清图 → 先拉正页（手动四角 + 增强），确认后识别
-            val intent = Intent(this, com.anglesgirl.labelscanner.camera.CropActivity::class.java)
-                .putExtra(com.anglesgirl.labelscanner.camera.CropActivity.EXTRA_INPUT_URI, pendingPhotoUri)
-            cropLauncher.launch(intent)
-        }
-    }
-    /** 拉正页返回 */
-    private val cropLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val outUri = result.data?.getStringExtra(com.anglesgirl.labelscanner.camera.CropActivity.EXTRA_OUTPUT_URI)
-            if (outUri != null) recognizeStatic(Uri.parse(outUri))
-            else if (pendingPhotoUri != null) recognizeStatic(pendingPhotoUri!!)
+            // 恢复原有稳定流程：系统相机高清图直接识别
+            recognizeStatic(pendingPhotoUri!!)
         }
     }
     /** 文档扫描（ML Kit FULL） */
