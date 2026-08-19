@@ -136,6 +136,16 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/tvTrayCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="当前托盘已保存：0 条箱号/SN"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#1B6EF3" />
+
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"

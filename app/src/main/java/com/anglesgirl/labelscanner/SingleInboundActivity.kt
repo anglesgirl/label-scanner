@@ -44,6 +44,7 @@ class SingleInboundActivity : AppCompatActivity() {
     private lateinit var llSnList: LinearLayout
     private lateinit var llCodeCandidates: LinearLayout
     private lateinit var tvStatus: TextView
+    private lateinit var tvTrayCount: TextView
 
     private val snList = mutableListOf<String>()
     private val codeCandidates = mutableListOf<String>()
@@ -116,6 +117,8 @@ class SingleInboundActivity : AppCompatActivity() {
         llSnList = findViewById(R.id.llSnList)
         llCodeCandidates = findViewById(R.id.llCodeCandidates)
         tvStatus = findViewById(R.id.tvStatus)
+        tvTrayCount = findViewById(R.id.tvTrayCount)
+        updateTrayCount()
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
         findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
@@ -140,11 +143,13 @@ class SingleInboundActivity : AppCompatActivity() {
             override fun afterTextChanged(s: android.text.Editable?) {
                 TrayPrefs.set(this@SingleInboundActivity, s?.toString()?.trim().orEmpty())
                 updateTrayGate()
+                updateTrayCount()
             }
         })
 
         // 托盘号门禁：未填托盘号前，禁用所有扫描/识别/保存按钮，强制先录托盘
         updateTrayGate()
+        updateTrayCount()
 
         // 69 码输入完（失焦或输够 13 位）自动反查
         etEan69.addTextChangedListener(object : android.text.TextWatcher {
@@ -405,6 +410,7 @@ class SingleInboundActivity : AppCompatActivity() {
         store.addAll(records)
         com.anglesgirl.labelscanner.data.RecordStore.save(this, store)
         records.forEach { lookup69().learn(it.ean69, it.materialCode) }
+        updateTrayCount()
         tvStatus.text = "✅ 已保存 ${records.size} 条（物料 $material，托盘 $tray）"
         Toast.makeText(this, "已保存 ${records.size} 条", Toast.LENGTH_SHORT).show()
         resetAll()
@@ -423,6 +429,17 @@ class SingleInboundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSave).text =
             if (snList.size <= 1) "✅ 保存入库（每 SN 一行）"
             else "✅ 保存入库（${snList.size} 条，共享字段）"
+    }
+
+    private fun updateTrayCount() {
+        if (!::tvTrayCount.isInitialized || !::etTrayCode.isInitialized) return
+        val tray = etTrayCode.text.toString().trim()
+        if (tray.isEmpty()) {
+            tvTrayCount.text = "当前托盘已保存：0 条箱号/SN"
+            return
+        }
+        val count = RecordStore.loadByTrayCode(this, tray).size
+        tvTrayCount.text = "当前托盘已保存：${count} 条箱号/SN"
     }
 
     /**
