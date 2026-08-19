@@ -138,8 +138,12 @@ class SingleInboundActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
                 TrayPrefs.set(this@SingleInboundActivity, s?.toString()?.trim().orEmpty())
+                updateTrayGate()
             }
         })
+
+        // 托盘号门禁：未填托盘号前，禁用所有扫描/识别/保存按钮，强制先录托盘
+        updateTrayGate()
 
         // 69 码输入完（失焦或输够 13 位）自动反查
         etEan69.addTextChangedListener(object : android.text.TextWatcher {
@@ -418,5 +422,22 @@ class SingleInboundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSave).text =
             if (snList.size <= 1) "✅ 保存入库（每 SN 一行）"
             else "✅ 保存入库（${snList.size} 条，共享字段）"
+    }
+
+    /**
+     * 托盘号门禁：托盘号为空前，禁用所有扫描/识别/保存动作，
+     * 强制"先录托盘号 → 再扫描入库"的标准流程。供应商为选填，不受限。
+     */
+    private fun updateTrayGate() {
+        val hasTray = etTrayCode.text.toString().trim().isNotEmpty()
+        val locked = !hasTray
+        val gated = listOf(
+            R.id.btnTakePhoto, R.id.btnScanDoc, R.id.btnPickGallery,
+            R.id.btnScanMaterial, R.id.btnScanEan69,
+            R.id.btnLookup69, R.id.btnScanDate, R.id.btnScanModel,
+            R.id.btnScanAddSn, R.id.btnSave,
+        )
+        for (id in gated) findViewById<Button>(id).isEnabled = !locked
+        tvStatus.text = if (locked) "⚠️ 请先填写托盘号（必填），才能扫描入库" else ""
     }
 }
