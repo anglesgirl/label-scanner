@@ -12,7 +12,6 @@ mlkitTextChinese = "16.0.1"
 mlkitDocScanner = "16.0.0"
 lifecycle = "2.8.7"
 coroutines = "1.9.0"
-poi = "5.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -31,8 +30,6 @@ zxingcpp = { group = "io.github.zxing-cpp", name = "android", version = "2.3.0" 
 zxing-core = { group = "com.google.zxing", name = "core", version = "3.5.3" }
 androidx-lifecycle-runtime = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
-poi = { group = "org.apache.poi", name = "poi", version.ref = "poi" }
-poi-ooxml = { group = "org.apache.poi", name = "poi-ooxml", version.ref = "poi" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

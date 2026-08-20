@@ -262,14 +262,8 @@ class RecordListActivity : AppCompatActivity() {
             Toast.makeText(this, "WMS 导出失败", Toast.LENGTH_SHORT).show()
             return
         }
-        // 文件名以 .xlsx 结尾 → 分享为 Excel 类型；否则按 CSV 处理
-        val isXlsx = uri.toString().endsWith(".xlsx")
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = if (isXlsx) {
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            } else {
-                "text/csv"
-            }
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "WMS库存导入数据（${checked.size}个托盘 ${selected.size}条）")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
