@@ -12,6 +12,7 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 静态图片识别器：对【单张图片】（文档扫描矫正结果 / 相册导入）跑双通道识别。
@@ -32,6 +33,9 @@ object StaticRecognizer {
     /** ZXing 解码线程池（放大 3x 解码是 CPU 密集，不阻塞主线程） */
     private val zxingPool = Executors.newSingleThreadExecutor { r ->
         Thread(r, "zxing-decode").apply { isDaemon = true }
+    }
+    private val recognitionPool = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "recognition-orchestrator").apply { isDaemon = true }
     }
 
     private fun getRecognizer(): TextRecognizer =
@@ -71,8 +75,20 @@ object StaticRecognizer {
         onError: (String) -> Unit,
     ) {
         val input = InputImage.fromBitmap(bitmap, 0)
-        zxingPool.submit {
-            val values = ZxingDecoder.decode(bitmap)
+        val zxingFuture = zxingPool.submit<List<String>> {
+            Log.i(TAG, "[ZXING_STATIC] start ${bitmap.width}x${bitmap.height}")
+            ZxingDecoder.decode(bitmap).also {
+                Log.i(TAG, "[ZXING_STATIC] complete count=${it.size}")
+            }
+        }
+        recognitionPool.submit {
+            val values = try {
+                zxingFuture.get(15, TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                zxingFuture.cancel(true)
+                Log.w(TAG, "[ZXING_STATIC] timeout/failure; continue OCR only: ${e.message}")
+                emptyList()
+            }
             finishOcr(input, values, lookup69, onResult, onError)
         }
     }
