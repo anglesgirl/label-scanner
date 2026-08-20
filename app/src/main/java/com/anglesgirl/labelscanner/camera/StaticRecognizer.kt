@@ -5,10 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
@@ -16,7 +12,6 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 /**
  * 静态图片识别器：对【单张图片】（文档扫描矫正结果 / 相册导入）跑双通道识别。
@@ -32,20 +27,12 @@ object StaticRecognizer {
 
     private const val TAG = "StaticRecognizer"
 
-    private var scanner: BarcodeScanner? = null
     private var recognizer: TextRecognizer? = null
 
     /** ZXing 解码线程池（放大 3x 解码是 CPU 密集，不阻塞主线程） */
     private val zxingPool = Executors.newSingleThreadExecutor { r ->
         Thread(r, "zxing-decode").apply { isDaemon = true }
     }
-
-    private fun getScanner(): BarcodeScanner =
-        scanner ?: BarcodeScanning.getClient(
-            BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-                .build()
-        ).also { scanner = it }
 
     private fun getRecognizer(): TextRecognizer =
         recognizer ?: TextRecognition.getClient(
@@ -73,7 +60,10 @@ object StaticRecognizer {
         recognize(bmp, lookup69, onResult, onError)
     }
 
-    /** 识别单张 Bitmap：ML Kit 条码 + ZXing 双解码并行，结果合并，再跑 OCR */
+    /**
+     * 识别单张 Bitmap：先由 zxing-cpp 独占条码识别，再由 ML Kit 只做 OCR。
+     * 文档扫描返回 JPEG 后不会再同时运行两个条码引擎。
+     */
     fun recognize(
         bitmap: Bitmap,
         lookup69: ((String) -> String?)?,
@@ -81,35 +71,11 @@ object StaticRecognizer {
         onError: (String) -> Unit,
     ) {
         val input = InputImage.fromBitmap(bitmap, 0)
-
-        // ZXing 双解码器（放大 3x，补 ML Kit 漏检的密集小条码）——后台线程并行跑
-        val zxingFuture: java.util.concurrent.Future<List<String>> =
-            zxingPool.submit(java.util.concurrent.Callable { ZxingDecoder.decode(bitmap) })
-
-        getScanner().process(input)
-            .addOnSuccessListener { barcodes ->
-                val mlValues = barcodes.mapNotNull { it.rawValue }.distinct()
-                val zxValues = awaitZxing(zxingFuture)
-                val values = (mlValues + zxValues).distinct()
-                finishOcr(input, values, lookup69, onResult, onError)
-            }
-            .addOnFailureListener { e ->
-                Log.w(TAG, "barcode failed, ocr + zxing only", e)
-                finishOcr(input, awaitZxing(zxingFuture), lookup69, onResult, onError)
-            }
-    }
-
-    /** 等待 ZXing 解码结果（上限 15s——实测 3x 解码可达 1.9s，2s 超时会把结果丢弃） */
-    private fun awaitZxing(future: java.util.concurrent.Future<List<String>>): List<String> =
-        try {
-            future.get(15, TimeUnit.SECONDS)
-        } catch (e: Exception) {
-            Log.w(TAG, "zxing timed out: ${e.message}")
-            // 必须中断线程：否则 ZXing 解码继续占用单线程池，后续识别任务全部排队 → 累积卡死
-            future.cancel(true)
-            emptyList()
+        zxingPool.submit {
+            val values = ZxingDecoder.decode(bitmap)
+            finishOcr(input, values, lookup69, onResult, onError)
         }
-
+    }
     /** 条码结果就绪后跑 OCR 并合并（两通道共用） */
     private fun finishOcr(
         input: InputImage,
@@ -175,11 +141,9 @@ object StaticRecognizer {
         }
     }
 
-    /** 关闭识别器（置空，下次识别自动重建） */
+    /** 关闭 OCR 识别器（置空，下次识别自动重建） */
     fun close() {
-        try { scanner?.close() } catch (_: Exception) {}
         try { recognizer?.close() } catch (_: Exception) {}
-        scanner = null
         recognizer = null
     }
 }
