@@ -10,231 +10,167 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/**
- * 本地数据存储：已保存的标签记录。
- *
- * 【双写策略 2026-08】
- *  - 内部：filesDir/label_records.json（运行期快速读写）
- *  - 外部：公共 Download/LabelScanner/label_records.json（MediaStore，卸载不删）
- * 目的：App 更新需卸载重装时，内部数据会清空，外部公共目录文件保留，
- *       重装后 load() 自动从外部恢复。
- *
- * 写：内部 + 外部都写；读：内部优先，内部空则从外部恢复。
- */
+/** 本地记录仓库。SQLite 是主数据源，旧 JSON 仅用于首次迁移和人工恢复。 */
 object RecordStore {
-
     private const val FILE_NAME = "label_records.json"
     private const val EXT_DIR = "Download/LabelScanner"
+    private const val PREFS = "local_database_migration"
+    private const val IMPORTED = "records_imported"
 
-    /** 读取全部记录（内部优先，内部空则从外部恢复） */
     fun load(context: Context): MutableList<LabelResult> {
-        // 1. 内部
-        val internal = readInternal(context)
-        if (internal.isNotEmpty()) return internal
-
-        // 2. 内部空 → 外部恢复
-        val external = readExternal(context)
-        if (external.isNotEmpty()) {
-            // 恢复到内部，下次直接读内部
-            writeInternal(context, external)
-            return external
+        ensureImported(context)
+        val db = LocalDatabase.get(context).readableDatabase
+        db.rawQuery("SELECT * FROM records ORDER BY id", null).use { cursor ->
+            val list = mutableListOf<LabelResult>()
+            while (cursor.moveToNext()) list += fromCursor(cursor)
+            return list
         }
-        return mutableListOf()
     }
 
-    /** 按托盘码查询记录 */
-    fun loadByTrayCode(context: Context, trayCode: String): MutableList<LabelResult> {
-        return load(context).filter { it.trayCode == trayCode }.toMutableList()
-    }
+    fun loadByTrayCode(context: Context, trayCode: String): MutableList<LabelResult> =
+        load(context).filter { it.trayCode == trayCode }.toMutableList()
 
-    /** 获取所有已用的托盘码列表 */
-    fun getAllTrayCodes(context: Context): List<String> {
-        return load(context)
-            .filter { it.trayCode.isNotBlank() }
-            .map { it.trayCode }
-            .distinct()
-    }
+    fun getAllTrayCodes(context: Context): List<String> =
+        load(context).map { it.trayCode }.filter { it.isNotBlank() }.distinct()
 
-    /** 全量保存：内部 + 外部双写 */
+    /** 全量替换在一个事务内完成，兼容现有编辑页按下标保存的接口。 */
     fun save(context: Context, records: List<LabelResult>) {
-        writeInternal(context, records)
+        ensureImported(context)
+        val database = LocalDatabase.get(context).writableDatabase
+        database.beginTransaction()
+        try {
+            database.delete("records", null, null)
+            records.forEach { insert(database, it) }
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
+        }
         writeExternal(context, records)
     }
 
-    /** 追加记录（保留已有数据，只加新的） */
     fun append(context: Context, newRecords: List<LabelResult>) {
-        val existing = load(context)
-        val combined = (existing + newRecords).distinctBy { it.serialNumber }
-        writeInternal(context, combined)
-        writeExternal(context, combined)
-    }
-
-    // ---------- 内部 ----------
-
-    private fun internalFile(context: Context): File = File(context.filesDir, FILE_NAME)
-
-    private fun readInternal(context: Context): MutableList<LabelResult> {
-        val file = internalFile(context)
-        if (!file.exists()) return mutableListOf()
-        return try {
-            parseJson(file.readText())
-        } catch (e: Exception) {
-            mutableListOf()
-        }
-    }
-
-    private fun writeInternal(context: Context, records: List<LabelResult>) {
+        ensureImported(context)
+        val database = LocalDatabase.get(context).writableDatabase
+        database.beginTransaction()
         try {
-            internalFile(context).writeText(toJson(records))
-        } catch (e: Exception) {
-            // 忽略，外部还在
+            newRecords.forEach { record ->
+                val values = values(record)
+                val serial = record.serialNumber.trim()
+                val updated = if (serial.isBlank()) 0 else database.update(
+                    "records", values, "serial_number = ?", arrayOf(serial)
+                )
+                if (updated == 0) database.insertOrThrow("records", null, values)
+            }
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
         }
+        writeExternal(context, load(context))
     }
 
-    // ---------- 外部（公共 Download 目录，卸载不删） ----------
-
-    /** 读外部：优先 MediaStore（API 29+），fallback 外部文件目录 */
-    private fun readExternal(context: Context): MutableList<LabelResult> {
-        return if (Build.VERSION.SDK_INT >= 29) {
-            readViaMediaStore(context)
-        } else {
-            readViaLegacyDir(context)
+    private fun ensureImported(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(IMPORTED, false)) return
+        val database = LocalDatabase.get(context).writableDatabase
+        database.beginTransaction()
+        try {
+            if (database.query("records", arrayOf("id"), null, null, null, null, null, "1").count == 0) {
+                (readInternal(context).ifEmpty { readExternal(context) }).forEach { insert(database, it) }
+            }
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
         }
+        prefs.edit().putBoolean(IMPORTED, true).apply()
     }
 
-    private fun writeExternal(context: Context, records: List<LabelResult>) {
-        if (Build.VERSION.SDK_INT >= 29) {
-            writeViaMediaStore(context, records)
-        } else {
-            writeViaLegacyDir(context, records)
-        }
+    private fun insert(db: android.database.sqlite.SQLiteDatabase, record: LabelResult) {
+        db.insertOrThrow("records", null, values(record))
     }
 
-    /** API 29+：MediaStore.Downloads（免权限，公共可见，卸载不删） */
-    private fun readViaMediaStore(context: Context): MutableList<LabelResult> {
-        return try {
+    private fun values(r: LabelResult) = ContentValues().apply {
+        put("barcodes", r.barcodes.joinToString("\n")); put("ocr_text", r.ocrText)
+        put("supplier", r.supplier); put("serial_number", r.serialNumber)
+        put("material_code", r.materialCode); put("quantity", r.quantity)
+        put("production_date", r.productionDate); put("ean69", r.ean69)
+        put("material_from_ean69", if (r.materialFromEan69) 1 else 0)
+        put("model", r.model); put("color", r.color); put("toner_model", r.tonerModel)
+        put("tray_code", r.trayCode); put("box_code", r.boxCode)
+    }
+
+    private fun fromCursor(c: android.database.Cursor) = LabelResult(
+        barcodes = c.string("barcodes").split("\n").filter { it.isNotBlank() },
+        ocrText = c.string("ocr_text"), supplier = c.string("supplier"),
+        serialNumber = c.string("serial_number"), materialCode = c.string("material_code"),
+        quantity = c.getInt(c.getColumnIndexOrThrow("quantity")),
+        productionDate = c.string("production_date"), ean69 = c.string("ean69"),
+        materialFromEan69 = c.getInt(c.getColumnIndexOrThrow("material_from_ean69")) != 0,
+        model = c.string("model"), color = c.string("color"), tonerModel = c.string("toner_model"),
+        trayCode = c.string("tray_code"), boxCode = c.string("box_code")
+    )
+
+    private fun android.database.Cursor.string(name: String): String =
+        getString(getColumnIndexOrThrow(name)) ?: ""
+
+    // ---------- Legacy JSON import / public recovery backup ----------
+    private fun internalFile(context: Context) = File(context.filesDir, FILE_NAME)
+    private fun readInternal(context: Context) = readJsonFile(internalFile(context))
+
+    private fun readExternal(context: Context): MutableList<LabelResult> = if (Build.VERSION.SDK_INT >= 29) {
+        try {
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-            val projection = arrayOf(
-                MediaStore.Downloads._ID,
-                MediaStore.Downloads.DISPLAY_NAME,
-            )
-            val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ?"
-            val args = arrayOf(FILE_NAME)
-            context.contentResolver.query(
-                collection, projection, selection, args, null
-            )?.use { cursor ->
+            context.contentResolver.query(collection, arrayOf(MediaStore.Downloads._ID),
+                "${MediaStore.Downloads.DISPLAY_NAME} = ?", arrayOf(FILE_NAME), null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID))
-                    val uri = Uri.withAppendedPath(collection, id.toString())
-                    val text = context.contentResolver.openInputStream(uri)
-                        ?.bufferedReader()?.use { it.readText() }
-                    if (!text.isNullOrBlank()) parseJson(text) else mutableListOf()
+                    val uri = Uri.withAppendedPath(collection, cursor.getLong(0).toString())
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { parseJson(it.readText()) }
+                        ?: mutableListOf()
                 } else mutableListOf()
             } ?: mutableListOf()
-        } catch (e: Exception) {
-            mutableListOf()
-        }
-    }
+        } catch (_: Exception) { mutableListOf() }
+    } else readJsonFile(File(context.getExternalFilesDir(null), FILE_NAME))
 
-    private fun writeViaMediaStore(context: Context, records: List<LabelResult>) {
+    private fun readJsonFile(file: File): MutableList<LabelResult> = try {
+        if (file.exists()) parseJson(file.readText()) else mutableListOf()
+    } catch (_: Exception) { mutableListOf() }
+
+    private fun writeExternal(context: Context, records: List<LabelResult>) {
         try {
             val json = toJson(records)
-            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-            // 先删旧的（防止重复）
-            context.contentResolver.delete(
-                collection,
-                "${MediaStore.Downloads.DISPLAY_NAME} = ?",
-                arrayOf(FILE_NAME)
-            )
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, FILE_NAME)
-                put(MediaStore.Downloads.MIME_TYPE, "application/json")
-                put(MediaStore.Downloads.RELATIVE_PATH, EXT_DIR)
-                put(MediaStore.Downloads.IS_PENDING, 1)
+            if (Build.VERSION.SDK_INT < 29) {
+                File(context.getExternalFilesDir(null), FILE_NAME).writeText(json)
+                return
             }
-            val uri = context.contentResolver.insert(collection, values)
-            if (uri != null) {
+            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            context.contentResolver.delete(collection, "${MediaStore.Downloads.DISPLAY_NAME} = ?", arrayOf(FILE_NAME))
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, FILE_NAME); put(MediaStore.Downloads.MIME_TYPE, "application/json")
+                put(MediaStore.Downloads.RELATIVE_PATH, EXT_DIR); put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            context.contentResolver.insert(collection, values)?.let { uri ->
                 context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-                values.clear()
-                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0)
                 context.contentResolver.update(uri, values, null, null)
             }
-        } catch (e: Exception) {
-            // 忽略
-        }
+        } catch (_: Exception) { /* SQLite remains the source of truth. */ }
     }
 
-    /** API 26-28：外部文件目录（需要 WRITE_EXTERNAL_STORAGE 权限，卸载删） */
-    private fun legacyDir(context: Context): File =
-        File(context.getExternalFilesDir(null), FILE_NAME)
+    private fun toJson(records: List<LabelResult>): String = JSONArray().apply {
+        records.forEach { r -> put(JSONObject().apply {
+            put("barcodes", r.barcodes.joinToString("\n")); put("ocrText", r.ocrText); put("supplier", r.supplier)
+            put("serialNumber", r.serialNumber); put("materialCode", r.materialCode); put("quantity", r.quantity)
+            put("productionDate", r.productionDate); put("ean69", r.ean69); put("materialFromEan69", r.materialFromEan69)
+            put("model", r.model); put("color", r.color); put("tonerModel", r.tonerModel); put("trayCode", r.trayCode); put("boxCode", r.boxCode)
+        }) }
+    }.toString()
 
-    private fun readViaLegacyDir(context: Context): MutableList<LabelResult> {
-        val f = legacyDir(context)
-        return try {
-            if (f.exists()) parseJson(f.readText()) else mutableListOf()
-        } catch (e: Exception) {
-            mutableListOf()
-        }
-    }
-
-    private fun writeViaLegacyDir(context: Context, records: List<LabelResult>) {
-        try {
-            legacyDir(context).writeText(toJson(records))
-        } catch (e: Exception) {
-            // 忽略
-        }
-    }
-
-    // ---------- JSON ----------
-
-    private fun toJson(records: List<LabelResult>): String {
-        val arr = JSONArray()
-        for (r in records) {
-            arr.put(
-                JSONObject()
-                    .put("barcodes", r.barcodes.joinToString("\n"))
-                    .put("ocrText", r.ocrText)
-                    .put("supplier", r.supplier)
-                    .put("serialNumber", r.serialNumber)
-                    .put("materialCode", r.materialCode)
-                    .put("quantity", r.quantity)
-                    .put("productionDate", r.productionDate)
-                    .put("ean69", r.ean69)
-                    .put("materialFromEan69", r.materialFromEan69)
-                    .put("model", r.model)
-                    .put("color", r.color)
-                    .put("tonerModel", r.tonerModel)
-                    .put("trayCode", r.trayCode)
-                    .put("boxCode", r.boxCode)
-            )
-        }
-        return arr.toString()
-    }
-
-    private fun parseJson(raw: String): MutableList<LabelResult> {
-        val arr = JSONArray(raw)
-        val list = mutableListOf<LabelResult>()
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            list.add(
-                LabelResult(
-                    barcodes = o.optString("barcodes", "").split("\n").filter { it.isNotBlank() },
-                    ocrText = o.optString("ocrText", ""),
-                    supplier = o.optString("supplier", "NA"),
-                    serialNumber = o.optString("serialNumber", ""),
-                    materialCode = o.optString("materialCode", ""),
-                    quantity = o.optInt("quantity", 1),
-                    productionDate = o.optString("productionDate", ""),
-                    ean69 = o.optString("ean69", ""),
-                    materialFromEan69 = o.optBoolean("materialFromEan69", false),
-                    model = o.optString("model", ""),
-                    color = o.optString("color", ""),
-                    tonerModel = o.optString("tonerModel", ""),
-                    trayCode = o.optString("trayCode", ""),
-                    boxCode = o.optString("boxCode", ""),
-                )
-            )
-        }
-        return list
+    private fun parseJson(raw: String): MutableList<LabelResult> = JSONArray(raw).let { arr ->
+        MutableList(arr.length()) { i -> arr.getJSONObject(i).let { o -> LabelResult(
+            barcodes = o.optString("barcodes").split("\n").filter { it.isNotBlank() }, ocrText = o.optString("ocrText"),
+            supplier = o.optString("supplier", "NA"), serialNumber = o.optString("serialNumber"), materialCode = o.optString("materialCode"),
+            quantity = o.optInt("quantity", 1), productionDate = o.optString("productionDate"), ean69 = o.optString("ean69"),
+            materialFromEan69 = o.optBoolean("materialFromEan69"), model = o.optString("model"), color = o.optString("color"),
+            tonerModel = o.optString("tonerModel"), trayCode = o.optString("trayCode"), boxCode = o.optString("boxCode")
+        ) } }.toMutableList()
     }
 }
