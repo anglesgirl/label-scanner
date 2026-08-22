@@ -60,6 +60,11 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".camera.CaptureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".SplitCodeActivity"
             android:exported="false"
             android:screenOrientation="portrait"

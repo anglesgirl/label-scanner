@@ -82,9 +82,9 @@ class SingleInboundActivity : AppCompatActivity() {
         }
     }
     private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK && pendingPhotoUri != null) {
-            // 恢复原有稳定流程：系统相机高清图直接识别
-            recognizeStatic(pendingPhotoUri!!)
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.getStringExtra(com.anglesgirl.labelscanner.camera.CaptureActivity.EXTRA_OUTPUT_URI)
+                ?.let { recognizeStatic(Uri.parse(it)) }
         }
     }
     /** 文档扫描（ML Kit FULL） */
@@ -191,19 +191,7 @@ class SingleInboundActivity : AppCompatActivity() {
     }
 
     private fun launchCamera() {
-        try {
-            val dir = File(cacheDir, "captures").apply { mkdirs() }
-            val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
-            photoFile = file
-            pendingPhotoUri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
-            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                putExtra(MediaStore.EXTRA_OUTPUT, pendingPhotoUri)
-                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            takePhoto.launch(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "无法启动相机: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
+        takePhoto.launch(Intent(this, com.anglesgirl.labelscanner.camera.CaptureActivity::class.java))
     }
 
     private fun launchDocScan() {

@@ -68,22 +68,8 @@ object BoxParser {
             }
         }
 
-        // 第 2 步 OCR：**先**提取物料（SAP 行）+ 日期 + 型号。
-        // 注意顺序：物料必须在条码分类之前确定——DL-5120P 的 SAP 只出现在
-        // OCR（条码全是 混合码），若先分类条码会因不知道物料前缀而把箱号误归 SN。
-        for (line in ocrText.lines()) {
-            val l = line.trim()
-            if (l.isEmpty()) continue
-            val upper = l.uppercase()
-            when {
-                material.isEmpty() && SAP12.matcher(l).matches() -> material = l
-                upper.startsWith("SAP") || upper.startsWith("SAP.") -> {
-                    Regex("(\\d{12})").find(l)?.groupValues?.get(1)?.let { material = it }
-                }
-            }
-        }
-        // 第 2.1 步 条码前缀提取物料（不依赖 OCR，更稳）：
-        // 混合码前 12 位是纯数字 → 该 12 位即 SAP 物料（201051012201V00224 → 201051012201）
+        // 第 2 步：先从条码前缀提取物料。条码是机器读取结果，优先级高于 OCR。
+        // 混合码前 12 位是纯数字时，该 12 位即 SAP 物料。
         if (material.isEmpty()) {
             for (code in barcodes) {
                 val c = code.trim()
@@ -93,6 +79,19 @@ object BoxParser {
                 }
             }
         }
+        // 条码没有物料时，OCR 才作为补充来源。
+        for (line in ocrText.lines()) {
+            val l = line.trim()
+            if (l.isEmpty()) continue
+            val upper = l.uppercase()
+            when {
+                material.isEmpty() && SAP12.matcher(l).matches() -> material = l
+                material.isEmpty() && (upper.startsWith("SAP") || upper.startsWith("SAP.")) -> {
+                    Regex("(\\d{12})").find(l)?.groupValues?.get(1)?.let { material = it }
+                }
+            }
+        }
+
         for (line in ocrText.lines()) {
             val l = line.trim()
             if (l.isEmpty()) continue

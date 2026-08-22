@@ -88,8 +88,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
 
     /** 拍照（系统相机） */
     private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            pendingPhotoUri?.let { recognizeLabel(it) }
+        if (result.resultCode == RESULT_OK) {
+            result.data?.getStringExtra(com.anglesgirl.labelscanner.camera.CaptureActivity.EXTRA_OUTPUT_URI)
+                ?.let { recognizeLabel(Uri.parse(it)) }
         }
     }
 
@@ -179,20 +180,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
 
     /** 系统相机拍照 → 全分辨率存 captures/ → 识别 */
     private fun launchCamera() {
-        try {
-            val dir = File(cacheDir, "captures").apply { mkdirs() }
-            val file = File(dir, "box_photo_${System.currentTimeMillis()}.jpg")
-            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
-            pendingPhotoUri = uri
-            photoFile = file
-            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                putExtra(MediaStore.EXTRA_OUTPUT, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            }
-            takePhoto.launch(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "无法启动相机: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
+        takePhoto.launch(Intent(this, com.anglesgirl.labelscanner.camera.CaptureActivity::class.java))
     }
 
     /** ML Kit 文档扫描（GMS；自动找边/裁切/增强，标签拍摄最佳） */
