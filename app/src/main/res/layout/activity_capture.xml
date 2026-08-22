@@ -9,6 +9,16 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <View
+        android:id="@+id/captureAlignmentFrame"
+        android:layout_width="match_parent"
+        android:layout_height="260dp"
+        android:layout_gravity="center"
+        android:layout_marginStart="28dp"
+        android:layout_marginEnd="28dp"
+        android:background="@drawable/bg_scan_frame"
+        android:contentDescription="标签取景框" />
+
     <TextView
         android:id="@+id/tvCaptureStatus"
         android:layout_width="match_parent"

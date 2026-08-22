@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -12,6 +13,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.Camera
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -31,9 +33,11 @@ class CaptureActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var tvStatus: TextView
+    private lateinit var alignmentFrame: View
     private var imageCapture: ImageCapture? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
+    private var alignmentAnalyzer: CaptureAlignmentAnalyzer? = null
     private var captureStarted = false
 
     private val requestCamera = registerForActivityResult(
@@ -47,6 +51,7 @@ class CaptureActivity : AppCompatActivity() {
         setContentView(R.layout.activity_capture)
         previewView = findViewById(R.id.pvCapture)
         tvStatus = findViewById(R.id.tvCaptureStatus)
+        alignmentFrame = findViewById(R.id.captureAlignmentFrame)
         findViewById<Button>(R.id.btnCaptureCancel).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnCapture).setOnClickListener { captureAfterFocus() }
         requestCamera.launch(android.Manifest.permission.CAMERA)
@@ -66,23 +71,36 @@ class CaptureActivity : AppCompatActivity() {
                     .setJpegQuality(95)
                     .build()
                 imageCapture = capture
+                val analysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                alignmentAnalyzer = CaptureAlignmentAnalyzer(
+                    onState = { state -> runOnUiThread { updateAlignmentState(state) } },
+                    onStable = {
+                        runOnUiThread {
+                            if (!captureStarted) captureAfterFocus(auto = true)
+                        }
+                    },
+                ).also { analyzer ->
+                    analysis.setAnalyzer(ContextCompat.getMainExecutor(this), analyzer)
+                }
                 provider.unbindAll()
                 camera = provider.bindToLifecycle(
-                    this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture
+                    this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture, analysis
                 )
-                tvStatus.text = "对准标签，等待清晰后拍照"
+                tvStatus.text = "将标签放入框内，保持稳定即可自动拍照"
             } catch (e: Exception) {
                 fail("相机启动失败: ${e.message}")
             }
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun captureAfterFocus() {
+    private fun captureAfterFocus(auto: Boolean = false) {
         if (captureStarted) return
         val capture = imageCapture ?: return
         captureStarted = true
         findViewById<Button>(R.id.btnCapture).isEnabled = false
-        tvStatus.text = "正在对焦..."
+        tvStatus.text = if (auto) "已对齐，正在自动拍照..." else "正在对焦..."
         val point = previewView.meteringPointFactory.createPoint(
             previewView.width / 2f, previewView.height / 2f
         )
@@ -131,7 +149,23 @@ class CaptureActivity : AppCompatActivity() {
         finish()
     }
 
+    private fun updateAlignmentState(state: CaptureAlignmentAnalyzer.AlignmentState) {
+        if (captureStarted) return
+        val ready = state == CaptureAlignmentAnalyzer.AlignmentState.STABLE
+        alignmentFrame.setBackgroundResource(
+            if (ready) R.drawable.bg_scan_frame_ready else R.drawable.bg_scan_frame
+        )
+        when (state) {
+            CaptureAlignmentAnalyzer.AlignmentState.SEARCHING -> tvStatus.text = "请将标签对准取景框"
+            CaptureAlignmentAnalyzer.AlignmentState.MOVE_CLOSER -> tvStatus.text = "请靠近一些，让标签更清晰"
+            CaptureAlignmentAnalyzer.AlignmentState.CENTERED -> tvStatus.text = "位置合适，请保持稳定"
+            CaptureAlignmentAnalyzer.AlignmentState.STABLE -> tvStatus.text = "已对齐，准备拍照"
+        }
+    }
+
     override fun onDestroy() {
+        alignmentAnalyzer?.close()
+        alignmentAnalyzer = null
         cameraProvider?.unbindAll()
         camera = null
         super.onDestroy()
