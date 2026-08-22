@@ -93,7 +93,10 @@ object LabelParser {
 
         // 3. 69 码反查物料（条码通道优先；OCR 的物料只做交叉验证）
         if (result.materialCode.isEmpty() && result.ean69.isNotEmpty() && lookup69 != null) {
-            lookup69(result.ean69)?.let { result.materialCode = it }
+            lookup69(result.ean69)?.let {
+                result.materialCode = it
+                result.materialFromEan69 = true
+            }
         }
 
         // 3.1 条码前缀提取物料（不依赖 OCR）：

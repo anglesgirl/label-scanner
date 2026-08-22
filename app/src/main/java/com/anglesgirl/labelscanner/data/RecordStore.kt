@@ -200,6 +200,7 @@ object RecordStore {
                     .put("quantity", r.quantity)
                     .put("productionDate", r.productionDate)
                     .put("ean69", r.ean69)
+                    .put("materialFromEan69", r.materialFromEan69)
                     .put("model", r.model)
                     .put("color", r.color)
                     .put("tonerModel", r.tonerModel)
@@ -225,6 +226,7 @@ object RecordStore {
                     quantity = o.optInt("quantity", 1),
                     productionDate = o.optString("productionDate", ""),
                     ean69 = o.optString("ean69", ""),
+                    materialFromEan69 = o.optBoolean("materialFromEan69", false),
                     model = o.optString("model", ""),
                     color = o.optString("color", ""),
                     tonerModel = o.optString("tonerModel", ""),

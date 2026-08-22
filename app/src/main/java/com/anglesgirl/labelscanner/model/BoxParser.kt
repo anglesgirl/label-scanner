@@ -19,6 +19,7 @@ data class BoxParseResult(
     val productionDate: String = "",
     val model: String = "",
     val ean69: String = "",
+    val materialFromEan69: Boolean = false,
     val serialNumbers: List<String> = emptyList(),
     val allBarcodes: List<String> = emptyList(),
 ) {
@@ -48,9 +49,10 @@ object BoxParser {
     private val DATE_SEP = Pattern.compile("^\\d{4}[-/. ]\\d{2}[-/. ]\\d{2}$")
     private val DATE8 = Pattern.compile("^\\d{8}$")
 
-    fun parse(barcodes: List<String>, ocrText: String): BoxParseResult {
+    fun parse(barcodes: List<String>, ocrText: String, lookup69: ((String) -> String?)? = null): BoxParseResult {
         var material = ""
         var ean = ""
+        var materialFromEan69 = false
         var box = ""
         var date = ""
         var model = ""
@@ -70,6 +72,12 @@ object BoxParser {
 
         // 第 2 步：先从条码前缀提取物料。条码是机器读取结果，优先级高于 OCR。
         // 混合码前 12 位是纯数字时，该 12 位即 SAP 物料。
+        if (material.isEmpty() && ean.isNotEmpty()) {
+            lookup69?.invoke(ean)?.let {
+                material = it
+                materialFromEan69 = true
+            }
+        }
         if (material.isEmpty()) {
             for (code in barcodes) {
                 val c = code.trim()
@@ -173,6 +181,7 @@ object BoxParser {
             productionDate = date,
             model = model,
             ean69 = ean,
+            materialFromEan69 = materialFromEan69,
             serialNumbers = sns,
             allBarcodes = classified,
         )

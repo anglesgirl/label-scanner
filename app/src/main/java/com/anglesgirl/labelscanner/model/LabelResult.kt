@@ -29,6 +29,7 @@ data class LabelResult(
     var quantity: Int = 1,
     var productionDate: String = "",
     var ean69: String = "",
+    var materialFromEan69: Boolean = false,
     var model: String = "",
     var color: String = "",
     var tonerModel: String = "",

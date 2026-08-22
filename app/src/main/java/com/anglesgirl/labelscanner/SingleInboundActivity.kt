@@ -240,6 +240,8 @@ class SingleInboundActivity : AppCompatActivity() {
         rebuildCodeCandidates()
 
         var tips = ""
+        tvStatus.setTextColor(if (result.materialFromEan69) 0xFFD32F2F.toInt() else 0xFF1B6EF3.toInt())
+        if (result.materialFromEan69) tips = "🔴 商品码提供的补码：${result.materialCode}"
         if (result.materialCode.isBlank()) {
             tips = "⚠️ 未识别到物料"
             // 远程反查（Turso 库）
@@ -253,7 +255,7 @@ class SingleInboundActivity : AppCompatActivity() {
                     }
                 }
             }
-        } else if (result.productionDate == "19000101") {
+        } else if (result.productionDate == "19000101" && tips.isEmpty()) {
             tips = "⚠️ 未识别到生产日期"
         }
         tvStatus.text = "✅ 识别完成 ${result.barcodes.size} 个条码${if (tips.isEmpty()) "" else "，$tips"}"

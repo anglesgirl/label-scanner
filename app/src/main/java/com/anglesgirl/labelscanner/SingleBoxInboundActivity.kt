@@ -59,6 +59,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private var scanTargetField: EditText? = null
     /** 补扫结果加入 SN 列表（而非填单个字段） */
     private var scanAppendToSn = false
+    private var materialFromEan69 = false
+    private var recognizedEan69 = ""
 
     private var pendingPhotoUri: Uri? = null
     private var photoFile: File? = null
@@ -218,12 +220,18 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             lookup69 = null,
             onResult = { result ->
                 runOnUiThread {
-                    val box = BoxParser.parse(result.barcodes, result.ocrText)
+                    val box = BoxParser.parse(
+                        result.barcodes,
+                        result.ocrText,
+                        lookup69 = { ean -> lookup69().lookup(ean) },
+                    )
                     if (!box.hasData) {
                         tvBoxStatus.text = "⚠️ 未识别到内容，请换图重试"
                         return@runOnUiThread
                     }
                     etMaterial.setText(box.materialCode)
+                    recognizedEan69 = box.ean69
+                    materialFromEan69 = box.materialFromEan69
                     etBox.setText(box.boxCode)
                     etDate.setText(box.productionDate)
                     etModel.setText(box.model)
@@ -235,10 +243,12 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     rebuildCodeCandidates()
 
                     val tips = mutableListOf<String>()
+                    if (box.materialFromEan69) tips.add("🔴 商品码提供的补码：${box.materialCode}")
                     if (box.materialCode.isBlank()) tips.add("⚠️ 未识别到物料(SAP)，请手动输入")
                     if (box.boxCode.isBlank()) tips.add("⚠️ 未识别到箱号，请手动输入")
                     if (box.productionDate.isBlank()) tips.add("⚠️ 未识别到日期，请手动输入")
                     if (snList.isEmpty()) tips.add("⚠️ 未识别到序列号，请手动添加")
+                    tvBoxStatus.setTextColor(if (box.materialFromEan69) 0xFFD32F2F.toInt() else 0xFF1B6EF3.toInt())
                     tvBoxStatus.text = "✅ 识别完成：物料=${box.materialCode.ifBlank { "?" }} 箱号=${box.boxCode.ifBlank { "?" }} SN×${snList.size}\n${tips.joinToString("\n")}"
 
                     // 物料空但有条码 → 远程反查（Turso 库）
@@ -250,7 +260,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                                 runOnUiThread {
                                     if (material != null && etMaterial.text.toString().isBlank()) {
                                         etMaterial.setText(material)
-                                        tvBoxStatus.text = "🔁 69码远程反查物料: $material（可修改）"
+                                        materialFromEan69 = true
+                                        tvBoxStatus.setTextColor(0xFFD32F2F.toInt())
+                                        tvBoxStatus.text = "🔴 商品码提供的补码：$material（可修改）"
                                     }
                                 }
                             }
@@ -318,9 +330,12 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 model = model,
                 boxCode = box,
                 trayCode = tray,
+                ean69 = recognizedEan69,
+                materialFromEan69 = materialFromEan69,
             )
         }
         RecordStore.append(this, records)
+        if (recognizedEan69.isNotBlank()) lookup69().learn(recognizedEan69, material)
         tvBoxStatus.text = "✅ 已保存 ${records.size} 条（物料 $material / 箱号 $box）"
         Toast.makeText(this, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
         resetBox()
@@ -335,6 +350,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etManualSn.setText("")
         snList.clear()
         codeCandidates.clear()
+        recognizedEan69 = ""
+        materialFromEan69 = false
         rebuildSnList()
         rebuildCodeCandidates()
         updateStatus()
