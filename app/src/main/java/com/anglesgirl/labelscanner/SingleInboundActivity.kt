@@ -62,8 +62,11 @@ class SingleInboundActivity : AppCompatActivity() {
     /** 字段补扫：实时扫码相机 → 确认框 → 填目标框（不拍照，自动识别） */
     private val liveScan = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
-            val code = result.data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)
-            if (code != null) onScannedCode(code)
+            val data = result.data
+            val codes = data?.getStringArrayListExtra(LiveScanActivity.EXTRA_RESULT_CODES)
+                ?: data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)?.let(::arrayListOf)
+                ?: arrayListOf()
+            codes.forEach(::onScannedCode)
         }
     }
 
@@ -129,6 +132,9 @@ class SingleInboundActivity : AppCompatActivity() {
             liveScan.launch(
                 Intent(this, LiveScanActivity::class.java)
                     .putExtra(LiveScanActivity.EXTRA_TITLE, "序列号")
+                    .putExtra(LiveScanActivity.EXTRA_BULK_MODE, true)
+                    .putExtra(LiveScanActivity.EXTRA_EXPECTED_COUNT, snList.size)
+                    .putStringArrayListExtra(LiveScanActivity.EXTRA_INITIAL_CODES, ArrayList(snList))
             )
         }
         findViewById<Button>(R.id.btnSave).setOnClickListener { confirmSave() }

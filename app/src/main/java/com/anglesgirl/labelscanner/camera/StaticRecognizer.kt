@@ -5,6 +5,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import com.google.mlkit.vision.barcode.Barcode
+import com.google.mlkit.vision.barcode.BarcodeScanner
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
@@ -29,6 +33,7 @@ object StaticRecognizer {
     private const val TAG = "StaticRecognizer"
 
     private var recognizer: TextRecognizer? = null
+    private var barcodeScanner: BarcodeScanner? = null
 
     /** ZXing 解码线程池（放大 3x 解码是 CPU 密集，不阻塞主线程） */
     private val zxingPool = Executors.newSingleThreadExecutor { r ->
@@ -42,6 +47,13 @@ object StaticRecognizer {
         recognizer ?: TextRecognition.getClient(
             ChineseTextRecognizerOptions.Builder().build()
         ).also { recognizer = it }
+
+    private fun getBarcodeScanner(): BarcodeScanner =
+        barcodeScanner ?: BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
+                .build()
+        ).also { barcodeScanner = it }
 
     /**
      * 从 Uri 解码 Bitmap（自动缩放，避免超大图 OOM），然后识别。
@@ -64,10 +76,7 @@ object StaticRecognizer {
         recognize(bmp, lookup69, onResult, onError)
     }
 
-    /**
-     * 识别单张 Bitmap：先由 zxing-cpp 独占条码识别，再由 ML Kit 只做 OCR。
-     * 文档扫描返回 JPEG 后不会再同时运行两个条码引擎。
-     */
+    /** 识别单张 Bitmap：ML Kit + zxing-cpp 双条码通道，再由 ML Kit OCR 补充文字。 */
     fun recognize(
         bitmap: Bitmap,
         lookup69: ((String) -> String?)?,
@@ -81,34 +90,49 @@ object StaticRecognizer {
                 Log.i(TAG, "[ZXING_STATIC] complete count=${it.size}")
             }
         }
-        recognitionPool.submit {
-            val values = try {
-                zxingFuture.get(15, TimeUnit.SECONDS)
-            } catch (e: Exception) {
-                zxingFuture.cancel(true)
-                Log.w(TAG, "[ZXING_STATIC] timeout/failure; continue OCR only: ${e.message}")
-                emptyList()
+        getBarcodeScanner().process(input)
+            .addOnSuccessListener { mlBarcodes ->
+                val mlValues = mlBarcodes.mapNotNull {
+                    it.rawValue?.trim()?.takeIf(String::isNotBlank)
+                }
+                finishWithBarcodes(input, mlValues, zxingFuture, lookup69, onResult, onError)
             }
-            finishOcr(input, values, lookup69, onResult, onError)
-        }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "barcode scan failed, use zxing only", error)
+                finishWithBarcodes(input, emptyList(), zxingFuture, lookup69, onResult, onError)
+            }
     }
-    /** 条码结果就绪后跑 OCR 并合并（两通道共用） */
-    private fun finishOcr(
+
+    /** 在后台等待 C++ 通道并合并，避免阻塞主线程，再只跑一次 OCR。 */
+    private fun finishWithBarcodes(
         input: InputImage,
-        barcodes: List<String>,
+        mlBarcodes: List<String>,
+        zxingFuture: java.util.concurrent.Future<List<String>>,
         lookup69: ((String) -> String?)?,
         onResult: (LabelResult) -> Unit,
         onError: (String) -> Unit,
     ) {
-        getRecognizer().process(input)
-            .addOnSuccessListener { text ->
-                val ocr = text.text?.trim() ?: ""
-                onResult(LabelParser.parse(barcodes, ocr, lookup69))
+        recognitionPool.submit {
+            val mergedBarcodes = try {
+                (mlBarcodes + zxingFuture.get(15, TimeUnit.SECONDS))
+                    .map { it.trim() }
+                    .filter(String::isNotBlank)
+                    .distinct()
+            } catch (e: Exception) {
+                zxingFuture.cancel(true)
+                Log.w(TAG, "[ZXING_STATIC] timeout/failure; use ML Kit only: ${e.message}")
+                mlBarcodes.distinct()
             }
-            .addOnFailureListener { e ->
-                Log.w(TAG, "ocr failed", e)
-                onResult(LabelParser.parse(barcodes, "", lookup69))
-            }
+            Log.i(TAG, "[BARCODE_MERGE] ml=${mlBarcodes.size} merged=${mergedBarcodes.size}")
+            getRecognizer().process(input)
+                .addOnSuccessListener { text ->
+                    onResult(LabelParser.parse(mergedBarcodes, text.text?.trim() ?: "", lookup69))
+                }
+                .addOnFailureListener { e ->
+                    Log.w(TAG, "ocr failed", e)
+                    onResult(LabelParser.parse(mergedBarcodes, "", lookup69))
+                }
+        }
     }
 
     /** 缩放解码：目标边 ≤ 4096（密集小条码保真）。FileDescriptor 方式（content URI 最可靠） */
@@ -160,6 +184,8 @@ object StaticRecognizer {
     /** 关闭 OCR 识别器（置空，下次识别自动重建） */
     fun close() {
         try { recognizer?.close() } catch (_: Exception) {}
+        try { barcodeScanner?.close() } catch (_: Exception) {}
         recognizer = null
+        barcodeScanner = null
     }
 }
