@@ -64,7 +64,7 @@ class SingleInboundActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             val data = result.data
             val codes = data?.getStringArrayListExtra(LiveScanActivity.EXTRA_RESULT_CODES)
-                ?: data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)?.let(::arrayListOf)
+                ?: data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)?.let { arrayListOf(it) }
                 ?: arrayListOf()
             codes.forEach(::onScannedCode)
         }
