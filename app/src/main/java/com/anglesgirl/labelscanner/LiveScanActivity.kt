@@ -37,6 +37,10 @@ class LiveScanActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_TITLE = "extra_title"          // 提示文字，如"扫描托盘号"
         const val EXTRA_RESULT_CODE = "extra_result_code"
+        const val EXTRA_RESULT_CODES = "extra_result_codes"
+        const val EXTRA_BULK_MODE = "extra_bulk_mode"
+        const val EXTRA_EXPECTED_COUNT = "extra_expected_count"
+        const val EXTRA_INITIAL_CODES = "extra_initial_codes"
     }
 
     private lateinit var previewView: PreviewView
@@ -47,6 +51,9 @@ class LiveScanActivity : AppCompatActivity() {
     private var lastRejectedAt = 0L
 
     private var barcodeScanner: BarcodeScanner? = null
+    private var bulkMode = false
+    private var expectedCount = 0
+    private val initialCodes = linkedSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,6 +62,9 @@ class LiveScanActivity : AppCompatActivity() {
         previewView = findViewById(R.id.pvScan)
         val tvHint = findViewById<TextView>(R.id.tvScanHint)
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        bulkMode = intent.getBooleanExtra(EXTRA_BULK_MODE, false)
+        expectedCount = intent.getIntExtra(EXTRA_EXPECTED_COUNT, 0)
+        initialCodes += intent.getStringArrayListExtra(EXTRA_INITIAL_CODES).orEmpty()
         tvHint.text = if (title.isEmpty()) "对准条码，自动识别" else "对准${title}条码，自动识别"
         findViewById<Button>(R.id.btnCloseScan).setOnClickListener { finish() }
 
@@ -97,8 +107,8 @@ class LiveScanActivity : AppCompatActivity() {
         val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
         barcodeScanner?.process(inputImage)
             ?.addOnSuccessListener { barcodes ->
-                val value = barcodes.firstNotNullOfOrNull { it.rawValue }
-                if (value != null) onBarcodeDetected(value)
+                val values = barcodes.mapNotNull { it.rawValue?.trim()?.takeIf(String::isNotBlank) }
+                if (bulkMode) onBarcodesDetected(values) else values.firstOrNull()?.let(::onBarcodeDetected)
             }
             ?.addOnFailureListener { /* 单帧失败忽略，继续下一帧 */ }
             ?.addOnCompleteListener { imageProxy.close() }
@@ -125,6 +135,29 @@ class LiveScanActivity : AppCompatActivity() {
                     lastRejectedAt = System.currentTimeMillis()
                     paused.set(false)
                 }
+                .setOnDismissListener { paused.set(false) }
+                .show()
+        }
+    }
+
+    /** SN 批量补扫：同帧返回全部条码，已有 SN 不重复加入。 */
+    private fun onBarcodesDetected(values: List<String>) {
+        val newCodes = values.filterNot(initialCodes::contains).distinct()
+        if (newCodes.isEmpty() || !paused.compareAndSet(false, true)) return
+
+        runOnUiThread {
+            beep()
+            val collectedCount = initialCodes.size + newCodes.size
+            val countHint = if (expectedCount > 0) "\n已收集 $collectedCount/$expectedCount 个" else ""
+            AlertDialog.Builder(this)
+                .setTitle("📦 扫码结果")
+                .setMessage("本次识别 ${newCodes.size} 个条码：\n${newCodes.joinToString("\n")}$countHint\n\n确认加入序列号吗？")
+                .setCancelable(false)
+                .setPositiveButton("确定") { _, _ ->
+                    setResult(RESULT_OK, Intent().putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(newCodes)))
+                    finish()
+                }
+                .setNegativeButton("取消") { _, _ -> paused.set(false) }
                 .setOnDismissListener { paused.set(false) }
                 .show()
         }
