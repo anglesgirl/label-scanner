@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#FFFFFF"
+    android:background="@color/ls_card"
     android:padding="10dp"
     android:layout_marginBottom="10dp">
 
@@ -18,7 +18,7 @@
             android:layout_height="wrap_content"
             android:text="序号"
             android:textSize="11sp"
-            android:textColor="#5A6B85" />
+            android:textColor="@color/ls_text_dim" />
 
         <TextView
             android:id="@+id/tvSplitSn"
@@ -28,7 +28,7 @@
             android:layout_marginStart="8dp"
             android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="#14213D" />
+            android:textColor="@color/ls_text" />
 
         <Button
             android:id="@+id/btnSaveOne"

@@ -18,6 +18,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
@@ -109,7 +110,15 @@ class SplitCodeActivity : AppCompatActivity() {
         val input = EditText(this).apply {
             hint = "集成码 ${rows.size + 1}（可扫可粘贴）"
             textSize = 13f
+            // 集成码可能含几十个逗号分隔的 SN，铺开会把整个界面撑开。
+            // 这里强制单行 + 中间省略，点一下弹窗看完整内容。
+            setSingleLine(true)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            isFocusable = false          // 避免一点就弹软键盘挡住内容
+            isClickable = true
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { showFullCode(this) }
         }
         val btnScan = Button(this).apply { text = "扫"; textSize = 12f }
         val btnDel = Button(this).apply { text = "✕"; textSize = 12f }
@@ -140,6 +149,31 @@ class SplitCodeActivity : AppCompatActivity() {
         rows.add(item)
         renumberHints()
         return item
+    }
+
+
+
+    /** 取主题色（自动适配深浅模式）。 */
+    private fun c(resId: Int): Int = androidx.core.content.ContextCompat.getColor(this, resId)
+
+    /** 点输入框查看完整集成码（内容可能几十个 SN，单行显示放不下）。 */
+    private fun showFullCode(edit: EditText) {
+        val full = edit.text.toString()
+        if (full.isBlank()) {
+            Toast.makeText(this, "这一箱还没有集成码", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val count = splitCodes(listOf(full)).size
+        AlertDialog.Builder(this)
+            .setTitle("集成码（拆出 $count 个 SN）")
+            .setMessage(full)
+            .setPositiveButton("复制") { _, _ ->
+                val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("集成码", full))
+                Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("关闭", null)
+            .show()
     }
 
     /** 删箱后把提示语里的序号重排。 */
@@ -350,7 +384,8 @@ class SplitCodeActivity : AppCompatActivity() {
             if (bmp != null) {
                 row.findViewById<ImageView>(R.id.ivBarcode).setImageBitmap(bmp)
             } else {
-                row.findViewById<ImageView>(R.id.ivBarcode).setBackgroundColor(0xFFEEEEEE.toInt())
+                // 二维码/条码图必须是浅色底才能被识别，深浅模式下都用浅底
+                row.findViewById<ImageView>(R.id.ivBarcode).setBackgroundColor(android.graphics.Color.WHITE)
             }
             row.findViewById<TextView>(R.id.tvSplitSn).text = (index + 1).toString()
             row.findViewById<Button>(R.id.btnSaveOne).setOnClickListener {

@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#EDF1F7"
+    android:background="@color/ls_bg"
     android:fillViewport="true">
 
     <!-- ScrollView 只允许一个直接子元素，所有内容都放在这个垂直容器里 -->
@@ -17,7 +17,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:text="每箱一行：点「扫」扫入集成码，也可以直接粘贴；勾选要拆的箱，最后一起拆解"
-                android:textColor="#5A6B8C"
+                android:textColor="@color/ls_text_dim"
                 android:textSize="13sp" />
 
             <!-- 每箱一行：勾选 + 集成码输入框 + 扫 + 删（行由代码动态生成） -->
@@ -43,7 +43,7 @@
             android:text="粘贴集成码（逗号分隔，如 SN1,SN2,SN3）"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -59,8 +59,8 @@
                 android:layout_weight="1"
                 android:hint="SN1,SN2,SN3"
                 android:textSize="14sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
                 android:inputType="text" />
 
             <Button
@@ -84,7 +84,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:textSize="12sp"
-            android:textColor="#5A6B85"
+            android:textColor="@color/ls_text_dim"
             android:visibility="gone" />
 
         <!-- 拆分结果列表：每个 SN 一行（二维码 + SN + 保存） -->
@@ -95,7 +95,7 @@
             android:text="拆分结果（每 SN 一个条码）"
             android:textSize="13sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:id="@+id/llSplitResult"
@@ -123,7 +123,7 @@
             android:layout_marginTop="8dp"
             android:backgroundTint="#F2F4F8"
             android:text="🔄 清空重来"
-            android:textColor="#33405A"
+            android:textColor="@color/ls_text_dim"
             android:textSize="14sp" />
 
         <TextView
@@ -133,7 +133,7 @@
             android:layout_marginTop="12dp"
             android:text=""
             android:textSize="13sp"
-            android:textColor="#1B6EF3"
+            android:textColor="@color/ls_primary"
             android:minHeight="40dp" />
 
     </LinearLayout>

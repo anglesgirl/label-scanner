@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色模式：背景压暗、文字提亮、强调色降饱和以免刺眼 -->
+    <color name="ls_bg">#121417</color>
+    <color name="ls_card">#1E2228</color>
+    <color name="ls_text">#E8ECF3</color>
+    <color name="ls_text_dim">#9AA7BD</color>
+    <color name="ls_hint">#6B7688</color>
+    <color name="ls_primary">#7FB0FF</color>
+    <color name="ls_ok">#7BD389</color>
+    <color name="ls_err">#FF8A80</color>
+    <color name="ls_border">#333A45</color>
+    <color name="ls_btn_scan">#3E4C63</color>
+    <color name="ls_btn_split">#C85A1F</color>
+    <color name="result_idle">#22283A</color>
+    <color name="result_highlight">#24361F</color>
+</resources>

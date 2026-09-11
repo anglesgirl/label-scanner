@@ -3,4 +3,17 @@
     <color name="result_idle">#1e1e3a</color>
     <color name="result_highlight">#1b3a1b</color>
     <color name="ic_launcher_background">#1a1a2e</color>
+
+    <!-- 适配深浅模式的主题色（values-night 里有对应深色版本） -->
+    <color name="ls_bg">#F2F5FA</color>
+    <color name="ls_card">#FFFFFF</color>
+    <color name="ls_text">#14213D</color>
+    <color name="ls_text_dim">#5A6B8C</color>
+    <color name="ls_hint">#9AA7BD</color>
+    <color name="ls_primary">#1B6EF3</color>
+    <color name="ls_ok">#1B5E20</color>
+    <color name="ls_err">#D32F2F</color>
+    <color name="ls_border">#D8E0EC</color>
+    <color name="ls_btn_scan">#33405A</color>
+    <color name="ls_btn_split">#E65100</color>
 </resources>
