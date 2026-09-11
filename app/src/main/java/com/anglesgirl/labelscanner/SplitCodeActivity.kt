@@ -43,7 +43,6 @@ import java.io.File
  */
 class SplitCodeActivity : AppCompatActivity() {
 
-    private lateinit var etManualCode: EditText
     private lateinit var tvSourceCode: TextView
     private lateinit var llSplitResult: LinearLayout
     private lateinit var tvSplitStatus: TextView
@@ -56,10 +55,10 @@ class SplitCodeActivity : AppCompatActivity() {
     /** 多箱拆模式（每箱一行，全部完成后再出结果）。 */
     /** 多箱模式下每箱的集成码。 */
     private lateinit var llBoxes: LinearLayout
-    /** 候选码区：本次扫到的码全部列出，作为"自动填错时的修正入口"。 */
-    private lateinit var llScanCandidates: LinearLayout
-    private lateinit var tvCandTitle: TextView
-    private var btnAddBox: android.view.View? = null
+    /** 「待拆解的箱」标题：有箱时才显示，避免一屏空占位。 */
+    private lateinit var tvBoxTitle: TextView
+    /** 结果区与输入区之间的分隔线。 */
+    private lateinit var dividerResult: android.view.View
 
     /**
      * 挑码取码：调起 LiveScanActivity 的挑码模式 —— 相机实时扫到多个码后
@@ -111,91 +110,13 @@ class SplitCodeActivity : AppCompatActivity() {
             autoFilled = 1
         }
 
-        // 本次扫到的码全部进候选区 —— 不是让人人重来一遍，而是留个修正入口：
-        // 哪个填错了，点它的「填入」改到对的箱即可。
-        addCandidates(list)
+        updateBoxTitle()
 
         tvSplitStatus.text = when {
             autoFilled > 0 && others.isEmpty() -> "已自动填入 ${autoFilled} 箱"
-            autoFilled > 0 -> "已自动填入 ${autoFilled} 箱（另有 ${others.size} 个非集成码在候选区）"
-            else -> "扫到 ${list.size} 个码，已在候选区，点「填入」指定归属"
+            autoFilled > 0 -> "已自动填入 ${autoFilled} 箱（另有 ${others.size} 个非集成码未使用）"
+            else -> "扫到 ${list.size} 个码，未识别到集成码，如不对请重扫"
         }
-    }
-
-    /** 扫到但尚未指定归属的码（全量收下，一个不丢）。 */
-    private val pendingCodes = mutableListOf<String>()
-
-    private fun addCandidates(codes: List<String>) {
-        for (c in codes) if (c !in pendingCodes) pendingCodes.add(c)
-        renderCandidates()
-    }
-
-    /** 候选区：每行一个码 + 「填入 ▾」（选它去第几箱）+ 「✕」（丢弃）。 */
-    private fun renderCandidates() {
-        llScanCandidates.removeAllViews()
-        val show = pendingCodes.isNotEmpty()
-        tvCandTitle.visibility = if (show) View.VISIBLE else View.GONE
-        llScanCandidates.visibility = if (show) View.VISIBLE else View.GONE
-        if (!show) return
-
-        tvCandTitle.text = "\uD83D\uDCE5 本次扫到 ${pendingCodes.size} 个码（已自动填入，填错点「填入」改）"
-        for (code in pendingCodes.toList()) {
-            val isInt = code.contains(',') || code.contains('\uFF0C')
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-            }
-            val tv = TextView(this).apply {
-                text = (if (isInt) "[集成码] " else "[条码] ") + summarize(code)
-                textSize = 13f
-                setTextColor(c(R.color.ls_text))
-                layoutParams = LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val btnAssign = Button(this).apply {
-                text = "填入 \u25BE"
-                textSize = 12f
-                minWidth = 0
-                minimumWidth = 0
-                setPadding(dp(10), dp(4), dp(10), dp(4))
-            }
-            btnAssign.setOnClickListener { showAssignMenu(code) }
-            val btnDrop = Button(this).apply {
-                text = "\u2715"
-                textSize = 12f
-                minWidth = 0
-                minimumWidth = 0
-                setPadding(dp(8), dp(4), dp(8), dp(4))
-            }
-            btnDrop.setOnClickListener { pendingCodes.remove(code); renderCandidates() }
-            row.addView(tv)
-            row.addView(btnAssign)
-            row.addView(btnDrop)
-            llScanCandidates.addView(row)
-        }
-    }
-
-    /** 点「填入 ▾」：列出各箱，点哪个就填哪个。 */
-    private fun showAssignMenu(code: String) {
-        val labels = rows.indices.map { "第 ${it + 1} 箱" } + "＋ 新增一箱"
-        AlertDialog.Builder(this)
-            .setTitle("把这个码填入：")
-            .setItems(labels.toTypedArray()) { _, which ->
-                if (which < rows.size) {
-                    rows[which].input.setText(code)
-                    rows[which].check.isChecked = true
-                } else {
-                    addBoxRow().also {
-                        it.input.setText(code)
-                        it.check.isChecked = true
-                    }
-                }
-                pendingCodes.remove(code)
-                renderCandidates()
-                tvSplitStatus.text = "已填入${labels[which]}"
-            }
-            .setNegativeButton("取消", null)
-            .show()
     }
 
     /** 长码只显示头尾，完整内容在箱里点一下可看（避免把界面撑开）。 */
@@ -203,6 +124,68 @@ class SplitCodeActivity : AppCompatActivity() {
         if (code.length <= 26) code else code.take(14) + "…" + code.takeLast(8)
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    /**
+     * 扫一箱：扫到的集成码**自动填进一箱**（自动填是主力，不增加操作）。
+     */
+    private fun scanNewBox() {
+        scanTargetRow = -1
+        scanInto.launch(
+            Intent(this, LiveScanActivity::class.java)
+                .putExtra(LiveScanActivity.EXTRA_TITLE, "扫一箱集成码")
+                // 声明要集成码：扫描页因此只走 zxing-cpp 强通道，不让 ML Kit 参与。
+                .putExtra(LiveScanActivity.EXTRA_WANT_INTEGRATED, true),
+        )
+    }
+
+    /**
+     * 粘贴一箱：整箱集成码常是从别处复制来的；支持一次粘贴多箱（一行一箱）。
+     */
+    private fun pasteNewBox() {
+        val et = EditText(this).apply {
+            hint = "SN1,SN2,SN3"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 3
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        }
+        AlertDialog.Builder(this)
+            .setTitle("粘贴集成码")
+            .setMessage("整箱的集成码，多个序列号用逗号分隔；多箱可一行一箱")
+            .setView(et)
+            .setPositiveButton("加入") { _, _ ->
+                val boxes = et.text.toString()
+                    .split('\n', '\r')
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                if (boxes.isEmpty()) return@setPositiveButton
+                var added = 0
+                for (b in boxes) {
+                    val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
+                    if (empty != null) {
+                        empty.input.setText(b); empty.check.isChecked = true
+                    } else {
+                        addBoxRow().also { it.input.setText(b); it.check.isChecked = true }
+                    }
+                    added++
+                }
+                updateBoxTitle()
+                tvSplitStatus.text = "已加入 $added 箱，点「拆解选中的」开始"
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 箱标题与结果区可见性：有内容才显示，避免一屏空占位。 */
+    private fun updateBoxTitle() {
+        val filled = rows.count { !it.input.text.isNullOrBlank() }
+        tvBoxTitle.visibility = View.VISIBLE
+        tvBoxTitle.text = if (filled > 0) "待拆解的箱（$filled）" else "待拆解的箱"
+        val hasResult = snList.isNotEmpty()
+        dividerResult.visibility = if (hasResult) View.VISIBLE else View.GONE
+        findViewById<Button>(R.id.btnSaveAll).visibility = if (hasResult) View.VISIBLE else View.GONE
+        findViewById<Button>(R.id.btnResetSplit).visibility = if (hasResult) View.VISIBLE else View.GONE
+    }
 
     /** 一箱一行：勾选 + 输入框。 */
     private inner class BoxRow(val check: CheckBox, val input: EditText)
@@ -236,20 +219,11 @@ class SplitCodeActivity : AppCompatActivity() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener { showFullCode(this) }
         }
-        val btnScan = Button(this).apply { text = "扫"; textSize = 12f }
         val btnDel = Button(this).apply { text = "✕"; textSize = 12f }
 
         val item = BoxRow(check, input)
-        btnScan.setOnClickListener {
-            scanTargetRow = rows.indexOf(item)
-            scanInto.launch(
-                Intent(this, LiveScanActivity::class.java)
-                    .putExtra(LiveScanActivity.EXTRA_TITLE, "扫第 ${scanTargetRow + 1} 箱的集成码")
-                    // 关键：声明本页要的是集成码。标签上同时有 1D 条码和 2D 集成码时，
-                    // 1D 总被先解出来，不声明就只能靠手遮住别的码才扫得到集成码。
-                    .putExtra(LiveScanActivity.EXTRA_WANT_INTEGRATED, true),
-            )
-        }
+        // 行内不再放「扫」—— 输入只在顶部一个地方（扫一箱 / 粘贴一箱）；
+        // 想改某一箱，点它的内容即可（弹窗可看全、可改）。
         btnDel.setOnClickListener {
             if (rows.size <= 1) {
                 Toast.makeText(this, "至少保留一箱", Toast.LENGTH_SHORT).show()
@@ -261,7 +235,6 @@ class SplitCodeActivity : AppCompatActivity() {
         }
         container.addView(check)
         container.addView(input)
-        container.addView(btnScan)
         container.addView(btnDel)
         llBoxes.addView(container)
 
@@ -307,7 +280,6 @@ class SplitCodeActivity : AppCompatActivity() {
             .filter { it.isNotEmpty() }
             .toMutableList()
         // 底部粘贴框若填了内容，也算作一箱（方便从别处整段粘贴）
-        etManualCode.text.toString().trim().takeIf { it.isNotEmpty() }?.let { codes.add(it) }
         if (codes.isEmpty()) {
             Toast.makeText(this, "请至少在一个箱里填入集成码", Toast.LENGTH_SHORT).show()
             return
@@ -356,16 +328,17 @@ class SplitCodeActivity : AppCompatActivity() {
         }
         setContentView(R.layout.activity_split_code)
 
-        etManualCode = findViewById(R.id.etManualCode)
         tvSourceCode = findViewById(R.id.tvSourceCode)
         llSplitResult = findViewById(R.id.llSplitResult)
         tvSplitStatus = findViewById(R.id.tvSplitStatus)
         llBoxes = findViewById(R.id.llBoxes)
-        llScanCandidates = findViewById(R.id.llScanCandidates)
-        tvCandTitle = findViewById(R.id.tvCandTitle)
+        tvBoxTitle = findViewById(R.id.tvBoxTitle)
+        dividerResult = findViewById(R.id.dividerResult)
 
-        // 每箱一行：勾选 + 集成码输入框 + 扫 + 删（行由代码生成，默认给一箱）
-        findViewById<Button>(R.id.btnAddBox).setOnClickListener { addBoxRow() }
+        // 输入只有一个地方：顶部「扫一箱 / 粘贴一箱」。
+        // 之前每行箱里还有「扫」、下面又有个独立粘贴框，同一件事三个入口 —— 已统一。
+        findViewById<Button>(R.id.btnScanBox).setOnClickListener { scanNewBox() }
+        findViewById<Button>(R.id.btnPasteBox).setOnClickListener { pasteNewBox() }
         findViewById<Button>(R.id.btnSplit).setOnClickListener { splitChecked() }
         findViewById<Button>(R.id.btnSaveAll).setOnClickListener { saveAll() }
         findViewById<Button>(R.id.btnResetSplit).setOnClickListener { resetAll() }
@@ -451,21 +424,6 @@ class SplitCodeActivity : AppCompatActivity() {
                 }
             }
         )
-    }
-
-    /** 手动粘贴拆分 */
-    private fun splitManual() {
-        val text = etManualCode.text.toString().trim()
-        if (text.isEmpty()) {
-            Toast.makeText(this, "请先粘贴或输入集成码", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val sns = splitText(text)
-        if (sns.isEmpty()) {
-            tvSplitStatus.text = "⚠️ 未拆分出有效 SN（请用逗号分隔）"
-            return
-        }
-        applySplit(text, sns)
     }
 
     /**
@@ -580,12 +538,9 @@ class SplitCodeActivity : AppCompatActivity() {
 
     private fun resetAll() {
         // 清空所有箱，恢复成"一箱空白"
-        pendingCodes.clear()
-        renderCandidates()
         rows.clear()
         llBoxes.removeAllViews()
         addBoxRow()
-        etManualCode.setText("")
         snList.clear()
         llSplitResult.removeAllViews()
         tvSourceCode.visibility = TextView.GONE
