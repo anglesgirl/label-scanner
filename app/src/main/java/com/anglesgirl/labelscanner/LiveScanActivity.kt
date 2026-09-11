@@ -169,6 +169,20 @@ class LiveScanActivity : AppCompatActivity() {
                 }
                 val analysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    // 提高分析帧分辨率：默认约 640x480，高密度 2D 码（集成码那种
+                    // DataMatrix）在小帧里只占几十像素，再强的解码器也解不出。
+                    // 入库那条路用的是全分辨率照片，这才是它能读出集成码的根本原因。
+                    .setResolutionSelector(
+                        androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                            .setResolutionStrategy(
+                                androidx.camera.core.resolutionselector.ResolutionStrategy(
+                                    android.util.Size(1920, 1080),
+                                    androidx.camera.core.resolutionselector.ResolutionStrategy
+                                        .FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                                )
+                            )
+                            .build()
+                    )
                     .build()
                 analysis.setAnalyzer(ContextCompat.getMainExecutor(this)) { imageProxy ->
                     analyzeFrame(imageProxy)
