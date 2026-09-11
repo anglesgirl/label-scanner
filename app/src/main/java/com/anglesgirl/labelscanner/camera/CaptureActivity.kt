@@ -23,6 +23,10 @@ import androidx.core.content.FileProvider
 import com.anglesgirl.labelscanner.R
 import java.io.File
 import java.util.concurrent.TimeUnit
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 /** 可控拍照页：持续自动对焦，拍照前等待一次对焦结果再保存。 */
 class CaptureActivity : AppCompatActivity() {
@@ -48,6 +52,14 @@ class CaptureActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge：与其它页面保持一致（沉浸式 + 避让系统栏），
+        // 否则顶部/底部按钮会被状态栏、导航栏压住。
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(top = bars.top, bottom = bars.bottom)
+            insets
+        }
         setContentView(R.layout.activity_capture)
         previewView = findViewById(R.id.pvCapture)
         tvStatus = findViewById(R.id.tvCaptureStatus)

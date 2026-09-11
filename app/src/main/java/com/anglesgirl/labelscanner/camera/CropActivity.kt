@@ -12,6 +12,10 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.anglesgirl.labelscanner.R
 import java.io.File
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 /**
  * 拉正页：系统相机高清图 → 手动四角拉正（拍正可跳过）→ 增强 → 返回拉正图 URI。
@@ -40,6 +44,14 @@ class CropActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge：与其它页面保持一致（沉浸式 + 避让系统栏），
+        // 否则顶部/底部按钮会被状态栏、导航栏压住。
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(top = bars.top, bottom = bars.bottom)
+            insets
+        }
         setContentView(R.layout.activity_crop)
 
         ivCrop = findViewById(R.id.ivCrop)
