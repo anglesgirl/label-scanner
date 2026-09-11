@@ -11,6 +11,7 @@ import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.anglesgirl.labelscanner.model.LabelParser
+import com.anglesgirl.labelscanner.util.Diag
 import com.anglesgirl.labelscanner.model.LabelResult
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -121,6 +122,20 @@ object StaticRecognizer {
                 mlBarcodes.distinct()
             }
             Log.i(TAG, "[BARCODE_MERGE] ml=${mlBarcodes.size} merged=${mergedBarcodes.size}")
+            // 上报识别实况：图片尺寸 + 解出的码 + OCR 长度。
+            // 为什么需要：用户反馈"同一张图在设置里的测试识别能出结果，正式流程不行"，
+            // 而两条路共用同一个识别函数 —— 差异只可能在"喂进来的图"。把尺寸和结果
+            // 都上报后，这类问题不用再靠猜（实测：图缩到 35% 集成码就全解不出）。
+            runCatching {
+                Diag.event(
+                    "static_recognized",
+                    mapOf(
+                        "img" to "${input.width}x${input.height}",
+                        "codes" to mergedBarcodes.size,
+                        "code_list" to mergedBarcodes.joinToString(" | ").take(280),
+                    )
+                )
+            }
             // 中文 + 拉丁两个识别器**并行**跑，结果合并后再解析。
             // 标签上既有中文（"中国制造""原装耗材 品质保证"），也有纯拉丁数字
             // （型号 M9105DN、物料 303020000401、日期 20250902）—— 任一路漏字都会

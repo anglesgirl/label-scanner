@@ -82,10 +82,25 @@ class CaptureActivity : AppCompatActivity() {
                 }
                 val capture = ImageCapture.Builder()
                     // 出图"慢半拍"的根因：MAXIMIZE_QUALITY 会做多帧合成再出图，
-                    // 于是快门按下到文件落地有明显延迟，用户看到的是"拍到的不是刚才那一帧"。
-                    // 改成 MINIMIZE_LATENCY：尽量贴近"所见即所得"；分辨率仍取高，
-                    // 标签文字 OCR 与码识别都够用。
+                    // 快门按下到文件落地有明显延迟，用户看到的是"拍到的不是刚才那一帧"。
+                    // 所以改用 MINIMIZE_LATENCY。
+                    //
+                    // 但 MINIMIZE_LATENCY 是为速度优化的，**可能选一个较小的输出分辨率** ——
+                    // 那正是"相册原图能识别、拍照却识别不出"的原因：集成码（PDF417）
+                    // 在小图里像素不够（实测：缩到 35% 就全解不出）。
+                    // 因此这里显式要求高分辨率，做到"低延迟 + 够清晰"两者兼顾。
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .setResolutionSelector(
+                        androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                            .setResolutionStrategy(
+                                androidx.camera.core.resolutionselector.ResolutionStrategy(
+                                    android.util.Size(3840, 2160),
+                                    androidx.camera.core.resolutionselector.ResolutionStrategy
+                                        .FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                                )
+                            )
+                            .build()
+                    )
                     .setJpegQuality(95)
                     .build()
                 imageCapture = capture
