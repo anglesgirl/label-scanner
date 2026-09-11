@@ -34,8 +34,6 @@ class CaptureActivity : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var tvStatus: TextView
     private lateinit var alignmentFrame: View
-    /** 实时标签框绘制层（显示检测到的标签区域）。 */
-    private lateinit var boxOverlay: LabelBoxOverlay
     private var imageCapture: ImageCapture? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
@@ -54,7 +52,6 @@ class CaptureActivity : AppCompatActivity() {
         previewView = findViewById(R.id.pvCapture)
         tvStatus = findViewById(R.id.tvCaptureStatus)
         alignmentFrame = findViewById(R.id.captureAlignmentFrame)
-        boxOverlay = findViewById(R.id.boxOverlay)
         findViewById<Button>(R.id.btnCaptureCancel).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnCapture).setOnClickListener { captureAfterFocus() }
         requestCamera.launch(android.Manifest.permission.CAMERA)
@@ -100,7 +97,6 @@ class CaptureActivity : AppCompatActivity() {
 
     private fun captureAfterFocus(auto: Boolean = false) {
         if (captureStarted) return
-        boxOverlay.clear()
         val capture = imageCapture ?: return
         captureStarted = true
         findViewById<Button>(R.id.btnCapture).isEnabled = false

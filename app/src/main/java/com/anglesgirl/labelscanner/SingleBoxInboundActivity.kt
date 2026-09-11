@@ -52,6 +52,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
 
     private val snList = mutableListOf<String>()
     private val codeCandidates = mutableListOf<String>()
+    /** 候选值的来源（条码 / OCR），仅用于界面标注。 */
+    private val codeCandidateSources = mutableMapOf<String, String>()
     private val lookup69Lazy = lazy { Barcode69Lookup(this) }
     private fun lookup69(): Barcode69Lookup = lookup69Lazy.value
 
@@ -245,7 +247,23 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     snList.addAll(box.serialNumbers)
                     rebuildSnList()
                     codeCandidates.clear()
-                    codeCandidates.addAll(result.barcodes)
+                    codeCandidateSources.clear()
+                    // 【关键修复】OCR 文本原来被完全丢弃：只把 result.barcodes 放进候选，
+                    // 导致界面上"只有条码可点、OCR 认到什么完全看不到"。
+                    // 这里把 OCR 文本按行拆开也作为候选，让用户能看见并点选。
+                    for (b in result.barcodes) {
+                        val v = b.trim()
+                        if (v.isNotEmpty() && v !in codeCandidates) {
+                            codeCandidates.add(v)
+                            codeCandidateSources[v] = "条码"
+                        }
+                    }
+                    result.ocrText.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
+                        if (line !in codeCandidates) {
+                            codeCandidates.add(line)
+                            codeCandidateSources[line] = "OCR"
+                        }
+                    }
                     rebuildCodeCandidates()
 
                     val tips = mutableListOf<String>()
@@ -387,12 +405,19 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     /** 重建「已识别条码」候选区：点击任一码 → 弹选择用途（修正识别错误） */
     private fun rebuildCodeCandidates() {
         llCodeCandidates.removeAllViews()
-        if (codeCandidates.isEmpty()) return
+        if (codeCandidates.isEmpty()) {
+            llCodeCandidates.visibility = android.view.View.GONE
+            return
+        }
+        llCodeCandidates.visibility = android.view.View.VISIBLE
         for ((index, code) in codeCandidates.withIndex()) {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
-            tv.text = "$code"
-            tv.setTextColor(0xFF1B6EF3.toInt())
+            val src = codeCandidateSources[code]
+            tv.text = if (src == null) code else "[$src] $code"
+            tv.setTextColor(
+                if (src == "OCR") 0xFF00897B.toInt() else 0xFF1B6EF3.toInt()
+            )
             row.findViewById<Button>(R.id.btnDelSn).text = "选"
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener { showCodeActionDialog(code) }
             row.setOnClickListener { showCodeActionDialog(code) }

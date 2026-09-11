@@ -21,12 +21,6 @@ import kotlin.math.min
 class CaptureAlignmentAnalyzer(
     private val onState: (AlignmentState) -> Unit,
     private val onStable: () -> Unit,
-    /**
-     * 平滑后的标签框（分析帧坐标 + 帧尺寸），供预览绘制。
-     * 旧版只用一张静态背景图当取景框，用户看不出"标签有没有被框住"，
-     * 只能靠文字提示猜；这里把实际检测到的区域画出来。
-     */
-    private val onBox: (rect: Rect?, srcW: Int, srcH: Int) -> Unit = { _, _, _ -> },
 ) : ImageAnalysis.Analyzer {
     enum class AlignmentState { SEARCHING, MOVE_CLOSER, CENTERED, STABLE }
 
@@ -37,9 +31,6 @@ class CaptureAlignmentAnalyzer(
     private val busy = AtomicBoolean(false)
 
     private companion object {
-        /** 框的 EMA 平滑系数：越小越稳、越大越跟手。 */
-        const val BOX_ALPHA = 0.35f
-
         /** 稳定判定：中心位移与面积变化的阈值（比旧版放宽，适应手持抖动）。 */
         const val STABLE_MOVE_TH = 0.045f
         const val STABLE_AREA_TH = 0.10f
@@ -48,8 +39,6 @@ class CaptureAlignmentAnalyzer(
         const val STABLE_NEEDED = 3
     }
     private var stableFrames = 0
-    /** 平滑后的标签框（供预览绘制），以及平滑系数。 */
-    private var lastBox: Rect? = null
     private var lastCenterX = 0f
     private var lastCenterY = 0f
     private var lastArea = 0f
@@ -93,9 +82,7 @@ class CaptureAlignmentAnalyzer(
         if (rects.isEmpty() || width <= 0 || height <= 0) {
             stableFrames = 0
             lastStateIsStable = false
-            onState(AlignmentState.SEARCHING)
-            lastBox = null
-            onBox(null, width, height)
+            emitState(AlignmentState.SEARCHING)
             return
         }
 
@@ -110,15 +97,6 @@ class CaptureAlignmentAnalyzer(
         val bottom = usable.maxOf { it.bottom }.coerceIn(0, height)
 
         // 平滑后的框供预览绘制（EMA）：原始检测逐帧跳动，直接画会"边框乱跳"
-        val raw = Rect(left, top, right, bottom)
-        val prev = lastBox
-        lastBox = if (prev == null) Rect(raw) else Rect(
-            (prev.left + (raw.left - prev.left) * BOX_ALPHA).toInt(),
-            (prev.top + (raw.top - prev.top) * BOX_ALPHA).toInt(),
-            (prev.right + (raw.right - prev.right) * BOX_ALPHA).toInt(),
-            (prev.bottom + (raw.bottom - prev.bottom) * BOX_ALPHA).toInt(),
-        )
-
         val centerX = (left + right) / 2f / width
         val centerY = (top + bottom) / 2f / height
         val area = (right - left).toFloat() * (bottom - top) / (width * height).toFloat()
@@ -128,18 +106,16 @@ class CaptureAlignmentAnalyzer(
         val largeEnough = area >= 0.015f
         val notTooLarge = area <= 0.96f
 
-        onBox(lastBox, width, height)
-
         if (!largeEnough) {
             stableFrames = 0
             lastStateIsStable = false
-            onState(AlignmentState.MOVE_CLOSER)
+            emitState(AlignmentState.MOVE_CLOSER)
             return
         }
         if (!centered || !notTooLarge) {
             stableFrames = 0
             lastStateIsStable = false
-            onState(AlignmentState.CENTERED)
+            emitState(AlignmentState.CENTERED)
             return
         }
 
@@ -158,13 +134,12 @@ class CaptureAlignmentAnalyzer(
 
         if (stableFrames >= STABLE_NEEDED) {
             lastStateIsStable = true
-            onState(AlignmentState.STABLE)
+            emitState(AlignmentState.STABLE)
             stableFrames = 0
-            lastBox = null
             onStable()
         } else {
             lastStateIsStable = false
-            onState(AlignmentState.CENTERED)
+            emitState(AlignmentState.CENTERED)
         }
     }
 
@@ -187,6 +162,28 @@ class CaptureAlignmentAnalyzer(
     private fun finish(imageProxy: ImageProxy) {
         imageProxy.close()
         busy.set(false)
+    }
+
+    /** 上一次真正上报给 UI 的状态与时间（用于迟滞，避免状态闪烁）。 */
+    private var lastEmitted: AlignmentState? = null
+    private var lastEmittedAt = 0L
+
+    /**
+     * 上报状态（带迟滞）。
+     *
+     * 旧实现每帧都回调 UI，而坐标/面积是逐帧抖动的，于是取景框在
+     * "位置合适"与"已对齐"之间高频闪烁 —— 观感就是"跳得更严重"。
+     * 这里要求：状态变化后至少停 150ms 才允许再变；同一状态 250ms 内不重复上报。
+     */
+    private fun emitState(st: AlignmentState) {
+        val now = System.currentTimeMillis()
+        val changed = st != lastEmitted
+        val gap = now - lastEmittedAt
+        if (changed && gap < 150) return
+        if (!changed && gap < 250) return
+        lastEmitted = st
+        lastEmittedAt = now
+        onState(st)
     }
 
     /** 最近一次状态是否 STABLE（供预览决定框的颜色）。 */

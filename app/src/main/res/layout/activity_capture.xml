@@ -9,12 +9,6 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-        <!-- 实时标签框：把检测到的标签区域画出来（EMA 平滑，不乱跳） -->
-        <com.anglesgirl.labelscanner.camera.LabelBoxOverlay
-            android:id="@+id/boxOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
     <View
         android:id="@+id/captureAlignmentFrame"
         android:layout_width="match_parent"

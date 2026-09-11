@@ -152,15 +152,21 @@ object BoxParser {
                 continue
             }
             if (!c.any { it.isLetter() }) continue // 纯数字非 SAP（PO/SO）忽略
-            val isSnPrefix = material.isNotEmpty() && c.startsWith(material)
-            if (material.isNotEmpty() && isSnPrefix) {
-                if (c !in sns) sns.add(c)
-            } else if (material.isNotEmpty()) {
-                if (box.isEmpty()) { box = c }            // 独立码 → 箱号（PA/CA 开头等）
-                else if (c != box && c !in sns) sns.add(c) // 多条独立码：其余进 SN 人工挑
-            } else {
-                // 无物料：无法区分箱号/SN，全归 SN（箱号人工输入）
-                if (c !in sns) sns.add(c)
+
+            // 【关键修复】不再用"是否以物料编码开头"区分 SN 与箱号。
+            // 真实标签上 SN 一律不以物料开头，例如：
+            //   物料 201121001601 / SN SCAG2529704B3
+            //   物料 303020000401 / SN ACP5P81000050
+            //   物料 3011231031   / SN CV7DV0007F
+            // 旧逻辑下第一个 SN 会被当成箱号、真正的箱号被丢掉、SN 少一个 ——
+            // 这正是"取序列号取不对"的根因。
+            // 改为按**格式特征**判定：箱号是 CA/PA 开头且明显更长的独立码。
+            val looksLikeBoxCode = c.length >= 14 &&
+                (c.startsWith("CA", ignoreCase = true) || c.startsWith("PA", ignoreCase = true))
+            when {
+                looksLikeBoxCode && box.isEmpty() -> box = c
+                looksLikeBoxCode && box == c -> { /* 同值重复，忽略 */ }
+                else -> if (c != material && c != box && c !in sns) sns.add(c)
             }
         }
 
