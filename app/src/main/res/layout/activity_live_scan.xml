@@ -51,21 +51,63 @@
         android:background="@drawable/bg_scan_frame" />
 
 
-    <!-- 挑码模式：把扫到的码列出来，用户点哪个就用哪个（微信扫码那种手感） -->
-    <ScrollView
-        android:id="@+id/svPicked"
+    <!-- 冻结截图：识别到多个码时把这一帧定格显示，用户在这张静止画面上点选。
+         之所以要定格，是因为实时预览中码在移动，手指点下去时码已经移开，必然点错。 -->
+    <ImageView
+        android:id="@+id/ivSnapshot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
+
+    <!-- 预览上直接点选条码：识别到的码在画面上框出来，点哪个选哪个（微信扫码那种手感）。
+         不用底部列表 —— 列表要求眼睛在预览与列表间来回找对应，码多时极易点错。 -->
+    <com.anglesgirl.labelscanner.camera.BarcodePickOverlay
+        android:id="@+id/pickOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 连续扫多箱：累积已选，最后一起拆 -->
+    <LinearLayout
+        android:id="@+id/llPickBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#CC000000"
-        android:maxHeight="220dp"
-        android:padding="8dp"
+        android:background="#DD000000"
+        android:orientation="vertical"
+        android:padding="10dp"
         android:visibility="gone">
 
-        <LinearLayout
-            android:id="@+id/llPickedCodes"
+        <TextView
+            android:id="@+id/tvPickInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical" />
-    </ScrollView>
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnPickDone"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:backgroundTint="#1B6EF3"
+                android:text="✓ 一起拆"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnPickClear"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#33405A"
+                android:text="清空"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+    </LinearLayout>
 </FrameLayout>

@@ -66,9 +66,34 @@ class SplitCodeActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode != RESULT_OK) return@registerForActivityResult
-        val code = result.data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)
+        val data = result.data ?: return@registerForActivityResult
+        // 挑码页按扫描顺序返回（序号 = 第几箱）；单箱模式下只会有一个
+        val list = data.getStringArrayListExtra(LiveScanActivity.EXTRA_RESULT_CODES)
+            ?: data.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)?.let { arrayListOf(it) }
             ?: return@registerForActivityResult
-        onPickedCode(code)
+        if (list.isEmpty()) return@registerForActivityResult
+
+        if (multiMode || list.size > 1) {
+            boxCodes.clear()
+            boxCodes.addAll(list)
+            renderBoxes()
+            applyAllBoxes()
+        } else {
+            onPickedCode(list[0])
+        }
+    }
+
+    /**
+     * 一起拆：把每一箱的集成码拆成 SN，按箱顺序汇总，逐个生成独立条码。
+     * 这是多箱模式的收尾动作（用户：全部扫完之后按拆解）。
+     */
+    private fun applyAllBoxes() {
+        snList.clear()
+        for (c in boxCodes) snList.addAll(splitCodes(listOf(c)))
+        tvSourceCode.text = "共 ${boxCodes.size} 箱，拆出 ${snList.size} 个 SN"
+        tvSourceCode.visibility = TextView.VISIBLE
+        rebuildResultList()
+        tvSplitStatus.text = "🧩 ${boxCodes.size} 箱 → ${snList.size} 个 SN（已逐个生成独立条码）"
     }
 
     /** 拍照（系统相机） */
@@ -115,10 +140,8 @@ class SplitCodeActivity : AppCompatActivity() {
         // 单箱拆 / 多箱拆
         findViewById<Button>(R.id.btnModeSingle).setOnClickListener { setMultiMode(false) }
         findViewById<Button>(R.id.btnModeMulti).setOnClickListener { setMultiMode(true) }
-        findViewById<Button>(R.id.btnAddBox).setOnClickListener {
-            // 多箱模式：点一次进相机挑一个集成码，作为新的一箱
-            startPick()
-        }
+        // 多箱模式：进相机后连续扫，每点一个码就记一箱，最后点"一起拆"
+        findViewById<Button>(R.id.btnAddBox).setOnClickListener { startPick() }
         findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
         findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
         findViewById<Button>(R.id.btnSplit).setOnClickListener { splitManual() }

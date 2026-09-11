@@ -18,6 +18,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.anglesgirl.labelscanner.camera.BarcodePickOverlay
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -61,6 +62,14 @@ class LiveScanActivity : AppCompatActivity() {
     private var bulkMode = false
     /** 挑码模式：列出扫到的码供用户点选。 */
     private var pickMode = false
+
+    // 挑码模式：预览浮层 + 底部「已选/拆解」栏
+    private lateinit var pickOverlay: BarcodePickOverlay
+    private lateinit var ivSnapshot: android.widget.ImageView
+    private lateinit var llPickBar: android.view.View
+    private lateinit var tvPickInfo: TextView
+    /** 已选集成码，按扫描顺序（下标 0 → 序号 1 → 第一箱） */
+    private val pickedBoxes = mutableListOf<String>()
     /** 挑码模式下累计扫到的所有码（保持出现顺序、去重）。 */
     private val seenCodes = linkedSetOf<String>()
     private var expectedCount = 0
@@ -79,6 +88,42 @@ class LiveScanActivity : AppCompatActivity() {
         initialCodes += intent.getStringArrayListExtra(EXTRA_INITIAL_CODES).orEmpty()
         tvHint.text = if (title.isEmpty()) "对准条码，自动识别" else "对准${title}条码，自动识别"
         findViewById<Button>(R.id.btnCloseScan).setOnClickListener { finish() }
+
+        if (pickMode) {
+            pickOverlay = findViewById(R.id.pickOverlay)
+            ivSnapshot = findViewById(R.id.ivSnapshot)
+            llPickBar = findViewById(R.id.llPickBar)
+            tvPickInfo = findViewById(R.id.tvPickInfo)
+            // 点画面上箭头所指的码 → 记下，序号即"第几箱"
+            pickOverlay.onPick = { code ->
+                if (pickedBoxes.contains(code)) {
+                    Toast.makeText(this, "这个码已经选过了", Toast.LENGTH_SHORT).show()
+                } else {
+                    pickedBoxes.add(code)      // 下标 0 → 序号 1 → 第一箱
+                    beep()
+                    updatePickBar()
+                }
+                resumeLiveScan()
+            }
+            findViewById<Button>(R.id.btnPickDone).setOnClickListener {
+                if (pickedBoxes.isEmpty()) {
+                    Toast.makeText(this, "还没选任何集成码", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                // 一起拆：把选中顺序（=第几箱）连同码值交给调用方
+                setResult(
+                    RESULT_OK,
+                    Intent().putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(pickedBoxes)),
+                )
+                finish()
+            }
+            findViewById<Button>(R.id.btnPickClear).setOnClickListener {
+                pickedBoxes.clear()
+                pickOverlay.setPicked(pickedBoxes)
+                updatePickBar()
+            }
+            llPickBar.visibility = android.view.View.VISIBLE
+        }
 
         barcodeScanner = BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()
@@ -119,13 +164,59 @@ class LiveScanActivity : AppCompatActivity() {
         val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
         barcodeScanner?.process(inputImage)
             ?.addOnSuccessListener { barcodes ->
+                if (pickMode) {
+                    // 挑码模式：识别到码就**截屏定格**，在静止画面上标出码的位置让用户点选。
+                    // 不能实时叠加 —— 画面里码在移动，手指按下去时码已经移开，必然点错。
+                    val picks = barcodes.mapNotNull { b ->
+                        val v = b.rawValue?.trim()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                        val bb = b.boundingBox ?: return@mapNotNull null
+                        BarcodePickOverlay.Pickable(v, bb)
+                    }
+                    if (picks.isEmpty()) return@addOnSuccessListener
+
+                    val snapshot = runCatching { imageProxy.toBitmap() }.getOrNull()
+                    val fw = inputImage.width
+                    val fh = inputImage.height
+                    runOnUiThread {
+                        if (snapshot != null) {
+                            ivSnapshot.setImageBitmap(snapshot)
+                            ivSnapshot.visibility = android.view.View.VISIBLE
+                        }
+                        pickOverlay.setSourceSize(fw, fh)
+                        pickOverlay.setItems(picks)
+                        pickOverlay.setPicked(pickedBoxes)
+                        llPickBar.visibility = android.view.View.VISIBLE
+                        updatePickBar()
+                        // 定格：暂停实时分析，避免画面继续动导致点错
+                        paused.set(true)
+                    }
+                    return@addOnSuccessListener
+                }
                 val values = barcodes.mapNotNull { it.rawValue?.trim()?.takeIf(String::isNotBlank) }
-                if (pickMode) onBarcodesForPick(values)
-                else if (bulkMode) onBarcodesDetected(values)
+                if (bulkMode) onBarcodesDetected(values)
                 else values.firstOrNull()?.let(::onBarcodeDetected)
             }
             ?.addOnFailureListener { /* 单帧失败忽略，继续下一帧 */ }
             ?.addOnCompleteListener { imageProxy.close() }
+    }
+
+    /**
+     * 选完一个码后恢复实时预览，继续扫下一个集成码（多箱：一箱一个码）。
+     * 撤掉冻结截图与标记，重新开启分析。
+     */
+    private fun resumeLiveScan() {
+        ivSnapshot.visibility = android.view.View.GONE
+        ivSnapshot.setImageBitmap(null)
+        pickOverlay.setItems(emptyList())
+        pickOverlay.setPicked(pickedBoxes)
+        updatePickBar()
+        paused.set(false)
+    }
+
+    /** 已选的码（多箱拆：连续扫，一箱一条，最后一起拆）。 */
+    private fun updatePickBar() {
+        tvPickInfo.text = "已选 ${pickedBoxes.size} 个集成码" +
+            if (pickedBoxes.isEmpty()) "" else "：" + pickedBoxes.joinToString("、") { it.take(18) }
     }
 
     private fun onBarcodeDetected(value: String) {
@@ -156,57 +247,6 @@ class LiveScanActivity : AppCompatActivity() {
 
     /** SN 批量补扫：同帧返回全部条码，已有 SN 不重复加入。 */
 
-    /**
-     * 挑码模式：把这一帧扫到的码并入列表并刷新界面。
-     * **不自动返回** —— 由用户点击决定用哪个，这正是与 bulkMode 的关键差别。
-     */
-    private fun onBarcodesForPick(values: List<String>) {
-        var added = false
-        for (v in values) {
-            val t = v.trim()
-            if (t.isNotEmpty() && seenCodes.add(t)) added = true
-        }
-        if (!added) return
-        runOnUiThread {
-            beep()
-            renderPickList()
-        }
-    }
-
-    /** 绘制可点选的码列表：点哪一条就把哪一条返回给调用方。 */
-    private fun renderPickList() {
-        val panel = findViewById<android.view.View>(R.id.svPicked)
-        val box = findViewById<android.widget.LinearLayout>(R.id.llPickedCodes)
-        panel.visibility = android.view.View.VISIBLE
-        box.removeAllViews()
-
-        val hint = findViewById<TextView>(R.id.tvScanHint)
-        hint.text = "已扫到 ${seenCodes.size} 个码，点选要用的那个"
-
-        val dp = resources.displayMetrics.density
-        for (code in seenCodes) {
-            val row = TextView(this).apply {
-                text = code
-                textSize = 15f
-                setTextColor(0xFF1B6EF3.toInt())
-                setBackgroundColor(0xFFFFFFFF.toInt())
-                val p = (10 * dp).toInt()
-                setPadding(p, p, p, p)
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply { bottomMargin = (6 * dp).toInt() }
-            }
-            row.setOnClickListener {
-                setResult(
-                    RESULT_OK,
-                    Intent().putExtra(EXTRA_RESULT_CODE, code),
-                )
-                finish()
-            }
-            box.addView(row)
-        }
-    }
 
     private fun onBarcodesDetected(values: List<String>) {
         val newCodes = values.filterNot(initialCodes::contains).distinct()
