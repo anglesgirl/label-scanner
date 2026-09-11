@@ -77,7 +77,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="入库" />
+            android:text="✓ 入库" />
 
         <Button
             android:id="@+id/btnRescan"
@@ -98,6 +98,6 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="完成" />
+            android:text="完成托盘" />
     </LinearLayout>
 </LinearLayout>

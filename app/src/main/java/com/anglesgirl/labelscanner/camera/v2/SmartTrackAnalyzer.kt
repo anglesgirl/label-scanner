@@ -44,12 +44,22 @@ class SmartTrackAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     companion object {
-        /** 目标：条码框占画面面积比例（太小要放大，太大要缩小）。 */
-        private const val TARGET_AREA_LOW = 0.10f
-        private const val TARGET_AREA_HIGH = 0.45f
+        /**
+         * 变焦死区：框占比落在 [DEAD_LOW, DEAD_HIGH] 内**完全不动**。
+         * 现场实测：同一张标签在不同帧里识别到 1~4 个码，框面积会在
+         * 1% ↔ 90% 之间剧烈跳变，若一超出就调焦，画面会被来回拉扯。
+         */
+        private const val DEAD_LOW = 0.08f
+        private const val DEAD_HIGH = 0.35f
 
-        /** zoom 平滑系数：越小越稳、越大越跟手。 */
-        private const val ZOOM_ALPHA = 0.25f
+        /** 单帧变焦幅度上限：一次最多变化 15%，避免画面一跳一跳。 */
+        private const val ZOOM_STEP_MAX = 0.15f
+
+        /** zoom 平滑系数（对下发值做 EMA）。 */
+        private const val ZOOM_ALPHA = 0.35f
+
+        /** 连续多少帧没检测到框 → 变焦缓慢回落到 1.0。 */
+        private const val NO_BOX_FRAMES_TO_RESET = 8
 
         /** 两次自动对焦之间的最小间隔（对焦本身耗时，不能每帧调）。 */
         private const val FOCUS_INTERVAL_MS = 1200L
@@ -79,6 +89,7 @@ class SmartTrackAnalyzer(
     private var lastArea = 0f
     private var stableFrames = 0
     private var stableFired = false
+    private var noBoxFrames = 0
 
     override fun analyze(imageProxy: ImageProxy) {
         if (processing) {
@@ -101,7 +112,7 @@ class SmartTrackAnalyzer(
         scanner.process(inputImage)
             .addOnSuccessListener { barcodes ->
                 val values = barcodes.mapNotNull { it.rawValue?.trim() }.filter { it.isNotEmpty() }
-                val box = unionBox(barcodes)
+                val box = trackBox(barcodes)
                 applyTracking(box, w, h)
                 runOcr(inputImage, values, box, imageProxy)
             }
@@ -110,15 +121,15 @@ class SmartTrackAnalyzer(
             }
     }
 
-    /** 合并所有条码的检测框，得到一个"标签区域"。 */
-    private fun unionBox(barcodes: List<Barcode>): Rect? {
-        var r: Rect? = null
-        for (b in barcodes) {
-            val bb = b.boundingBox ?: continue
-            r = if (r == null) Rect(bb) else Rect(r).also { it.union(bb) }
-        }
-        return r
-    }
+    /**
+     * 取"面积最大的那个码框"作为追踪目标。
+     *
+     * 不用并集的原因：一帧识别到几个码是不稳定的（实测 1~4 个），并集会随之
+     * 在 1% ↔ 90% 之间跳，变焦就被拉扯成一团。单个最大框随码数变化小得多。
+     */
+    private fun trackBox(barcodes: List<Barcode>): Rect? =
+        barcodes.mapNotNull { it.boundingBox }
+            .maxByOrNull { it.width().toLong() * it.height().toLong() }
 
     /**
      * 依据检测框做自动缩放 + 自动对焦 + 稳定判定。
@@ -128,8 +139,19 @@ class SmartTrackAnalyzer(
         if (box == null || frameW <= 0 || frameH <= 0) {
             stableFrames = 0
             stableFired = false
+            noBoxFrames++
+            // 丢失目标时不要在放大状态下干等：缓慢回到 1.0，否则会一路顶到最大倍率
+            if (noBoxFrames >= NO_BOX_FRAMES_TO_RESET && smoothZoom > 1.02f) {
+                val z = getZoomState()
+                val floor = z?.minZoomRatio ?: 1f
+                smoothZoom += (floor - smoothZoom) * ZOOM_ALPHA
+                smoothZoom = smoothZoom.coerceAtLeast(floor)
+                try { getCameraControl()?.setZoomRatio(smoothZoom) } catch (_: Throwable) {}
+                noBoxFrames = 0
+            }
             return
         }
+        noBoxFrames = 0
 
         val boxArea = box.width().toFloat() * box.height().toFloat()
         val frameArea = frameW.toFloat() * frameH.toFloat()
@@ -138,19 +160,20 @@ class SmartTrackAnalyzer(
         // ── 自动缩放：让标签落在目标面积区间内 ─────────────────────────
         val zoomState = getZoomState()
         if (zoomState != null && zoomState.maxZoomRatio > zoomState.minZoomRatio) {
-            // 目标变焦必须基于**当前实际变焦值**推算，不能用上一次的平滑值累乘 ——
-            // 后者会随时间漂移（平滑值与实际值总有残差，越乘越偏）。
+            // 目标变焦必须基于**当前实际变焦值**推算（不能用平滑值累乘，会漂移）。
             val currentZoom = zoomState.zoomRatio
-            val desiredArea = when {
-                areaRatio < TARGET_AREA_LOW -> TARGET_AREA_LOW
-                areaRatio > TARGET_AREA_HIGH -> TARGET_AREA_HIGH
-                else -> areaRatio          // 已在目标区间内 → 保持
+            var target = currentZoom
+            if (areaRatio < DEAD_LOW || areaRatio > DEAD_HIGH) {
+                val desiredArea = if (areaRatio < DEAD_LOW) DEAD_LOW else DEAD_HIGH
+                // 面积比与线性变焦的平方成正比 → 倍数取平方根
+                val ideal = currentZoom * kotlin.math.sqrt(desiredArea / max(areaRatio, 0.0001f))
+                // 限速：单帧幅度不超过 ZOOM_STEP_MAX，画面才不会一跳一跳
+                val maxStep = currentZoom * ZOOM_STEP_MAX
+                val delta = (ideal - currentZoom).coerceIn(-maxStep, maxStep)
+                target = currentZoom + delta
             }
-            // 面积比与线性变焦的平方成正比，所以倍数取平方根
-            val factor = kotlin.math.sqrt(desiredArea / max(areaRatio, 0.0001f))
-            val target = (currentZoom * factor)
-                .coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
-            // EMA 平滑施加在"要下发的值"上，避免画面一顿一顿
+            // 死区内 target == currentZoom（保持不动）
+            target = target.coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
             smoothZoom += (target - smoothZoom) * ZOOM_ALPHA
             smoothZoom = smoothZoom.coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
             try {

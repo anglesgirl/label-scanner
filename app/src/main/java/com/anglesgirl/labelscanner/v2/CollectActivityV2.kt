@@ -193,6 +193,8 @@ class CollectActivityV2 : AppCompatActivity() {
                     "barcodes" to barcodes.size,
                     "added" to added,
                     "codes_total" to codesThisBox.size,
+                    "ocr_lines" to lines.size,
+                    "ocr_total" to ocrThisBox.size,
                     "box_area" to String.format("%.3f", areaRatio),
                     "zoom" to zoomRatioForLog(),
                 ),
@@ -240,6 +242,15 @@ class CollectActivityV2 : AppCompatActivity() {
                 appendLine()
                 result.warnings.forEach { appendLine("⚠️ $it") }
             }
+            appendLine()
+            append(
+                when {
+                    result.warnings.isNotEmpty() -> "⚠️ 有问题，请重扫或补录后再入库"
+                    result.hasData -> "✅ 已识别，确认无误后点「入库」保存这一箱"
+                    codesThisBox.isEmpty() && ocrThisBox.isEmpty() -> "对准标签，自动识别…"
+                    else -> "识别中…（也可点「补录」手工填）"
+                }
+            )
         }
         binding.textParsed.setTextColor(
             if (result.warnings.isEmpty()) 0xFF1B5E20.toInt() else 0xFFB71C1C.toInt()
@@ -286,14 +297,23 @@ class CollectActivityV2 : AppCompatActivity() {
     private fun recognizeStill(file: File) {
         StillRecognizerBridge.recognize(
             file,
-            onDone = { extra ->
+            onDone = { extra, ocrText ->
                 var added = 0
                 for (c in extra) if (codesThisBox.add(c)) added++
+                // 静图 OCR 文本按行并入同一个池子（实时帧的 OCR 也在里面）
+                val stillLines = ocrText.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+                ocrThisBox.addAll(stillLines)
                 if (added > 0) beep()
                 refreshParsedPreview()
                 Diag.event(
                     "still_recognized",
-                    mapOf("found" to extra.size, "added" to added, "codes_total" to codesThisBox.size),
+                    mapOf(
+                        "found" to extra.size,
+                        "added" to added,
+                        "codes_total" to codesThisBox.size,
+                        "ocr_lines" to stillLines.size,
+                        "ocr_total" to ocrThisBox.size,
+                    ),
                 )
                 file.delete()
             },
@@ -321,6 +341,7 @@ class CollectActivityV2 : AppCompatActivity() {
                 "sn_count" to record.serialNumbers.size,
                 "qty" to record.effectiveQty,
                 "warnings" to record.warnings.joinToString(";"),
+                "ocr_total" to ocrThisBox.size,
                 "tray_boxes" to tray.totalBoxes,
                 "tray_units" to tray.totalUnits,
             ),

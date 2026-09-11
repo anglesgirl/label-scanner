@@ -13,7 +13,8 @@ import java.io.File
  * 为什么要复用旧版而不是重写：实时帧分辨率低、有运动模糊，小码/斜角易漏；
  * 旧版这套静态识别已经调过 zxing-cpp 的 Options（tryHarder/tryRotate/
  * tryInvert/tryDownscale 全开，只开 tryHarder 会漏码），是踩过坑才对的配置。
- * 这里只负责"文件 → Bitmap → 取原始码"，不重复实现识别。
+ * 这里负责"文件 → Bitmap → 取原始码 + OCR 文本"，不重复实现识别。
+ * 注意：**OCR 文本也要带回**（部分标签的物料/日期只有印字，没有条码）。
  */
 object StillRecognizerBridge {
 
@@ -24,7 +25,7 @@ object StillRecognizerBridge {
 
     fun recognize(
         file: File,
-        onDone: (List<String>) -> Unit,
+        onDone: (codes: List<String>, ocrText: String) -> Unit,
         onFail: (String) -> Unit,
     ) {
         if (!file.exists() || file.length() == 0L) {
@@ -43,12 +44,15 @@ object StillRecognizerBridge {
                 bitmap = bitmap,
                 lookup69 = null,
                 onResult = { result ->
-                    // 旧模型里 barcodes 保存的是识别到的原始码，正好是 v2 需要的输入
+                    // barcodes 是原始码（v2 的解析输入）
                     val codes = result.barcodes
                         .map { it.trim() }
                         .filter { it.isNotEmpty() }
-                    Log.i(TAG, "静图识别到 ${codes.size} 个码")
-                    onDone(codes)
+                    // ocrText 必须一起带回去：有些标签的物料/日期只以印字存在，
+                    // 条码里根本没有；之前把这段丢掉了，等于放弃了 OCR 这条通道。
+                    val ocr = result.ocrText.orEmpty()
+                    Log.i(TAG, "静图识别: ${codes.size} 个码, OCR ${ocr.length} 字符")
+                    onDone(codes, ocr)
                 },
                 onError = { msg ->
                     Log.w(TAG, "静图识别失败: $msg")
