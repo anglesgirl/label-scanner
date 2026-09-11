@@ -5,10 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
@@ -33,7 +29,6 @@ object StaticRecognizer {
     private const val TAG = "StaticRecognizer"
 
     private var recognizer: TextRecognizer? = null
-    private var barcodeScanner: BarcodeScanner? = null
 
     /** ZXing 解码线程池（放大 3x 解码是 CPU 密集，不阻塞主线程） */
     private val zxingPool = Executors.newSingleThreadExecutor { r ->
@@ -47,13 +42,6 @@ object StaticRecognizer {
         recognizer ?: TextRecognition.getClient(
             ChineseTextRecognizerOptions.Builder().build()
         ).also { recognizer = it }
-
-    private fun getBarcodeScanner(): BarcodeScanner =
-        barcodeScanner ?: BarcodeScanning.getClient(
-            BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-                .build()
-        ).also { barcodeScanner = it }
 
     /**
      * 从 Uri 解码 Bitmap（自动缩放，避免超大图 OOM），然后识别。
@@ -76,7 +64,7 @@ object StaticRecognizer {
         recognize(bmp, lookup69, onResult, onError)
     }
 
-    /** 识别单张 Bitmap：ML Kit + zxing-cpp 双条码通道，再由 ML Kit OCR 补充文字。 */
+    /** 识别单张 Bitmap：**条码全走 zxing-cpp**，**ML Kit 只做 OCR**（各司其职）。 */
     fun recognize(
         bitmap: Bitmap,
         lookup69: ((String) -> String?)?,
@@ -90,17 +78,9 @@ object StaticRecognizer {
                 Log.i(TAG, "[ZXING_STATIC] complete count=${it.size}")
             }
         }
-        getBarcodeScanner().process(input)
-            .addOnSuccessListener { mlBarcodes ->
-                val mlValues = mlBarcodes.mapNotNull {
-                    it.rawValue?.trim()?.takeIf(String::isNotBlank)
-                }
-                finishWithBarcodes(input, mlValues, zxingFuture, lookup69, onResult, onError)
-            }
-            .addOnFailureListener { error ->
-                Log.w(TAG, "barcode scan failed, use zxing only", error)
-                finishWithBarcodes(input, emptyList(), zxingFuture, lookup69, onResult, onError)
-            }
+        // 条码/二维码一律交给 zxing-cpp（ML Kit 扫码能力弱：高密度 2D 码解不出，
+        // 还会用旁边的 1D 结果干扰）。ML Kit 在本流程里**只负责 OCR**。
+        finishWithBarcodes(input, emptyList(), zxingFuture, lookup69, onResult, onError)
     }
 
     /** 在后台等待 C++ 通道并合并，避免阻塞主线程，再只跑一次 OCR。 */
@@ -184,8 +164,6 @@ object StaticRecognizer {
     /** 关闭 OCR 识别器（置空，下次识别自动重建） */
     fun close() {
         try { recognizer?.close() } catch (_: Exception) {}
-        try { barcodeScanner?.close() } catch (_: Exception) {}
         recognizer = null
-        barcodeScanner = null
     }
 }
