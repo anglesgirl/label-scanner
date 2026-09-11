@@ -296,10 +296,68 @@ class LiveScanActivity : AppCompatActivity() {
     /** 本页是否是来扫集成码的。 */
     private var wantIntegrated = false
 
+    /**
+     * 集成码专用分析：只用 zxing-cpp 强通道。
+     *
+     * 为什么不带 ML Kit（用户明确要求"困难模式不让 ml 参与"）:
+     *  - ML Kit 解不出高密度 2D 码，本场景它没有正面价值；
+     *  - 它每帧都会解出标签上的 1D 条码，导致"只有单个条码"的误报反复打断用户。
+     * 少一条只会添乱的通道，既去掉噪音，也省掉"等/容忍若干帧"的补丁。
+     *
+     * zxing 比 ML Kit 慢，故每 2 帧抽一次并在独立线程池跑，避免拖住预览。
+     */
+    private fun analyzeIntegratedOnly(imageProxy: ImageProxy) {
+        if (zxingFrameCounter++ % 2 != 0) {
+            imageProxy.close()
+            return
+        }
+        if (!zxingBusy.compareAndSet(false, true)) {
+            imageProxy.close()
+            return
+        }
+        val bmp = runCatching { imageProxy.toBitmap() }.getOrNull()
+        imageProxy.close()   // 必须先取到 bitmap 再关，否则拿不到像素
+        if (bmp == null) {
+            zxingBusy.set(false)
+            return
+        }
+        zxingPool.execute {
+            try {
+                val codes = ZxingDecoder.decode(bmp)
+                if (codes.isNotEmpty()) {
+                    if (com.anglesgirl.labelscanner.util.Diag.enabled) {
+                        Diag.event("scan_integrated_zxing", mapOf(
+                            "found" to codes.size,
+                            "all" to codes.joinToString(" | ").take(260),
+                        ))
+                    }
+                    // zxing 不回传格式码，用内容特征判定（集成码 = 逗号分隔的多 SN）
+                    val typed = codes.map {
+                        val integ = it.contains(',') || it.contains('\uFF0C')
+                        TypedCode(it, integ, 0)
+                    }.distinctBy { it.value }
+                    runOnUiThread { onCodesCollected(typed) }
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("LiveScan", "zxing 集成码解码失败", t)
+            } finally {
+                zxingBusy.set(false)
+            }
+        }
+    }
+
     private fun analyzeFrame(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
         if (mediaImage == null || paused.get()) {
             imageProxy.close()
+            return
+        }
+        // ── 集成码（困难模式）：**不让 ML Kit 参与** ──
+        // 用户指出得对：ML Kit 对高密度 2D 码（集成码那种 DataMatrix）本来就解不出，
+        // 却每帧都能解出旁边的 1D 条码，于是不断报"只有单个条码"、反复打断用户。
+        // 能打这把仗的只有 zxing-cpp 强通道，那就只让它上，不给 ML Kit 插嘴的机会。
+        if (wantIntegrated && !pickMode && !bulkMode) {
+            analyzeIntegratedOnly(imageProxy)
             return
         }
         val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
