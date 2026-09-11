@@ -81,15 +81,14 @@ class CaptureActivity : AppCompatActivity() {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
                 val capture = ImageCapture.Builder()
-                    // 出图"慢半拍"的根因：MAXIMIZE_QUALITY 会做多帧合成再出图，
-                    // 快门按下到文件落地有明显延迟，用户看到的是"拍到的不是刚才那一帧"。
-                    // 所以改用 MINIMIZE_LATENCY。
+                    // 【画质优先】之前为治"出图慢半拍"用了 MINIMIZE_LATENCY，但那会走
+                    // "零快门延迟"路径 —— **直接复用预览帧出图**，而预览帧分辨率往往
+                    // 只有 1080p 甚至更低，于是照片呈现"像素不够的模糊、低画质"。
+                    // 用户对比 ML Kit 文档扫描（系统级、自己出高清图）后指出这一点。
                     //
-                    // 但 MINIMIZE_LATENCY 是为速度优化的，**可能选一个较小的输出分辨率** ——
-                    // 那正是"相册原图能识别、拍照却识别不出"的原因：集成码（PDF417）
-                    // 在小图里像素不够（实测：缩到 35% 就全解不出）。
-                    // 因此这里显式要求高分辨率，做到"低延迟 + 够清晰"两者兼顾。
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    // 改回 MAXIMIZE_QUALITY：多帧合成出真正的高清图。代价是快门后多等
+                    // 几百毫秒，但"拍不清"比"慢一点"严重得多，且 ML Kit 那条路也不是瞬出。
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .setResolutionSelector(
                         androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
                             .setResolutionStrategy(
