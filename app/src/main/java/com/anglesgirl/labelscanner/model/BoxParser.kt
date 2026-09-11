@@ -252,14 +252,43 @@ object BoxParser {
             }
         }
 
-        // 序列号兜底：OCR 行中的混合码（条码为空或不足时），排除已分类值
-        // ⚠️ 69 码（EAN13）不含字母已被 isLetter 挡掉，这里再显式过滤一次保险
+        // 序列号兜底：只有条码通道没给出 SN 时，才从 OCR 行里找。
+        //
+        // ⚠️ 这里曾经只要求「6~40 位、全字母数字、含字母」，判据太松，
+        // 结果把公司名/地址词（PANTUM、Mijdrecht、Netherlands、ECIREP…）
+        // 全塞进了序列号列表 —— 用户实测标签（PANTUM 荷兰外箱）就是这么发现的：
+        // "物料编码和序列号都没识别出来，它把那些生产地址、中文内容都丢到序列号里去了"。
+        //
+        // SN 的真实特征是「**字母与数字混排**」，纯英文单词从来不是 SN，
+        // 所以这里加三条硬门槛：
+        //  ① 必须含数字（PANTUM / Mijdrecht 这类纯单词直接出局）；
+        //  ② 必须"全字母数字"（含空格、连字符、点的一律排除 —— 那些是型号/地址）；
+        //  ③ 不是字段名（MODEL / SN / QTY / DATE / PANTUM …）。
+        // 这样 CS1RVO09B4 / SCAG2529704B3 / PA40359P10035246 能留下，
+        // 而地址、公司名、日期、数量都会被挡住。
         if (sns.isEmpty()) {
+            val fieldWords = setOf(
+                "MODEL", "SERIAL", "SN", "SAP", "SAP.", "QTY", "QTY.", "DATE", "DATE.",
+                "PANTUM", "PCS", "EA", "NO", "NO.", "MADE", "IN", "CHINA",
+                "ADDRESS", "WAREHOUSE", "VAT", "EMAIL", "TEL", "FAX",
+                "COMPATIBLE", "WITH", "POWER", "MODEL.", "PANTUM.",
+            )
+            val known = mutableSetOf<String>()
+            for (v in listOf(material, box, ean, model)) if (v.isNotEmpty()) known.add(v)
+            known.addAll(sns)
             for (line in ocrText.lines()) {
-                val l = line.trim()
-                if (l.length in 6..40 && l.all { it.isLetterOrDigit() } && l.any { it.isLetter() }) {
-                    if (l != material && l != box && l != ean && l !in sns && !EAN13.matcher(l).matches()) sns.add(l)
-                }
+                // OCR 常把标点/字段名残渣粘在值前面（实测行是 `: CS1RVO09B4`），
+                // 不剥掉的话"全字母数字"这条就把它挡在外面，真 SN 反而丢了。
+                var l = line.trim()
+                while (l.isNotEmpty() && !l[0].isLetterOrDigit()) l = l.substring(1).trim()
+                if (l.length !in 6..40) continue
+                if (!l.all { it.isLetterOrDigit() }) continue  // 有空格/连字符/点 → 型号或地址
+                if (!l.any { it.isLetter() }) continue
+                if (!l.any { it.isDigit() }) continue          // ← 关键：SN 必含数字
+                if (l.uppercase() in fieldWords) continue
+                if (l in known) continue
+                if (EAN13.matcher(l).matches()) continue
+                sns.add(l)
             }
         }
 
