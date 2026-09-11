@@ -10,6 +10,9 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import kotlin.math.max
 
 /**
@@ -29,8 +32,11 @@ class SingleShotAnalyzer(
     private val getCameraControl: () -> CameraControl?,
     /** 判定"对准且稳定"时回调（页面据此自动拍一张）。 */
     private val onAligned: () -> Unit,
-    /** 每帧的状态回调，供界面提示（是否对准、标签占比）。 */
-    private val onProgress: (aligned: Boolean, areaRatio: Float) -> Unit,
+    /**
+     * 每帧的状态回调：是否对准、标签占比、检测到的标签框（分析帧坐标，可为 null）、
+     * 以及该帧的尺寸（overlay 换算坐标必须用它，不能假定分辨率）。
+     */
+    private val onProgress: (aligned: Boolean, areaRatio: Float, box: Rect?, w: Int, h: Int) -> Unit,
 ) : ImageAnalysis.Analyzer {
 
     companion object {
@@ -52,6 +58,14 @@ class SingleShotAnalyzer(
         BarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
             .build()
+    )
+
+    /**
+     * OCR 识别器：用于在**没有条码**（或条码框不完整）时，用文字块边界补齐标签区域。
+     * 这是旧版 CaptureAlignmentAnalyzer 的思路 —— 单靠条码框常常框不全整个标签。
+     */
+    private val textRecognizer: TextRecognizer = TextRecognition.getClient(
+        ChineseTextRecognizerOptions.Builder().build()
     )
 
     @Volatile private var paused = false
@@ -103,27 +117,73 @@ class SingleShotAnalyzer(
 
         scanner.process(input)
             .addOnSuccessListener { barcodes ->
-                val box = biggestBox(barcodes)
-                evaluate(box, w, h)
+                val barcodeRects = barcodes.mapNotNull { it.boundingBox }
+                if (barcodeRects.isNotEmpty()) {
+                    // 有条码：以条码框为基准，再用文字块补齐（标签上的印字部分）
+                    withTextRects(input) { textRects ->
+                        evaluate(unionOf(barcodeRects + textRects, useAll = false), w, h)
+                        imageProxy.close()
+                        processing = false
+                    }
+                } else {
+                    // 一条条码都没读到：退回纯文字块（用户可能拍的是印字面）
+                    withTextRects(input) { textRects ->
+                        evaluate(unionOf(textRects, useAll = true), w, h)
+                        imageProxy.close()
+                        processing = false
+                    }
+                }
             }
             .addOnFailureListener {
-                onProgress(false, 0f)
-            }
-            .addOnCompleteListener {
+                onProgress(false, 0f, null, w, h)
                 imageProxy.close()
                 processing = false
             }
     }
 
-    /** 取面积最大的单码框（比并集稳定：并集面积随识别到的码数跳变）。 */
+    /** 取面积最大的单码框（用于判断"是否已有一个明确的码进入视野"）。 */
     private fun biggestBox(barcodes: List<Barcode>): Rect? =
         barcodes.mapNotNull { it.boundingBox }
             .maxByOrNull { it.width().toLong() * it.height().toLong() }
 
+    /** 跑一次 OCR，把每行文字的边界交给回调（失败则给空表，不阻断取景）。 */
+    private fun withTextRects(input: InputImage, onDone: (List<Rect>) -> Unit) {
+        textRecognizer.process(input)
+            .addOnSuccessListener { text ->
+                val rects = text.textBlocks.flatMap { b -> b.lines.mapNotNull { it.boundingBox } }
+                onDone(rects)
+            }
+            .addOnFailureListener { onDone(emptyList()) }
+    }
+
+    /**
+     * 求标签区域。
+     *
+     * 学旧版 CaptureAlignmentAnalyzer：条码框往往只覆盖标签的一部分，
+     * 把同标签上的文字块边界一起并进来，才框得住整张标签。
+     *  @param useAll true 表示这是纯印字面（没有条码），直接用全部文字块并集
+     */
+    private fun unionOf(rects: List<Rect>, useAll: Boolean): Rect? {
+        if (rects.isEmpty()) return null
+        // 剔除离群小框（噪点/误检），避免把框无限撑大
+        val sorted = rects.sortedByDescending { it.width().toLong() * it.height().toLong() }
+        val base = sorted.first()
+        val keep = sorted.filter {
+            // 与最大框中心距离不超过最大框长边 → 认为属于同一张标签
+            val dx = kotlin.math.abs(it.centerX() - base.centerX())
+            val dy = kotlin.math.abs(it.centerY() - base.centerY())
+            dx < max(base.width(), base.height()) && dy < max(base.width(), base.height())
+        }
+        val use = if (useAll) keep else keep
+        val r = Rect(use.first())
+        for (x in use.drop(1)) r.union(x)
+        return r
+    }
+
     private fun evaluate(box: Rect?, w: Int, h: Int) {
         if (box == null || w <= 0 || h <= 0) {
             stableCount = 0
-            onProgress(false, 0f)
+            onProgress(false, 0f, null, w, h)
             return
         }
         val areaRatio = (box.width().toFloat() * box.height()) / (w.toFloat() * h)
@@ -141,7 +201,7 @@ class SingleShotAnalyzer(
         if (moved < STABLE_MOVE_TH && wellSized) stableCount++ else stableCount = 0
 
         val aligned = stableCount >= STABLE_NEEDED
-        onProgress(aligned, areaRatio)
+        onProgress(aligned, areaRatio, box, w, h)
 
         if (aligned && !firedForThisShot) {
             firedForThisShot = true
@@ -172,5 +232,6 @@ class SingleShotAnalyzer(
 
     fun close() {
         scanner.close()
+        textRecognizer.close()
     }
 }

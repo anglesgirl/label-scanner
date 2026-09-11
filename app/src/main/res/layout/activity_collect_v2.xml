@@ -29,11 +29,22 @@
             android:textSize="13sp" />
     </LinearLayout>
 
-    <androidx.camera.view.PreviewView
-        android:id="@+id/previewView"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- 标签取景框：把识别到的标签区域画出来，让用户看得见对准没有 -->
+        <com.anglesgirl.labelscanner.camera.v2.LabelBoxOverlay
+            android:id="@+id/boxOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
 
     <!-- 对准提示：告诉用户现在能不能拍 -->
     <TextView

@@ -80,6 +80,7 @@ class CollectActivityV2 : AppCompatActivity() {
     /** bindToLifecycle 之后才有值（分析器通过 lambda 惰性读取）。 */
     @Volatile
     private var cameraControlOrNull: androidx.camera.core.CameraControl? = null
+
     private var analyzer: SingleShotAnalyzer? = null
 
     private var phase = Phase.PREVIEW
@@ -176,8 +177,13 @@ class CollectActivityV2 : AppCompatActivity() {
                         runOnUiThread { captureNow("aligned") }
                     }
                 },
-                onProgress = { aligned, areaRatio ->
-                    runOnUiThread { showAlignment(aligned, areaRatio) }
+                onProgress = { aligned, areaRatio, box, w, h ->
+                    runOnUiThread {
+                        // 帧尺寸随设备/旋转变化，必须用回调里的真实值换坐标
+                        binding.boxOverlay.setSourceSize(w, h)
+                        binding.boxOverlay.update(box, aligned)
+                        showAlignment(aligned, areaRatio)
+                    }
                 },
             )
             analyzer = a
@@ -352,6 +358,7 @@ class CollectActivityV2 : AppCompatActivity() {
 
         // 核对期间不再需要实时分析：停掉分析器省电（预览画面保留）
         setAnalysisEnabled(false)
+        binding.boxOverlay.clear()
 
         val r = parsed
         binding.textParsed.text = buildString {
@@ -384,6 +391,7 @@ class CollectActivityV2 : AppCompatActivity() {
         phase = Phase.PREVIEW
         capturing = false
         analyzer?.restart()
+        binding.boxOverlay.clear()
         setAnalysisEnabled(true)
         setReviewButtons(false)
         refreshPreviewHint()
