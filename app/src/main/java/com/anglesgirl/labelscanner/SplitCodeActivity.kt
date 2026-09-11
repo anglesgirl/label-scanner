@@ -11,6 +11,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -52,7 +53,7 @@ class SplitCodeActivity : AppCompatActivity() {
 
     /** 多箱拆模式（每箱一行，全部完成后再出结果）。 */
     /** 多箱模式下每箱的集成码。 */
-    private var llBoxes: android.widget.LinearLayout? = null
+    private lateinit var llBoxes: LinearLayout
     private var btnAddBox: android.view.View? = null
 
     /**
