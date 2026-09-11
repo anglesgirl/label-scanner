@@ -57,7 +57,7 @@
         android:id="@+id/ivSnapshot"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="fitCenter"
+        android:scaleType="centerCrop"
         android:visibility="gone" />
 
     <!-- 预览上直接点选条码：识别到的码在画面上框出来，点哪个选哪个（微信扫码那种手感）。

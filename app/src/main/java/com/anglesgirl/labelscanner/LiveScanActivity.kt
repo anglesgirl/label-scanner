@@ -174,9 +174,24 @@ class LiveScanActivity : AppCompatActivity() {
                     }
                     if (picks.isEmpty()) return@addOnSuccessListener
 
-                    val snapshot = runCatching { imageProxy.toBitmap() }.getOrNull()
-                    val fw = inputImage.width
-                    val fh = inputImage.height
+                    // toBitmap() 返回的是**传感器方向**的原始图（竖屏拍摄时通常是横的），
+                    // 必须按 rotationDegrees 转正：否则既是显示方向不对，
+                    // 又会让 boundingBox 的坐标系与显示图错位（点击位置全偏）。
+                    val raw = runCatching { imageProxy.toBitmap() }.getOrNull()
+                    val deg = imageProxy.imageInfo.rotationDegrees
+                    val snapshot = if (raw != null && deg != 0) {
+                        runCatching {
+                            val m = android.graphics.Matrix().apply { postRotate(deg.toFloat()) }
+                            android.graphics.Bitmap.createBitmap(
+                                raw, 0, 0, raw.width, raw.height, m, true,
+                            )
+                        }.getOrNull() ?: raw
+                    } else {
+                        raw
+                    }
+                    // 坐标基准改为"转正后"的图尺寸，与 boundingBox 所在坐标系一致
+                    val fw = snapshot?.width ?: inputImage.width
+                    val fh = snapshot?.height ?: inputImage.height
                     runOnUiThread {
                         if (snapshot != null) {
                             ivSnapshot.setImageBitmap(snapshot)
