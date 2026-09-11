@@ -2,6 +2,7 @@ package com.anglesgirl.labelscanner
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
