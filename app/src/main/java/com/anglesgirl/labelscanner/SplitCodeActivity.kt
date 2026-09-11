@@ -75,18 +75,47 @@ class SplitCodeActivity : AppCompatActivity() {
             ?: return@registerForActivityResult
         if (list.isEmpty()) return@registerForActivityResult
 
-        // 采集层已"全量收下"，这里只决定归属：
-        // 只有一个码且指定了目标箱 → 直接填，少一次点击；
-        // 多个码（或没指定目标）→ 进候选区，由用户逐个点「填入」指定归属，
-        // 而不是替用户挑一个填掉、其余静默丢弃。
+        // 采集层已"全量收下"。这里的分工是用户明确要求的：
+        //   **自动填是主力**（减轻劳动强度），**手选只是填错时的修补**。
+        // 所以集成码照常自动进目标箱，不因为"可能填错"就改成让用户逐个手点。
         val idx = scanTargetRow
-        if (list.size == 1 && idx >= 0 && idx < rows.size) {
+        val integrated = list.filter { it.contains(',') || it.contains('\uFF0C') }
+        val others = list.filterNot { it.contains(',') || it.contains('\uFF0C') }
+
+        var autoFilled = 0
+        if (integrated.isNotEmpty()) {
+            var first = true
+            for (code in integrated) {
+                if (first && idx >= 0 && idx < rows.size) {
+                    rows[idx].input.setText(code)
+                    rows[idx].check.isChecked = true
+                    first = false
+                } else {
+                    val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
+                    if (empty != null) {
+                        empty.input.setText(code); empty.check.isChecked = true
+                    } else {
+                        addBoxRow().input.setText(code)
+                        rows.last().check.isChecked = true
+                    }
+                }
+                autoFilled++
+            }
+        } else if (list.size == 1 && idx >= 0 && idx < rows.size) {
+            // 没集成码、只有一个码：仍然自动填，让用户看着改，而不是空手。
             rows[idx].input.setText(list[0])
             rows[idx].check.isChecked = true
-            tvSplitStatus.text = "已填第 ${idx + 1} 箱"
-        } else {
-            addCandidates(list)
-            tvSplitStatus.text = "扫到 ${list.size} 个码，已放入候选区，请点「填入」指定归属"
+            autoFilled = 1
+        }
+
+        // 本次扫到的码全部进候选区 —— 不是让人人重来一遍，而是留个修正入口：
+        // 哪个填错了，点它的「填入」改到对的箱即可。
+        addCandidates(list)
+
+        tvSplitStatus.text = when {
+            autoFilled > 0 && others.isEmpty() -> "已自动填入 ${autoFilled} 箱"
+            autoFilled > 0 -> "已自动填入 ${autoFilled} 箱（另有 ${others.size} 个非集成码在候选区）"
+            else -> "扫到 ${list.size} 个码，已在候选区，点「填入」指定归属"
         }
     }
 
@@ -106,7 +135,7 @@ class SplitCodeActivity : AppCompatActivity() {
         llScanCandidates.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) return
 
-        tvCandTitle.text = "\uD83D\uDCE5 候选码（${pendingCodes.size} 个，点「填入」指定归属）"
+        tvCandTitle.text = "\uD83D\uDCE5 本次扫到 ${pendingCodes.size} 个码（已自动填入，填错点「填入」改）"
         for (code in pendingCodes.toList()) {
             val isInt = code.contains(',') || code.contains('\uFF0C')
             val row = LinearLayout(this).apply {
