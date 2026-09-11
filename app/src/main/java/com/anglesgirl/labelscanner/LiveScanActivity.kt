@@ -181,24 +181,44 @@ class LiveScanActivity : AppCompatActivity() {
     }
 
 
-    /**
-     * 从同一帧识别到的多个码里挑「最像集成码」的那个。
-     * 集成码 = 多个 SN 用逗号拼成的一串，判定顺序：
-     *   1) 内容含逗号（最直接特征）
-     *   2) 2D 码（QR / DataMatrix / Aztec / PDF417）—— 集成码走二维码
-     *   3) 最长的那串（集成码天然远长于单 SN）
-     */
-    private fun preferIntegrated(barcodes: List<Barcode>, values: List<String>): String? {
-        values.firstOrNull { it.contains(',') || it.contains(',') }?.let { return it }
-        barcodes.firstOrNull { is2D(it.format) }
-            ?.rawValue?.trim()?.takeIf(String::isNotBlank)?.let { return it }
-        return values.maxByOrNull { it.length }
-    }
 
-    private fun is2D(format: Int): Boolean = format == Barcode.FORMAT_QR_CODE ||
-        format == Barcode.FORMAT_DATA_MATRIX ||
-        format == Barcode.FORMAT_AZTEC ||
-        format == Barcode.FORMAT_PDF417
+    /** 同一帧里识别到的码，带类型标注（采集场景要全量收下，不能只留一个）。 */
+    data class TypedCode(val value: String, val is2D: Boolean, val format: Int)
+
+    /**
+     * 全量收码：把这一帧识别到的所有码都交给用户确认，而不是挑一个丢掉其余。
+     * 集成码（含逗号 / 2D）排前面，方便一眼看到真正要的那个。
+     */
+    private fun onCodesCollected(codes: List<TypedCode>) {
+        if (codes.isEmpty() || !paused.compareAndSet(false, true)) return
+        val ordered = codes.sortedWith(
+            compareByDescending<TypedCode> { it.value.contains(',') || it.value.contains('，') }
+                .thenByDescending { it.is2D }
+                .thenByDescending { it.value.length }
+        )
+        runOnUiThread {
+            beep()
+            val lines = ordered.mapIndexed { i, c ->
+                val tag = when {
+                    c.value.contains(',') || c.value.contains('，') -> "集成码"
+                    c.is2D -> "二维码"
+                    else -> "条码"
+                }
+                "${i + 1}. [$tag] ${c.value.take(70)}"
+            }.joinToString("\n")
+            AlertDialog.Builder(this)
+                .setTitle("\uD83D\uDCE6 共识别到 ${codes.size} 个码")
+                .setMessage("全部收下（不丢数据）：\n\n$lines")
+                .setCancelable(false)
+                .setPositiveButton("全部使用") { _, _ ->
+                    setResult(RESULT_OK, Intent()
+                        .putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(ordered.map { it.value })))
+                    finish()
+                }
+                .setNegativeButton("重新扫") { _, _ -> paused.set(false) }
+                .show()
+        }
+    }
 
     /** 本页是否是来扫集成码的。 */
     private var wantIntegrated = false
@@ -259,16 +279,19 @@ class LiveScanActivity : AppCompatActivity() {
                 if (bulkMode) {
                     onBarcodesDetected(values)
                 } else if (wantIntegrated) {
-                    // 集成码场景：标签上同时有 1D 条码和 2D 集成码时，1D 总是先解出来，
-                    // 按「谁先解出谁赢」就永远取不到集成码（用户只能用手把别的码遮住）。
-                    // 这里改按「像不像集成码」来挑。
-                    val picked = preferIntegrated(barcodes, values)
-                    Diag.event("scan_integrated_pick", mapOf(
-                        "all" to values.joinToString(" | ").take(220),
-                        "formats" to barcodes.joinToString(",") { it.format.toString() },
-                        "picked" to (picked ?: "-").take(80),
+                    // 采集场景的原则是「全量获得数据」，不是「谁先解出谁赢」。
+                    // 标签上常同时有 1D 条码和 2D 集成码，以前只取最先解出的那个，
+                    // 等于把其余码直接丢掉 —— 用户只能靠手遮住别的码才扫得到集成码。
+                    // 现在：同帧所有码全部收下，按类型标注后一起回传。
+                    if (values.isEmpty()) return@addOnSuccessListener
+                    val typed = barcodes.mapNotNull { b ->
+                        val v = b.rawValue?.trim()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                        TypedCode(v, is2D(b.format), b.format)
+                    }.distinctBy { it.value }
+                    Diag.event("scan_frame_all", mapOf(
+                        "all" to typed.joinToString(" | ") { (if (it.is2D) "2D:" else "1D:") + it.value }.take(260),
                     ))
-                    picked?.let(::onBarcodeDetected)
+                    onCodesCollected(typed)
                 } else {
                     values.firstOrNull()?.let(::onBarcodeDetected)
                 }

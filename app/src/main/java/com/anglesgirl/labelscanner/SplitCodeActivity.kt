@@ -75,17 +75,37 @@ class SplitCodeActivity : AppCompatActivity() {
         if (list.isEmpty()) return@registerForActivityResult
 
         val idx = scanTargetRow
-        if (idx >= 0 && idx < rows.size) {
-            rows[idx].input.setText(list[0])
-            rows[idx].check.isChecked = true
-        } else {
-            // 没有指定目标：依次填进空白箱，多出来的自动新增
-            for (code in list) {
-                val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
-                if (empty != null) empty.input.setText(code) else addBoxRow().input.setText(code)
+        // 采集的原则是「全量获得数据」，不是「挑最快的那个」。
+        // 同一帧里识别到的集成码一个都不能丢：第一个进目标箱，其余各占新行。
+        val integrated = list.filter { it.contains(',') || it.contains('，') }
+        val others = list.filterNot { it.contains(',') || it.contains('，') }
+
+        if (integrated.isNotEmpty()) {
+            var first = true
+            for (code in integrated) {
+                if (first && idx >= 0 && idx < rows.size) {
+                    rows[idx].input.setText(code)
+                    rows[idx].check.isChecked = true
+                    first = false
+                } else {
+                    val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
+                    if (empty != null) {
+                        empty.input.setText(code); empty.check.isChecked = true
+                    } else {
+                        addBoxRow().input.setText(code)
+                    }
+                }
             }
+            tvSplitStatus.text = "已扫入 ${integrated.size} 个集成码" +
+                if (others.isNotEmpty()) "（另有 ${others.size} 个非集成码未填入）" else ""
+        } else {
+            // 没扫到集成码：仍填进去让用户自己判断，并明确提示这不是集成码
+            val target = if (idx >= 0 && idx < rows.size) rows[idx]
+            else rows.firstOrNull { it.input.text.isNullOrBlank() } ?: addBoxRow()
+            target.input.setText(list.first())
+            target.check.isChecked = true
+            tvSplitStatus.text = "未识别到集成码（这看起来是单条码），如不对请重扫"
         }
-        tvSplitStatus.text = "已扫入，可继续扫下一箱"
     }
 
     /** 一箱一行：勾选 + 输入框。 */
