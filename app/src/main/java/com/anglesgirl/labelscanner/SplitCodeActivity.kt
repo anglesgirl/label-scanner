@@ -56,6 +56,9 @@ class SplitCodeActivity : AppCompatActivity() {
     /** 多箱拆模式（每箱一行，全部完成后再出结果）。 */
     /** 多箱模式下每箱的集成码。 */
     private lateinit var llBoxes: LinearLayout
+    /** 候选码区：本次扫到的码全部列出，作为"自动填错时的修正入口"。 */
+    private lateinit var llScanCandidates: LinearLayout
+    private lateinit var tvCandTitle: TextView
     private var btnAddBox: android.view.View? = null
 
     /**
