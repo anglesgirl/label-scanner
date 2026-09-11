@@ -5,115 +5,28 @@
     android:background="#EDF1F7"
     android:fillViewport="true">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="🧩 集成码拆分"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#14213D" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="扫集成码（多个 SN 逗号分隔）→ 按逗号拆分 → 每个 SN 生成独立条码（下方带内容）"
-            android:textSize="12sp"
-            android:textColor="#5A6B85" />
-
-        <!-- 识别来源：拍照 / 文档扫描 / 相册 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnTakePhoto"
-                android:layout_width="0dp"
-                android:layout_height="50dp"
-                android:layout_weight="1"
-                android:backgroundTint="#1B6EF3"
-                android:text="📷 拍照"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp" />
-
-            <Button
-                android:id="@+id/btnScanDoc"
-                android:layout_width="0dp"
-                android:layout_height="50dp"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="#1B6EF3"
-                android:text="📄 文档扫描"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp" />
-
-            <Button
-                android:id="@+id/btnPickGallery"
-                android:layout_width="0dp"
-                android:layout_height="50dp"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="#1B6EF3"
-                android:text="🖼️ 相册"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp" />
-
-            <!-- 扫集成码：实时扫到多个码 → 列出 → 点选（微信扫码手感） -->
-            <Button
-                android:id="@+id/btnScanPick"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginTop="6dp"
-                android:backgroundTint="#1B6EF3"
-                android:text="🎯 扫集成码（扫到后点选）"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp" />
-
-            <!-- 模式切换：单箱拆 / 多箱拆 -->
-            <LinearLayout
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal">
+                android:layout_marginTop="10dp"
+                android:text="每箱一行：点「扫」扫入集成码，也可以直接粘贴；勾选要拆的箱，最后一起拆解"
+                android:textColor="#5A6B8C"
+                android:textSize="13sp" />
 
-                <Button
-                    android:id="@+id/btnModeSingle"
-                    android:layout_width="0dp"
-                    android:layout_height="42dp"
-                    android:layout_weight="1"
-                    android:text="单箱拆" />
-
-                <Button
-                    android:id="@+id/btnModeMulti"
-                    android:layout_width="0dp"
-                    android:layout_height="42dp"
-                    android:layout_weight="1"
-                    android:text="多箱拆" />
-            </LinearLayout>
-
-            <!-- 多箱模式：每箱一行 -->
+            <!-- 每箱一行：勾选 + 集成码输入框 + 扫 + 删（行由代码动态生成） -->
             <LinearLayout
                 android:id="@+id/llBoxes"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:orientation="vertical"
-                android:visibility="gone" />
+                android:orientation="vertical" />
 
             <Button
                 android:id="@+id/btnAddBox"
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:layout_marginTop="4dp"
-                android:text="+ 添加一箱"
+                android:text="＋ 再加一箱"
                 android:visibility="gone" />
         </LinearLayout>
 
@@ -151,7 +64,7 @@
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="#E65100"
-                android:text="🧩 拆分"
+                android:text="🧩 拆解选中的"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp"
                 android:minWidth="72dp"
