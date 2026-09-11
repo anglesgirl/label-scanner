@@ -128,7 +128,10 @@ class SplitCodeActivity : AppCompatActivity() {
             scanTargetRow = rows.indexOf(item)
             scanInto.launch(
                 Intent(this, LiveScanActivity::class.java)
-                    .putExtra(LiveScanActivity.EXTRA_TITLE, "扫第 ${scanTargetRow + 1} 箱的集成码"),
+                    .putExtra(LiveScanActivity.EXTRA_TITLE, "扫第 ${scanTargetRow + 1} 箱的集成码")
+                    // 关键：声明本页要的是集成码。标签上同时有 1D 条码和 2D 集成码时，
+                    // 1D 总被先解出来，不声明就只能靠手遮住别的码才扫得到集成码。
+                    .putExtra(LiveScanActivity.EXTRA_WANT_INTEGRATED, true),
             )
         }
         btnDel.setOnClickListener {

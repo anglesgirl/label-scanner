@@ -23,6 +23,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.core.content.ContextCompat
 import com.anglesgirl.labelscanner.camera.BarcodePickOverlay
+import com.anglesgirl.labelscanner.util.Diag
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -51,6 +52,9 @@ class LiveScanActivity : AppCompatActivity() {
          * 集成码这类场景常有多个码同屏出现，必须让用户点选才能取对。
          */
         const val EXTRA_PICK_MODE = "extra_pick_mode"
+
+        /** true = 本页是来扫集成码的：同帧多个码时优先取 2D / 含逗号的那个。 */
+        const val EXTRA_WANT_INTEGRATED = "extra_want_integrated"
         const val EXTRA_EXPECTED_COUNT = "extra_expected_count"
         const val EXTRA_INITIAL_CODES = "extra_initial_codes"
     }
@@ -103,6 +107,8 @@ class LiveScanActivity : AppCompatActivity() {
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
         bulkMode = intent.getBooleanExtra(EXTRA_BULK_MODE, false)
         pickMode = intent.getBooleanExtra(EXTRA_PICK_MODE, false)
+        // 本页是否为扫集成码：识别到多个码时优先取 2D / 含逗号的那个
+        wantIntegrated = intent.getBooleanExtra(EXTRA_WANT_INTEGRATED, false)
         expectedCount = intent.getIntExtra(EXTRA_EXPECTED_COUNT, 0)
         initialCodes += intent.getStringArrayListExtra(EXTRA_INITIAL_CODES).orEmpty()
         tvHint.text = if (title.isEmpty()) "对准条码，自动识别" else "对准${title}条码，自动识别"
@@ -174,6 +180,29 @@ class LiveScanActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
+
+    /**
+     * 从同一帧识别到的多个码里挑「最像集成码」的那个。
+     * 集成码 = 多个 SN 用逗号拼成的一串，判定顺序：
+     *   1) 内容含逗号（最直接特征）
+     *   2) 2D 码（QR / DataMatrix / Aztec / PDF417）—— 集成码走二维码
+     *   3) 最长的那串（集成码天然远长于单 SN）
+     */
+    private fun preferIntegrated(barcodes: List<Barcode>, values: List<String>): String? {
+        values.firstOrNull { it.contains(',') || it.contains(',') }?.let { return it }
+        barcodes.firstOrNull { is2D(it.format) }
+            ?.rawValue?.trim()?.takeIf(String::isNotBlank)?.let { return it }
+        return values.maxByOrNull { it.length }
+    }
+
+    private fun is2D(format: Int): Boolean = format == Barcode.FORMAT_QR_CODE ||
+        format == Barcode.FORMAT_DATA_MATRIX ||
+        format == Barcode.FORMAT_AZTEC ||
+        format == Barcode.FORMAT_PDF417
+
+    /** 本页是否是来扫集成码的。 */
+    private var wantIntegrated = false
+
     private fun analyzeFrame(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
         if (mediaImage == null || paused.get()) {
@@ -227,8 +256,22 @@ class LiveScanActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
                 val values = barcodes.mapNotNull { it.rawValue?.trim()?.takeIf(String::isNotBlank) }
-                if (bulkMode) onBarcodesDetected(values)
-                else values.firstOrNull()?.let(::onBarcodeDetected)
+                if (bulkMode) {
+                    onBarcodesDetected(values)
+                } else if (wantIntegrated) {
+                    // 集成码场景：标签上同时有 1D 条码和 2D 集成码时，1D 总是先解出来，
+                    // 按「谁先解出谁赢」就永远取不到集成码（用户只能用手把别的码遮住）。
+                    // 这里改按「像不像集成码」来挑。
+                    val picked = preferIntegrated(barcodes, values)
+                    Diag.event("scan_integrated_pick", mapOf(
+                        "all" to values.joinToString(" | ").take(220),
+                        "formats" to barcodes.joinToString(",") { it.format.toString() },
+                        "picked" to (picked ?: "-").take(80),
+                    ))
+                    picked?.let(::onBarcodeDetected)
+                } else {
+                    values.firstOrNull()?.let(::onBarcodeDetected)
+                }
             }
             ?.addOnFailureListener { /* 单帧失败忽略，继续下一帧 */ }
             ?.addOnCompleteListener { imageProxy.close() }
