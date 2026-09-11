@@ -71,6 +71,38 @@ class Barcode69Lookup(context: Context) {
         null
     }
 
+
+    /**
+     * 读出本地全表（69 码 → 物料编码），供同步比对用。
+     * 与 readMap() 的区别：这是给同步模块用的公开入口。
+     */
+    fun allLocal(): Map<String, String> {
+        ensureImported()
+        val out = LinkedHashMap<String, String>()
+        try {
+            val db = com.anglesgirl.labelscanner.data.LocalDatabase.get(appContext).readableDatabase
+            db.query("barcode69_lookup", arrayOf("ean69", "material_code")).use { c ->
+                while (c.moveToNext()) {
+                    val ean = c.getString(0) ?: continue
+                    val mat = c.getString(1) ?: continue
+                    if (ean.isNotBlank() && mat.isNotBlank()) out[ean.trim()] = mat.trim()
+                }
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("Barcode69Lookup", "读本地全表失败", t)
+        }
+        return out
+    }
+
+    /** 批量写入（同步拉取用）：只写本地没有的，不覆盖已有，避免误改用户数据。 */
+    fun putIfAbsent(items: Map<String, String>): Int {
+        var n = 0
+        for ((ean, mat) in items) {
+            if (lookup(ean) == null) { learn(ean, mat); n++ }
+        }
+        return n
+    }
+
     fun learn(ean69: String, materialCode: String) {
         val ean = ean69.trim(); val material = materialCode.trim()
         if (ean.isEmpty() || material.isEmpty()) return

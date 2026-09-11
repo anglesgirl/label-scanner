@@ -14,6 +14,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import com.anglesgirl.labelscanner.data.Barcode69Sync
 import com.anglesgirl.labelscanner.data.Turso69Client
 import java.util.concurrent.Executors
 
@@ -42,11 +43,81 @@ class Ean69ManageActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvEan69Status)
 
         findViewById<Button>(R.id.btnEan69Add).setOnClickListener { showAddDialog() }
-        findViewById<Button>(R.id.btnEan69Refresh).setOnClickListener { loadList() }
-        loadList()
+        // 每次打开先与云端同步，再展示（用户要求：先拉云端 → 比对 → 互相同步 → 冲突待人工修）
+        findViewById<Button>(R.id.btnEan69Refresh).setOnClickListener { syncThenLoad() }
+        syncThenLoad()
     }
 
     /** 远程加载全部映射 */
+    /** 打开/刷新时：先同步（拉云端 → 比对 → 互相同步），再展示列表。 */
+    private fun syncThenLoad() {
+        tvStatus.text = "正在与云端同步…"
+        Barcode69Sync.syncAsync(this) { r ->
+            if (!r.ok) {
+                // 未配置或网络不通：不算错误，退回纯本地列表，不影响使用
+                tvStatus.text = r.error
+                loadList()
+                return@syncAsync
+            }
+            tvStatus.text = r.summary()
+            loadList()
+            if (r.conflicts.isNotEmpty()) showConflict(r.conflicts, 0)
+        }
+    }
+
+    /**
+     * 逐个裁决冲突。**不自动改数据** —— 由用户决定哪个是对的
+     * （两边时间字段语义不同，自动按时间选会把顺序判反，而这是主数据）。
+     */
+    private fun showConflict(list: List<Barcode69Sync.Conflict>, index: Int) {
+        if (index >= list.size) {
+            loadList()
+            tvStatus.text = "冲突已处理完，共 ${list.size} 条"
+            return
+        }
+        val c = list[index]
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ 冲突 ${index + 1}/${list.size}")
+            .setMessage("69 码：${c.ean}\n\n本地记录：${c.localMaterial}\n云端记录：${c.remoteMaterial}\n\n哪一个是正确的？")
+            .setCancelable(false)
+            .setPositiveButton("用本地") { _, _ ->
+                Barcode69Sync.resolve(this, c, useRemote = false)
+                showConflict(list, index + 1)
+            }
+            .setNeutralButton("用云端") { _, _ ->
+                Barcode69Sync.resolve(this, c, useRemote = true)
+                showConflict(list, index + 1)
+            }
+            .setNegativeButton("手动输入") { _, _ -> promptManual(c, list, index) }
+            .show()
+    }
+
+    /** 冲突双方都不对时，允许直接输入正确值（本地与云端一同改成它）。 */
+    private fun promptManual(
+        c: Barcode69Sync.Conflict,
+        list: List<Barcode69Sync.Conflict>,
+        index: Int,
+    ) {
+        val et = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            setText(c.localMaterial)
+            hint = "正确的物料编码"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("输入正确的物料编码（69 码 ${c.ean}）")
+            .setView(et)
+            .setPositiveButton("确定") { _, _ ->
+                val v = et.text.toString().trim()
+                if (v.isNotEmpty()) {
+                    Barcode69Sync.resolveWith(this, c.ean, v)
+                    Toast.makeText(this, "已修正为 $v", Toast.LENGTH_SHORT).show()
+                }
+                showConflict(list, index + 1)
+            }
+            .setNegativeButton("跳过") { _, _ -> showConflict(list, index + 1) }
+            .show()
+    }
+
     private fun loadList() {
         tvStatus.text = "加载中..."
         val url = SettingsActivity.getUrl(this)
