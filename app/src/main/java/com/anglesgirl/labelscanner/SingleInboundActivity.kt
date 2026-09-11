@@ -449,11 +449,10 @@ class SingleInboundActivity : AppCompatActivity() {
             // （片段颜色由 ForegroundColorSpan 决定，会盖过下面 setTextColor 的整行设色，
             //   所以来源前缀仍是主题色，只有可疑字符变红。）
             val src = codeCandidateSources[code]
-            // 只有 OCR 来源才标红易混字符 —— 条码是扫码枪读出来的权威值，不存在认错
-            // 字符的问题，标红只会变成噪音、还让人误以为要核对（用户明确要求）。
-            val body: CharSequence = if (src == "OCR") AmbiguousChar.highlight(code) else code
-            tv.text = if (src == null) body
-            else android.text.TextUtils.concat("[$src] ", body)
+            // 候选区这里不标红易混字符：这是原始识别明细，混着纯数字、中文等字段，
+            // 用户明确说"只有序列号、箱号这种地方才需要标"。这里只标来源。
+            tv.text = if (src == null) code
+            else android.text.TextUtils.concat("[$src] ", code)
             // OCR 来源用弱化色，条码来源用主色 —— 视觉上进一步拉开差距
             tv.setTextColor(
                 if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)

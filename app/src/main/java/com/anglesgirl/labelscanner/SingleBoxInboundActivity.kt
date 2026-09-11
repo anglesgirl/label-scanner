@@ -226,7 +226,12 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     )
                     recognizedEan69 = box.ean69
                     materialFromEan69 = box.materialFromEan69
-                    etBox.setText(box.boxCode)
+                    // 箱号需要标红易混字符 —— 它跟 SN 一样是"人要看字符"的字段。
+                    // 但只在它其实来自 OCR 兜底时才标：条码/扫码枪给的值不会认错字符。
+                    val boxFromOcr = box.boxFromSn && box.boxCode in box.ocrFallbackSns
+                    etBox.setText(
+                        if (boxFromOcr) AmbiguousChar.highlight(box.boxCode) else box.boxCode
+                    )
                     etDate.setText(box.productionDate)
                     etModel.setText(box.model)
                     snList.clear()
@@ -522,13 +527,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
             val src = codeCandidateSources[code]
-            // 只有 OCR 来源才标红易混字符 —— 条码是扫码枪读出来的权威值，不存在认错
-            // 字符的问题，标红只会变成噪音、还让人误以为需要核对（用户明确要求）。
-            // （片段颜色由 ForegroundColorSpan 决定，会盖过下面 setTextColor 的整行设色，
-            //   所以 `[OCR]` 前缀仍是主题色，只有可疑字符变红。）
-            val body: CharSequence = if (src == "OCR") AmbiguousChar.highlight(code) else code
-            tv.text = if (src == null) body
-            else android.text.TextUtils.concat("[$src] ", body)
+            // 候选区不标红易混字符（用户明确："只有序列号、箱号这种地方才需要标"）——
+            // 这里只是原始识别明细，混着纯数字与中文，标红纯属噪音。只标来源。
+            tv.text = if (src == null) code
+            else android.text.TextUtils.concat("[$src] ", code)
             tv.setTextColor(
                 if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)
             )
