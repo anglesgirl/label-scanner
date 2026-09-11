@@ -1,5 +1,13 @@
 package com.anglesgirl.labelscanner.camera.v2
 
+/*
+ * 【用途：模式 B —— 卡板清单 / 大批量取码，当前采集流程未使用】
+ *
+ * 采集入库（模式 A）走的是"一箱一张 + 静图矫正"（见 SingleShotAnalyzer / LabelRectifier），
+ * 不做实时连续识别。本类保留给以后的大批量取码模式：那种场景只要条码值、不要 OCR、
+ * 不逐箱核对，适合连续扫。**请勿当作死代码删除。**
+ */
+
 import android.graphics.PointF
 import android.graphics.Rect
 import androidx.camera.core.CameraControl

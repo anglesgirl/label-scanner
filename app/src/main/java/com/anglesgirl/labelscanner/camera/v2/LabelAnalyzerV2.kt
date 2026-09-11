@@ -1,5 +1,10 @@
 package com.anglesgirl.labelscanner.camera.v2
 
+/*
+ * 【用途：模式 B —— 卡板清单 / 大批量取码，当前采集流程未使用】
+ * 同 SmartTrackAnalyzer，保留给以后的大批量连续读码模式。**请勿当作死代码删除。**
+ */
+
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
