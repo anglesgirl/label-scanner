@@ -241,6 +241,29 @@ class CollectActivityV2 : AppCompatActivity() {
     }
 
     /**
+     * 把矫正结果存到相册 Pictures/LabelScanner，方便肉眼核对矫正是否正常。
+     * 同时保留原始照片（同一目录，后缀 _raw），便于对比。
+     */
+    private fun saveRectifiedPreview(bmp: Bitmap, baseName: String) {
+        try {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "${baseName}_rectified.jpg")
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/LabelScanner")
+            }
+            val uri = contentResolver.insert(
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
+            ) ?: return
+            contentResolver.openOutputStream(uri)?.use { out ->
+                bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            Diag.event("rectified_saved", mapOf("name" to "${baseName}_rectified.jpg"))
+        } catch (t: Throwable) {
+            Diag.event("rectified_save_failed", mapOf("err" to t.message))
+        }
+    }
+
+    /**
      * 先矫正（自动找标签四角做透视变换），再用正图识别。
      * 矫正失败不影响流程：退回原图继续识别。
      */
@@ -268,6 +291,10 @@ class CollectActivityV2 : AppCompatActivity() {
                     "corners" to (rect.corners?.joinToString("|") { "${it.x.toInt()},${it.y.toInt()}" } ?: "-"),
                 ),
             )
+            // 把矫正后的正图落盘到相册：矫正效果只能靠肉眼看，
+            // 若透视算错把图裁坏，识别必然为空，而数字上看不出原因。
+            saveRectifiedPreview(rect.bitmap, file.nameWithoutExtension)
+
             // 用矫正后的图识别（条码通道 + OCR 通道都在这里跑）
             StillRecognizerBridge.recognizeBitmap(
                 bitmap = rect.bitmap,
@@ -279,12 +306,15 @@ class CollectActivityV2 : AppCompatActivity() {
                         "still_recognized",
                         mapOf(
                             "codes" to codes.size,
+                            "codes_raw" to codes.joinToString("|").take(300),
                             "ocr_len" to ocrText.length,
+                            "ocr_head" to ocrText.replace("\n", " ").take(200),
                             "rectified" to rect.ok,
                             "material" to parsed?.materialCode.orEmpty(),
                             "sn_count" to (parsed?.serialNumbers?.size ?: 0),
                             "date" to parsed?.productionDate.orEmpty(),
                             "box" to parsed?.boxCode.orEmpty(),
+                            "warnings" to parsed?.warnings?.joinToString(";").orEmpty(),
                         ),
                     )
                     runOnUiThread { enterReview() }

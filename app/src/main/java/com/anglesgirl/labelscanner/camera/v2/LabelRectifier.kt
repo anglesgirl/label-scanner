@@ -32,6 +32,13 @@ import kotlin.math.min
 object LabelRectifier {
 
     private const val WORK_MAX_EDGE = 480
+
+    /**
+     * 透视变换前先把源图限制到该长边。
+     * 实测在 3072x4096 全尺寸上做逐像素映射要 3.5 秒；降到 2000 后约 0.6 秒，
+     * 而识别所需细节（条码模块 + 3x 放大后的宽度）依然充足。
+     */
+    private const val MAX_SRC_EDGE = 2000
     /** 前景占比低于此值 → 认为没找到标签（避免把整幅图当标签）。 */
     private const val MIN_FG_RATIO = 0.06f
     private const val MAX_FG_RATIO = 0.95f
@@ -52,12 +59,29 @@ object LabelRectifier {
             if (corners == null) {
                 return Result(src, null, false, "未检测到标签边界")
             }
-            val (w, h) = ImageWarp.outputSize(corners)
+
+            // 源图过大则先等比降采样（透视变换是逐像素操作，成本随像素数线性增长）
+            val longest = max(src.width, src.height)
+            val downScale = if (longest > MAX_SRC_EDGE) MAX_SRC_EDGE.toFloat() / longest else 1f
+            val work = if (downScale < 1f) {
+                Bitmap.createScaledBitmap(
+                    src,
+                    max(1, (src.width * downScale).toInt()),
+                    max(1, (src.height * downScale).toInt()),
+                    true,
+                )
+            } else src
+            val scaledCorners = if (downScale < 1f) {
+                corners.map { PointF(it.x * downScale, it.y * downScale) }
+            } else corners
+
+            val (w, h) = ImageWarp.outputSize(scaledCorners)
             if (w < 40 || h < 40) {
                 return Result(src, null, false, "输出尺寸过小(${w}x$h)")
             }
-            val warped = ImageWarp.perspectiveTransform(src, corners, w, h)
-            Result(warped, corners, true, "已矫正 ${w}x$h")
+            val warped = ImageWarp.perspectiveTransform(work, scaledCorners, w, h)
+            val dsText = String.format(java.util.Locale.US, "%.2f", downScale)
+            Result(warped, corners, true, "已矫正 ${w}x$h (源降采样 $dsText)")
         } catch (t: Throwable) {
             Result(src, null, false, "矫正异常: ${t.message}")
         }
