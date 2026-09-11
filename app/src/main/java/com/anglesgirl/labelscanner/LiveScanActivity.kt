@@ -206,6 +206,21 @@ class LiveScanActivity : AppCompatActivity() {
                 .thenByDescending { it.is2D }
                 .thenByDescending { it.value.length }
         )
+        // 自动填是主力（用户明确要求省力）—— 扫到集成码就直接带回上层填箱，
+        // 不再多一次"全部使用"确认点击；填错了由拆分页的候选区修正。
+        val hasIntegrated = ordered.any { it.value.contains(',') || it.value.contains('\uFF0C') }
+        if (hasIntegrated) {
+            runOnUiThread {
+                beep()
+                setResult(RESULT_OK, Intent()
+                    .putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(ordered.map { it.value })))
+                finish()
+            }
+            return
+        }
+
+        // 只有单条码时仍弹框：这类多半是没对准（集成码没进画面），
+        // 直接返回会让用户以为扫到了，反而制造错误数据。
         runOnUiThread {
             beep()
             val lines = ordered.mapIndexed { i, c ->
