@@ -24,6 +24,7 @@ import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
 import com.anglesgirl.labelscanner.model.LabelResult
+import com.anglesgirl.labelscanner.util.AmbiguousChar
 import com.anglesgirl.labelscanner.util.TrayPrefs
 import java.io.File
 
@@ -363,15 +364,54 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         llSnList.removeAllViews()
         for ((index, sn) in snList.withIndex()) {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llSnList, false)
-            row.findViewById<TextView>(R.id.tvSnItem).text = "${index + 1}. $sn"
+            val tvSn = row.findViewById<TextView>(R.id.tvSnItem)
+            // 易混淆字符（O/0、I/l/1）标红加粗 —— OCR 分不清这些形状，人眼扫过去
+            // 同样分不清（如 "CS1RVO09B4" 里字母 O 和数字 0 紧挨着），
+            // 标出来才能让人专注于核对这些位。
+            tvSn.text = android.text.TextUtils.concat(
+                "${index + 1}. ",
+                AmbiguousChar.highlight(sn),
+            )
+            // 点这一行就能改（看到红色提示后可直接修正 OCR 认错的字符）
+            tvSn.setOnClickListener { editSn(index) }
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener {
-                snList.remove(sn)
+                // 用下标删除 —— 原来按值删（remove(sn)），列表里出现重复 SN 时会删错条目
+                if (index in snList.indices) snList.removeAt(index)
                 rebuildSnList()
                 updateStatus()
             }
             llSnList.addView(row)
         }
         updateStatus()
+    }
+
+    /**
+     * 人工修正某个序列号。
+     *
+     * OCR 对形状相同的字符（O/0、I/l/1）几乎无法分辨，自动纠正又不可靠
+     * （没有条码这类权威来源时，猜一个替代字符比不猜更糟），
+     * 所以把判断交给用户：红色标注指出可疑位，点一下就能改。
+     */
+    private fun editSn(index: Int) {
+        val old = snList.getOrNull(index) ?: return
+        val input = EditText(this).apply {
+            setText(old)
+            setSelection(old.length)
+            hint = AmbiguousChar.hint(old) ?: "修改序列号"
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("修正序列号")
+            .setView(input)
+            .setPositiveButton("保存") { _, _ ->
+                val nv = input.text.toString().trim()
+                if (nv.isNotEmpty()) {
+                    snList[index] = nv
+                    rebuildSnList()
+                    Toast.makeText(this, "已修正", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     /**
@@ -445,7 +485,14 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
             val src = codeCandidateSources[code]
-            tv.text = if (src == null) code else "[$src] $code"
+            // 易混淆字符照样标红 —— 候选区是用户挑值的地方，尤其需要能看清 O/0、I/l/1。
+            // （片段颜色由 ForegroundColorSpan 决定，会盖过下面 setTextColor 的整行设色，
+            //   所以 `[OCR]` 前缀仍是主题色，只有可疑字符变红。）
+            tv.text = if (src == null) {
+                AmbiguousChar.highlight(code)
+            } else {
+                android.text.TextUtils.concat("[$src] ", AmbiguousChar.highlight(code))
+            }
             tv.setTextColor(
                 if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)
             )

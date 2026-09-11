@@ -24,6 +24,7 @@ import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
+import com.anglesgirl.labelscanner.util.AmbiguousChar
 import com.anglesgirl.labelscanner.util.TrayPrefs
 import java.io.File
 
@@ -332,13 +333,52 @@ class SingleInboundActivity : AppCompatActivity() {
         llSnList.removeAllViews()
         for ((index, sn) in snList.withIndex()) {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llSnList, false)
-            row.findViewById<TextView>(R.id.tvSnItem).text = "${index + 1}. $sn"
+            val tvSn = row.findViewById<TextView>(R.id.tvSnItem)
+            // 易混淆字符（O/0、I/l/1）标红加粗：OCR 分不清这些形状，人眼同样分不清，
+            // 标出来才能让人专注于核对这些位（用户明确要求）。
+            tvSn.text = android.text.TextUtils.concat(
+                "${index + 1}. ",
+                AmbiguousChar.highlight(sn),
+            )
+            // 点这一行就可修改 —— 人工修正是这类识别误差唯一可靠的闭环
+            tvSn.setOnClickListener { editSn(index) }
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener {
-                snList.remove(sn); rebuildSnList()
+                // 按下标删：原来按值删（remove(sn)），列表里有重复 SN 时会删错条目
+                if (index in snList.indices) snList.removeAt(index)
+                rebuildSnList()
             }
             llSnList.addView(row)
         }
         updateSaveButton()
+    }
+
+    /**
+     * 人工修正某个序列号。
+     *
+     * OCR 对形状相同的字符（O/0、I/l/1）几乎无法分辨；没有条码这类权威来源时
+     * 自动纠正不可靠（猜一个替代字符比不猜更糟），所以把判断交给用户：
+     * 红色标注指出可疑位，点一下就能改。
+     */
+    private fun editSn(index: Int) {
+        val old = snList.getOrNull(index) ?: return
+        val input = EditText(this).apply {
+            setText(old)
+            setSelection(old.length)
+            hint = AmbiguousChar.hint(old) ?: "修改序列号"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("修正序列号")
+            .setView(input)
+            .setPositiveButton("保存") { _, _ ->
+                val nv = input.text.toString().trim()
+                if (nv.isNotEmpty()) {
+                    snList[index] = nv
+                    rebuildSnList()
+                    Toast.makeText(this, "已修正", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun rebuildCodeCandidates() {
@@ -351,7 +391,8 @@ class SingleInboundActivity : AppCompatActivity() {
         for (code in codeCandidates) {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
-            tv.text = code
+            // 易混淆字符照样标红（span 颜色优先于 setTextColor 的整行设色）
+            tv.text = AmbiguousChar.highlight(code)
             tv.setTextColor(cc(R.color.ls_primary))
             row.findViewById<Button>(R.id.btnDelSn).text = "选"
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener { showCodeActionDialog(code) }
