@@ -52,9 +52,24 @@
                 android:layout_height="50dp"
                 android:layout_weight="1"
                 android:backgroundTint="@color/ls_primary"
-                android:text="📷 扫一箱"
+                android:text="🔍 扫一箱"
                 android:textColor="#FFFFFF"
                 android:textSize="15sp"
+                android:textStyle="bold"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+
+            <!-- 拍一箱：走统一取图模块（camera.ImageIn），与采集页同一套实现与参数 -->
+            <Button
+                android:id="@+id/btnPhotoBox"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:backgroundTint="@color/ls_accent"
+                android:text="📷 拍一箱"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:insetTop="0dp"
                 android:insetBottom="0dp" />
@@ -68,7 +83,7 @@
                 android:backgroundTint="@color/ls_btn_scan"
                 android:text="📋 粘贴一箱"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:insetTop="0dp"
                 android:insetBottom="0dp" />

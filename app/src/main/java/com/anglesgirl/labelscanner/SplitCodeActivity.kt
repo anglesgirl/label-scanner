@@ -21,7 +21,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -50,7 +49,16 @@ class SplitCodeActivity : AppCompatActivity() {
     /** 已拆分的 SN 列表（有序去重） */
     private val snList = mutableListOf<String>()
 
-    private var pendingPhotoUri: Uri? = null
+    /**
+     * 取图入口：统一走 camera.ImageIn。
+     *
+     * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数。
+     * 这里原来是"系统相机 ACTION_IMAGE_CAPTURE + FileProvider"自己的一套 ——
+     * 同一个"拍照"在采集页和拆分页走的却是不同相机、不同参数。
+     */
+    private val imageIn by lazy {
+        com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
+    }
 
     /** 多箱拆模式（每箱一行，全部完成后再出结果）。 */
     /** 多箱模式下每箱的集成码。 */
@@ -243,8 +251,6 @@ class SplitCodeActivity : AppCompatActivity() {
         return item
     }
 
-
-
     /** 取主题色（自动适配深浅模式）。 */
     private fun c(resId: Int): Int = androidx.core.content.ContextCompat.getColor(this, resId)
 
@@ -296,27 +302,6 @@ class SplitCodeActivity : AppCompatActivity() {
         tvSplitStatus.text = "🧩 ${codes.size} 箱 → ${snList.size} 个 SN（已逐个生成独立条码）"
     }
 
-
-    /** 拍照（系统相机） */
-    private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            pendingPhotoUri?.let { recognizeLabel(it) }
-        }
-    }
-
-    /** 文档扫描（ML Kit） */
-    private val scanDoc = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            GmsDocumentScanningResult.fromActivityResultIntent(result.data)?.pages
-                ?.firstOrNull()?.imageUri?.let { recognizeLabel(it) }
-        }
-    }
-
-    /** 相册选图 */
-    private val pickGallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) recognizeLabel(uri)
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Edge-to-edge：状态栏/导航栏不留黑色遮罩
@@ -338,6 +323,7 @@ class SplitCodeActivity : AppCompatActivity() {
         // 输入只有一个地方：顶部「扫一箱 / 粘贴一箱」。
         // 之前每行箱里还有「扫」、下面又有个独立粘贴框，同一件事三个入口 —— 已统一。
         findViewById<Button>(R.id.btnScanBox).setOnClickListener { scanNewBox() }
+        findViewById<Button>(R.id.btnPhotoBox).setOnClickListener { imageIn.takePhoto() }
         findViewById<Button>(R.id.btnPasteBox).setOnClickListener { pasteNewBox() }
         findViewById<Button>(R.id.btnSplit).setOnClickListener { splitChecked() }
         findViewById<Button>(R.id.btnSaveAll).setOnClickListener { saveAll() }
@@ -347,55 +333,7 @@ class SplitCodeActivity : AppCompatActivity() {
         tvSplitStatus.text = "每箱扫一个集成码；勾选要拆的箱，点「拆解选中的」一起拆"
     }
 
-    /** 系统相机拍照 → captures/ → 识别 */
-
-
-
-
-
-    private fun launchCamera() {
-        try {
-            val dir = File(cacheDir, "captures").apply { mkdirs() }
-            val file = File(dir, "split_photo_${System.currentTimeMillis()}.jpg")
-            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
-            pendingPhotoUri = uri
-            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                putExtra(MediaStore.EXTRA_OUTPUT, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            }
-            takePhoto.launch(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "无法启动相机: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    /** ML Kit 文档扫描 */
-    private fun launchDocScan() {
-        try {
-            val options = GmsDocumentScannerOptions.Builder()
-                .setGalleryImportAllowed(true)   // 也允许从相册导入文档
-                .setPageLimit(1)
-                // FULL 模式（最强）：自动找边 + 裁切 + 透视矫正 + 图像增强。
-                // 对 PDF417 集成码/密集条码至关重要——系统相机拍照有透视变形，
-                // 二维堆叠码对透视极敏感，矫正后才能稳定解出。
-                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
-                .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-                .build()
-            GmsDocumentScanning.getClient(options).getStartScanIntent(this)
-                .addOnSuccessListener { intentSender ->
-                    scanDoc.launch(
-                        androidx.activity.result.IntentSenderRequest.Builder(intentSender).build()
-                    )
-                }
-                .addOnFailureListener { e ->
-                    Toast.makeText(this, "文档扫描不可用（设备无 Google 服务?）:\n${e.message}", Toast.LENGTH_LONG).show()
-                }
-        } catch (e: Exception) {
-            Toast.makeText(this, "文档扫描不可用: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    /** 识别图片 → 取条码 → 拆分 */
+    /** 识别图片里的集成码 → 拆成单个序列号 → 填进结果区 */
     private fun recognizeLabel(uri: Uri) {
         tvSplitStatus.text = "识别中..."
         StaticRecognizer.recognizeUri(

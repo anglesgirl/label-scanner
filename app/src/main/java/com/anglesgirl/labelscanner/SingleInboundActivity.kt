@@ -58,9 +58,16 @@ class SingleInboundActivity : AppCompatActivity() {
     private var pendingPhotoUri: Uri? = null
     private var photoFile: File? = null
 
-    private val pickGallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) recognizeStatic(uri)
+    /**
+     * 取图入口：统一走 camera.ImageIn。
+     *
+     * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数 ——
+     * 用户在采集/拆分/测试各处看到过"同一个功能、参数却不一致"的问题。
+     */
+    private val imageIn by lazy {
+        com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeStatic(uri) }
     }
+
     /** 字段补扫：实时扫码相机 → 确认框 → 填目标框（不拍照，自动识别） */
     private val liveScan = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -84,20 +91,6 @@ class SingleInboundActivity : AppCompatActivity() {
         } else {
             scanTargetField?.setText(code)
             tvStatus.text = "✅ 已填入: $code（可手动修改）"
-        }
-    }
-    private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.getStringExtra(com.anglesgirl.labelscanner.camera.CaptureActivity.EXTRA_OUTPUT_URI)
-                ?.let { recognizeStatic(Uri.parse(it)) }
-        }
-    }
-    /** 文档扫描（ML Kit FULL） */
-    private val scanDoc = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val uri = com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
-                .fromActivityResultIntent(result.data)?.pages?.firstOrNull()?.imageUri
-            if (uri != null) recognizeStatic(uri)
         }
     }
 
@@ -125,9 +118,9 @@ class SingleInboundActivity : AppCompatActivity() {
         tvTrayCount = findViewById(R.id.tvTrayCount)
         updateTrayCount()
 
-        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
-        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
-        findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
+        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
+        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { imageIn.scanDocument() }
+        findViewById<Button>(R.id.btnPickGallery).setOnClickListener { imageIn.pickGallery() }
         findViewById<Button>(R.id.btnAddSn).setOnClickListener { addSnFromInput() }
         findViewById<Button>(R.id.btnScanAddSn).setOnClickListener {
             scanAppendToSn = true
@@ -196,30 +189,6 @@ class SingleInboundActivity : AppCompatActivity() {
         rebuildSnList()
         rebuildCodeCandidates()
         updateSaveButton()
-    }
-
-    private fun launchCamera() {
-        takePhoto.launch(Intent(this, com.anglesgirl.labelscanner.camera.CaptureActivity::class.java))
-    }
-
-    private fun launchDocScan() {
-        try {
-            val options = com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions.Builder()
-                .setGalleryImportAllowed(true)
-                .setPageLimit(1)
-                // FULL 模式（最强）：自动找边 + 裁切 + 透视矫正 + 图像增强。
-                // 对 PDF417 集成码/密集条码至关重要——系统相机拍照有透视变形，
-                // 二维堆叠码对透视极敏感，矫正后才能稳定解出。
-                .setScannerMode(com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions.SCANNER_MODE_FULL)
-                .setResultFormats(com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-                .build()
-            com.google.mlkit.vision.documentscanner.GmsDocumentScanning.getClient(options)
-                .getStartScanIntent(this)
-                .addOnSuccessListener { scanDoc.launch(androidx.activity.result.IntentSenderRequest.Builder(it).build()) }
-                .addOnFailureListener { e -> Toast.makeText(this, "文档扫描不可用: ${e.message}", Toast.LENGTH_LONG).show() }
-        } catch (e: Exception) {
-            Toast.makeText(this, "文档扫描不可用: ${e.message}", Toast.LENGTH_LONG).show()
-        }
     }
 
     private fun recognizeStatic(uri: Uri) {
