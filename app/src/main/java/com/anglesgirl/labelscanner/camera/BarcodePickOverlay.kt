@@ -98,71 +98,74 @@ class BarcodePickOverlay @JvmOverloads constructor(
         if (items.isEmpty()) return
 
         val base = minOf(width, height).toFloat()
-        labelPaint.textSize = base * 0.040f
-        strokePaint.strokeWidth = base * 0.006f
+        labelPaint.textSize = base * 0.036f
 
         for (it in items) {
             val r = screenRects[it.value] ?: continue
             val order = picked.indexOf(it.value)
             val isPicked = order >= 0
 
+            // 微信式：直接在码的位置画方框，框住码本身（不画箭头、不加偏移）
             val color = if (isPicked) Color.parseColor("#FFD54F") else Color.parseColor("#33E1FF")
             fillPaint.color = color
             strokePaint.color = color
+            strokePaint.strokeWidth = base * (if (isPicked) 0.008f else 0.005f)
 
-            // 箭头指向码：从左上方斜指到码框中心偏上（不覆盖码本身）
-            val cx = r.centerX().toFloat()
-            val cy = r.centerY().toFloat()
-            val len = base * 0.10f
-            val startX = cx - len
-            val startY = cy - len
-            val path = Path().apply {
-                moveTo(startX, startY)
-                lineTo(cx - base * 0.012f, cy - base * 0.012f)
-            }
-            canvas.drawPath(path, strokePaint)
+            // 稍外扩一点，让框不压住码的边缘模块
+            val pad = base * 0.008f
+            val fr = RectF(
+                r.left - pad, r.top - pad,
+                r.right + pad, r.bottom + pad,
+            )
+            // 半透明底 + 描边，既突出又不遮挡码
+            fillPaint.alpha = 46
+            canvas.drawRoundRect(fr, base * 0.012f, base * 0.012f, fillPaint)
+            fillPaint.alpha = 255
+            canvas.drawRoundRect(fr, base * 0.012f, base * 0.012f, strokePaint)
 
-            // 箭头尖
-            val tip = Path().apply {
-                val ax = cx - base * 0.012f
-                val ay = cy - base * 0.012f
-                val w = base * 0.026f
-                moveTo(ax, ay)
-                lineTo(ax - w, ay - w * 0.35f)
-                lineTo(ax - w * 0.35f, ay - w)
-                close()
-            }
-            canvas.drawPath(tip, fillPaint)
+            // 四角加粗（扫描框的经典视觉）
+            val corner = minOf(fr.width(), fr.height()) * 0.22f
+            strokePaint.strokeWidth = base * 0.011f
+            val c = Path()
+            // 左上
+            c.moveTo(fr.left, fr.top + corner); c.lineTo(fr.left, fr.top); c.lineTo(fr.left + corner, fr.top)
+            // 右上
+            c.moveTo(fr.right - corner, fr.top); c.lineTo(fr.right, fr.top); c.lineTo(fr.right, fr.top + corner)
+            // 右下
+            c.moveTo(fr.right, fr.bottom - corner); c.lineTo(fr.right, fr.bottom); c.lineTo(fr.right - corner, fr.bottom)
+            // 左下
+            c.moveTo(fr.left + corner, fr.bottom); c.lineTo(fr.left, fr.bottom); c.lineTo(fr.left, fr.bottom - corner)
+            canvas.drawPath(c, strokePaint)
 
-            // 序号徽标：选中后标 ①②③…（即第几个扫的 = 第几箱）
+            // 序号徽标（选中后）：标在框左上角外侧，表示第几个扫的 = 第几箱
             if (isPicked) {
                 val badge = (order + 1).toString()
-                val rBadge = base * 0.034f
-                val bx = startX - rBadge * 0.6f
-                val by = startY - rBadge * 0.6f
+                val rBadge = base * 0.036f
+                val bx = (fr.left + rBadge * 0.9f).coerceAtLeast(rBadge + base * 0.005f)
+                val by = (fr.top - rBadge * 0.4f).coerceAtLeast(rBadge + base * 0.005f)
+                fillPaint.color = Color.parseColor("#FFD54F")
                 canvas.drawCircle(bx, by, rBadge, fillPaint)
-                val bak = labelPaint.color
                 labelPaint.color = Color.BLACK
                 labelPaint.textAlign = Paint.Align.CENTER
-                canvas.drawText(badge, bx, by + labelPaint.textSize * 0.35f, labelPaint)
-                labelPaint.color = bak
+                canvas.drawText(badge, bx, by + labelPaint.textSize * 0.36f, labelPaint)
                 labelPaint.textAlign = Paint.Align.LEFT
             }
 
-            // 码值标签（贴在箭头起点左侧，便于确认指的是哪个码）
-            val label = it.value.take(20)
+            // 码值标签：贴在框内侧下方（不遮挡码主体）
+            val label = it.value.take(22)
             val tw = labelPaint.measureText(label)
             val th = labelPaint.textSize
-            val pad = th * 0.22f
-            val boxL = (startX - tw - pad * 2).coerceAtLeast(0f)
-            val boxT = (startY - th - pad).coerceAtLeast(0f)
-            val labelBg = RectF(boxL, boxT, boxL + tw + pad * 2, boxT + th + pad * 2)
-            fillPaint.color = if (isPicked) Color.parseColor("#D9FFD54F") else Color.parseColor("#B3000000")
-            canvas.drawRoundRect(labelBg, th * 0.25f, th * 0.25f, fillPaint)
+            val lpad = th * 0.22f
+            val bgL = fr.left
+            val bgT = (fr.bottom + th * 0.15f)
+            fillPaint.color = if (isPicked) Color.parseColor("#E6FFD54F") else Color.parseColor("#B3000000")
+            canvas.drawRoundRect(
+                RectF(bgL, bgT, bgL + tw + lpad * 2, bgT + th + lpad * 2),
+                th * 0.25f, th * 0.25f, fillPaint,
+            )
             labelPaint.color = if (isPicked) Color.BLACK else Color.WHITE
-            canvas.drawText(label, boxL + pad, boxT + th + pad * 0.5f, labelPaint)
+            canvas.drawText(label, bgL + lpad, bgT + th + lpad * 0.5f, labelPaint)
             labelPaint.color = Color.WHITE
-            fillPaint.color = color
         }
     }
 
@@ -175,9 +178,9 @@ class BarcodePickOverlay @JvmOverloads constructor(
         // 先判"点到了箭头/标签附近"（因为箭头不一定压在码上）
         val hit = screenRects.entries
             .filter { (_, r) ->
-                r.contains(x.toInt(), y.toInt()) ||
-                    // 箭头起点在码左上，命中范围略微放宽
-                    (x >= r.left - r.width() * 0.35f && x <= r.right && y >= r.top - r.height() * 0.35f && y <= r.bottom)
+                // 画框在码上，直接点框内即选中；略微外扩以容忍手指误差
+                val pad = maxOf(r.width(), r.height()) * 0.10f
+                x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad
             }
             .minByOrNull { (_, r) -> r.width().toLong() * r.height().toLong() }
 
