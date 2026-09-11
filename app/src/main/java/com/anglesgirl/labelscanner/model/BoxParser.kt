@@ -58,8 +58,37 @@ object BoxParser {
      *  - 69 商品码 13 位（`6937173464565`）。
      */
     private val SAP_NUM = Pattern.compile("^\\d{10,12}$")
-    private val DATE_SEP = Pattern.compile("^\\d{4}[-/. ]\\d{2}[-/. ]\\d{2}$")
+    /**
+     * 带分隔符的日期：月/日允许 **1~2 位**。
+     *
+     * 曾写死两位（`\d{4}[-/. ]\d{2}[-/. ]\d{2}`），结果实测标签上的
+     * `2024-0-07`（月份没补零）匹配不上，日期字段直接掉。
+     */
+    private val DATE_SEP = Pattern.compile("^\\d{4}[-/. ]\\d{1,2}[-/. ]\\d{1,2}$")
     private val DATE8 = Pattern.compile("^\\d{8}$")
+
+    /** 行内任意位置的日期（用于「DATE: 2024-0-7」这类字段行）。 */
+    private val DATE_ANY = Regex("(\\d{4}[-/. ]\\d{1,2}[-/. ]\\d{1,2})")
+
+    /**
+     * 把各种写法的日期归一成 yyyyMMdd；不合法返回 null。
+     * 支持 20240907 / 2024-0-07 / 2024.9.7 / 2024/09/07 —— 月、日都允许 1 位。
+     */
+    private fun normalizeDate(raw: String): String? {
+        val s = raw.trim().trim('.', ',', ';', ':', '"', '\'', '(', ')', '[', ']')
+        if (s.length == 8 && s.all { it.isDigit() }) {
+            val y = s.substring(0, 4).toIntOrNull() ?: return null
+            val m = s.substring(4, 6).toIntOrNull() ?: return null
+            val d = s.substring(6, 8).toIntOrNull() ?: return null
+            return if (y in 1900..2100 && m in 1..12 && d in 1..31) s else null
+        }
+        val g = Regex("^(\\d{4})[-/. ](\\d{1,2})[-/. ](\\d{1,2})$").find(s) ?: return null
+        val y = g.groupValues[1].toIntOrNull() ?: return null
+        val m = g.groupValues[2].toIntOrNull() ?: return null
+        val d = g.groupValues[3].toIntOrNull() ?: return null
+        if (y !in 1900..2100 || m !in 1..12 || d !in 1..31) return null
+        return "%04d%02d%02d".format(y, m, d)
+    }
 
     fun parse(barcodes: List<String>, ocrText: String, lookup69: ((String) -> String?)? = null): BoxParseResult {
         var material = ""
@@ -112,32 +141,35 @@ object BoxParser {
             }
         }
 
+        // ---- 生产日期 ----
+        // 先把所有候选收集齐，最后再挑，而不是"遇到第一个合法值就收工"。
+        //
+        // 为什么要这样：用户把标签对着屏幕截图/翻拍做测试时，OCR 会把**手机状态栏**
+        // 也读进来（实测 OCR 开头混入了 `19:10` / `2026.09.11` / `星期五`），
+        // 那个"今天"的日期会抢在标签真正的生产日期（`2024-0-07`）前面。
+        //
+        // 挑选策略：
+        //  1. 带 DATE / 生产日期 / MFG 字段名的 → 最可信，直接用；
+        //  2. 否则在裸日期里优先取"不等于今天"的那个（"今天"多半来自状态栏）；
+        //  3. 若全部等于今天（确实当天生产），才用今天。
+        val today = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
+            .format(java.util.Date())
+        val bareDates = mutableListOf<String>()
         for (line in ocrText.lines()) {
             val l = line.trim()
             if (l.isEmpty()) continue
             val upper = l.uppercase()
-            when {
-                date.isEmpty() && (DATE8.matcher(l).matches() || DATE_SEP.matcher(l).matches()) -> {
-                    val digits = l.replace(Regex("[^0-9]"), "")
-                    if (digits.length == 8) {
-                        val m = digits.substring(4, 6).toIntOrNull()
-                        val d = digits.substring(6, 8).toIntOrNull()
-                        if (m != null && d != null && m in 1..12 && d in 1..31) date = digits
-                    }
-                }
-                date.isEmpty() && (upper.startsWith("DATE") || upper.startsWith("MFG") ||
-                    upper.startsWith("生产日期") || upper.startsWith("PD")) -> {
-                    Regex("(\\d{4}[-/. ]\\d{2}[-/. ]\\d{2}|\\d{8})").find(l)
-                        ?.groupValues?.get(1)?.let { raw ->
-                            val digits = raw.replace(Regex("[^0-9]"), "")
-                            if (digits.length == 8) {
-                                val m = digits.substring(4, 6).toIntOrNull()
-                                val d = digits.substring(6, 8).toIntOrNull()
-                                if (m != null && d != null && m in 1..12 && d in 1..31) date = digits
-                            }
-                        }
-                }
+            if (date.isEmpty() && (upper.startsWith("DATE") || upper.startsWith("MFG") ||
+                        upper.startsWith("生产日期") || upper.startsWith("PD"))) {
+                DATE_ANY.find(l)?.groupValues?.get(1)
+                    ?.let { raw -> normalizeDate(raw)?.let { n -> date = n } }
             }
+            normalizeDate(l)?.let { bareDates.add(it) }
+        }
+        if (date.isEmpty()) {
+            date = bareDates.firstOrNull { it != today }
+                ?: bareDates.firstOrNull()
+                ?: ""
         }
 
         // 型号：OCR 的排版不一定"字段名: 值"同行，甚至常常是**字段名一列、值一列**
