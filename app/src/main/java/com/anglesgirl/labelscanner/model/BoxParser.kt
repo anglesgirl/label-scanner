@@ -6,7 +6,7 @@ import java.util.regex.Pattern
  * 单箱入库解析结果：一箱（外箱 LPN）对应多个序列号。
  *
  * 字段来源规则（2026-08-11 真实标签 DL-5120P 实测）：
- *  - 物料编码 = SAP 号（条码前缀 12 位纯数字，如 201101002301）
+ *  - 物料编码 = SAP 号（10~12 位纯数字，如 3011225058 / 201071000501）
  *  - 箱号 = 独立于物料前缀的混合码（DL-5120P 为 CA70565P10013014；
  *    ⚠️ 箱号格式不固定，仅作候选，由人工确认/输入）
  *  - 序列号 = 以物料(SAP)开头的条码（一个箱子多个 SN 正常）
@@ -34,7 +34,7 @@ data class BoxParseResult(
  *
  * 条码分类优先级（2026-08-11 真实标签 DL-5120P 校准）：
  *  1. EAN13（69 开头 13 位）→ 商品码
- *  2. 12 位纯数字 → SAP 号 = 物料编码
+ *  2. 10~12 位纯数字 → SAP 号 = 物料编码（长度不统一，勿再写死 12 位）
  *  3. 字母数字混合码：
  *     - 以物料代码（SAP）开头的 → 序列号（一箱多个全部保留）
  *     - 不以物料开头的独立混合码 → 箱号/LPN 候选（第一个；⚠️ 箱号格式
@@ -45,7 +45,19 @@ data class BoxParseResult(
 object BoxParser {
 
     private val EAN13 = Pattern.compile("^69\\d{11}$")
-    private val SAP12 = Pattern.compile("^\\d{12}$")
+    /**
+     * SAP 物料编码：10~12 位纯数字。
+     *
+     * 曾写死 12 位（`^\d{12}$`），结果**用户标签上的 10 位 SAP 号识别不到**
+     * （实测标签 OCR 给出 `3011225058`，提示却是"未识别到物料"）。
+     * 现实中 SAP 号长度不统一（见过 10 位 `3011225058`、12 位 `201071000501`），
+     * 所以放宽为 10~12 位。
+     *
+     * 放宽后仍安全 —— 会混淆的两类值长度都不在这个区间：
+     *  - 生产日期 8 位（`20260225`），
+     *  - 69 商品码 13 位（`6937173464565`）。
+     */
+    private val SAP_NUM = Pattern.compile("^\\d{10,12}$")
     private val DATE_SEP = Pattern.compile("^\\d{4}[-/. ]\\d{2}[-/. ]\\d{2}$")
     private val DATE8 = Pattern.compile("^\\d{8}$")
 
@@ -59,14 +71,14 @@ object BoxParser {
         val sns = mutableListOf<String>()
         val classified = mutableListOf<String>()
 
-        // 第 1 轮条码：EAN13 / 纯 12 位数字(SAP)
+        // 第 1 轮条码：EAN13(69 开头 13 位) / 纯数字 SAP 物料号(10~12 位)
         for (code in barcodes) {
             val c = code.trim()
             if (c.isEmpty()) continue
             classified.add(c)
             when {
                 EAN13.matcher(c).matches() && ean.isEmpty() -> ean = c
-                SAP12.matcher(c).matches() && material.isEmpty() -> material = c
+                SAP_NUM.matcher(c).matches() && material.isEmpty() -> material = c
             }
         }
 
@@ -93,9 +105,9 @@ object BoxParser {
             if (l.isEmpty()) continue
             val upper = l.uppercase()
             when {
-                material.isEmpty() && SAP12.matcher(l).matches() -> material = l
+                material.isEmpty() && SAP_NUM.matcher(l).matches() -> material = l
                 material.isEmpty() && (upper.startsWith("SAP") || upper.startsWith("SAP.")) -> {
-                    Regex("(\\d{12})").find(l)?.groupValues?.get(1)?.let { material = it }
+                    Regex("(\\d{10,12})").find(l)?.groupValues?.get(1)?.let { material = it }
                 }
             }
         }
