@@ -49,6 +49,18 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private lateinit var tvBoxStatus: TextView
 
     private val snList = mutableListOf<String>()
+
+    /**
+     * 哪些 SN 来自「OCR 兜底」—— 即条码完全没扫出东西、只能靠 OCR 认出来的时候。
+     *
+     * 用户说明过实情："全靠 OCR 的场景也比较少，只有少数标签损坏比较严重的、
+     * 条码扫不出来的，才会被迫 OCR 识别 SN。"
+     *
+     * 这类值可靠性明显偏低（OCR 连 O/0 都分不清），所以列表里标出「⚠️OCR推定」
+     * 提醒必须人工核对，不要和条码扫出的可信值混着看。
+     * 用户点进去改过之后就把标记去掉 —— 说明他已经核对过了。
+     */
+    private val snFromOcr = mutableSetOf<String>()
     private val codeCandidates = mutableListOf<String>()
     /** 候选值的来源（条码 / OCR），仅用于界面标注。 */
     private val codeCandidateSources = mutableMapOf<String, String>()
@@ -217,7 +229,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     etDate.setText(box.productionDate)
                     etModel.setText(box.model)
                     snList.clear()
+                    snFromOcr.clear()
                     snList.addAll(box.serialNumbers)
+                    // 标出哪些 SN 是"OCR 兜底推定"的（只有条码完全扫不出时才会走到这条路径）
+                    snFromOcr.addAll(box.ocrFallbackSns)
                     rebuildSnList()
                     codeCandidates.clear()
                     codeCandidateSources.clear()
@@ -346,6 +361,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etModel.setText("")
         etManualSn.setText("")
         snList.clear()
+        snFromOcr.clear()
         codeCandidates.clear()
         recognizedEan69 = ""
         materialFromEan69 = false
@@ -371,6 +387,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             tvSn.text = android.text.TextUtils.concat(
                 "${index + 1}. ",
                 AmbiguousChar.highlight(sn),
+                // 条码扫不出来的标签才会走到 OCR 兜底，这类值必须人工核对 ——
+                // 标出来，别跟条码扫出的可信值混着看。
+                if (sn in snFromOcr) ocrTag() else "",
             )
             // 点这一行就能改（看到红色提示后可直接修正 OCR 认错的字符）
             tvSn.setOnClickListener { editSn(index) }
@@ -383,6 +402,17 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             llSnList.addView(row)
         }
         updateStatus()
+    }
+
+    /** 「⚠️OCR推定」标记：提示该序列号不是条码扫出来的，可靠性别看齐条码值。 */
+    private fun ocrTag(): CharSequence {
+        val sp = android.text.SpannableString("  ⚠️OCR推定")
+        sp.setSpan(
+            android.text.style.ForegroundColorSpan(cc(R.color.ls_warn)),
+            0, sp.length,
+            android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        return sp
     }
 
     /**
@@ -405,7 +435,11 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             .setPositiveButton("保存") { _, _ ->
                 val nv = input.text.toString().trim()
                 if (nv.isNotEmpty()) {
+                    val prev = snList.getOrNull(index)
                     snList[index] = nv
+                    // 既然人工改过，说明已经核对过了 —— 摘掉「OCR 推定」标记
+                    if (prev != null) snFromOcr.remove(prev)
+                    snFromOcr.remove(nv)
                     rebuildSnList()
                     Toast.makeText(this, "已修正", Toast.LENGTH_SHORT).show()
                 }

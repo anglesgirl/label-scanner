@@ -21,6 +21,16 @@ data class BoxParseResult(
     val ean69: String = "",
     val materialFromEan69: Boolean = false,
     val serialNumbers: List<String> = emptyList(),
+    /**
+     * 哪些 SN 属于「条码扫不出、只能靠 OCR 兜底推定」的。
+     *
+     * 用户说明过业务实情："全靠 OCR 的场景也比较少，只有少数标签损坏比较严重的、
+     * 条码扫不出来的，才会被迫 OCR 识别 SN。"
+     *
+     * 这类值可靠性明显低于条码结果（OCR 连 O/0、I/l/1 都分不清），
+     * 所以界面要标明来源、提醒必须人工核对 —— 不能跟条码扫出的可信值混在一起看。
+     */
+    val ocrFallbackSns: Set<String> = emptySet(),
     val allBarcodes: List<String> = emptyList(),
     /**
      * 箱号是否由「单台机器：箱号 = 序列号」规则推得。
@@ -106,6 +116,9 @@ object BoxParser {
         var date = ""
         var model = ""
         val sns = mutableListOf<String>()
+        // 记录哪些 SN 来自"OCR 兜底"（条码完全没扫出东西时的被迫选择）——
+        // 这些值可靠性低，界面要标出来提醒人工核对。
+        val ocrFallback = mutableSetOf<String>()
         val classified = mutableListOf<String>()
 
         // 第 1 轮条码：EAN13(69 开头 13 位) / 纯数字 SAP 物料号(10~12 位)
@@ -297,6 +310,8 @@ object BoxParser {
                 if (l in known) continue
                 if (EAN13.matcher(l).matches()) continue
                 sns.add(l)
+                // 标记来源：这条是 OCR 兜底推定的，可靠性低于条码扫出的值
+                ocrFallback.add(l)
             }
         }
 
@@ -327,6 +342,7 @@ object BoxParser {
             ean69 = ean,
             materialFromEan69 = materialFromEan69,
             serialNumbers = sns,
+            ocrFallbackSns = ocrFallback,
             allBarcodes = classified,
             boxFromSn = boxFromSn,
         )
