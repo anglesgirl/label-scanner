@@ -33,7 +33,9 @@ import kotlin.math.min
  */
 class SmartTrackAnalyzer(
     private val getZoomState: () -> ZoomState?,
-    private val cameraControl: CameraControl,
+    /** 惰性获取：CameraControl 只有 bindToLifecycle 之后才存在，
+     *  构造时求值会拿到未初始化的引用（曾因此会在启动瞬间崩溃）。 */
+    private val getCameraControl: () -> CameraControl?,
     /** 判定"已稳定"后回调（由页面触发 takePicture）。 */
     private val onStable: () -> Unit,
     /** 每帧的识别结果（条码 + OCR 文本行），由页面累加归组。 */
@@ -151,7 +153,7 @@ class SmartTrackAnalyzer(
             smoothZoom += (target - smoothZoom) * ZOOM_ALPHA
             smoothZoom = smoothZoom.coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
             try {
-                cameraControl.setZoomRatio(smoothZoom)
+                getCameraControl()?.setZoomRatio(smoothZoom)
             } catch (_: Throwable) {
                 // 部分机型在特定状态下会抛，忽略即可（下次帧再试）
             }
@@ -164,7 +166,7 @@ class SmartTrackAnalyzer(
             val cy = (box.centerY().toFloat() / frameH)
             val point = PointF(cx.coerceIn(0.05f, 0.95f), cy.coerceIn(0.05f, 0.95f))
             try {
-                cameraControl.startFocusAndMetering(
+                getCameraControl()?.startFocusAndMetering(
                     FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
                         .setAutoCancelDuration(2, TimeUnit.SECONDS)
                         .build()

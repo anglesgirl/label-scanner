@@ -17,8 +17,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // 主入口：v2 采集流程（托盘 → 逐箱 → 汇总 → 导出）。
+        // 不再让用户先判断"这箱属于哪一类"——那一步判断错了就会采出错数据。
         findViewById<Button>(R.id.btnModeSingle).setOnClickListener {
-            startActivity(Intent(this, SingleInboundActivity::class.java))
+            startActivity(Intent(this, com.anglesgirl.labelscanner.v2.TrayHomeActivityV2::class.java))
         }
         findViewById<Button>(R.id.btnModeBox).setOnClickListener {
             startActivity(Intent(this, SingleBoxInboundActivity::class.java))

@@ -29,7 +29,7 @@
         android:layout_height="72dp"
         android:layout_marginTop="32dp"
         android:backgroundTint="#2E7D32"
-        android:text="📋 单条入库\n一箱一码 / 单品标签 / 可多条序列号"
+        android:text="🚀 采集入库（推荐）"
         android:textSize="15sp"
         android:textColor="#FFFFFF"
         android:textStyle="bold" />

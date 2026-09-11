@@ -25,6 +25,29 @@
             </intent-filter>
         </activity>
 
+        <!-- ===== v2 采集流程：托盘首页 → 采集页 → 汇总页 =====
+             一个入口走完全程（托盘号 → 逐箱采集 → 按物料汇总 → 导出），
+             取代原来"先判断标签属于哪类、再点对应入口"的分流方式 ——
+             那个判断步骤正是采错数据的起点。 -->
+        <activity
+            android:name=".v2.TrayHomeActivityV2"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".v2.CollectActivityV2"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".v2.TraySummaryActivityV2"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- ===== v1 界面（保留，暂不删：作为过渡期的备用入口） ===== -->
         <activity
             android:name=".RecordListActivity"
             android:exported="false"
