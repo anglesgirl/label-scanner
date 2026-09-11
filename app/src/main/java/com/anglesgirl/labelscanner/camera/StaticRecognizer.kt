@@ -9,6 +9,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
 import java.util.concurrent.Executors
@@ -30,6 +31,16 @@ object StaticRecognizer {
 
     private var recognizer: TextRecognizer? = null
 
+    /**
+     * 拉丁（英文/数字）识别器。
+     *
+     * 标签上不只有中文：型号（M9105DN）、物料编码（303020000401）、日期（20250902）
+     * 全是纯拉丁字母数字。中文模型虽然也含 Latin 支持，但对"纯型号/纯数字"这类
+     * 并非最强项，因此再单跑一遍拉丁模型、两边结果合并 —— 静态阶段多跑一次 OCR
+     * 不心疼，识别漏了才是真的麻烦。
+     */
+    private var recognizerLatin: TextRecognizer? = null
+
     /** ZXing 解码线程池（放大 3x 解码是 CPU 密集，不阻塞主线程） */
     private val zxingPool = Executors.newSingleThreadExecutor { r ->
         Thread(r, "zxing-decode").apply { isDaemon = true }
@@ -42,6 +53,12 @@ object StaticRecognizer {
         recognizer ?: TextRecognition.getClient(
             ChineseTextRecognizerOptions.Builder().build()
         ).also { recognizer = it }
+
+    /** 拉丁识别器（英文/数字/型号），与中文识别器并行跑。 */
+    private fun getLatinRecognizer(): TextRecognizer =
+        recognizerLatin ?: TextRecognition.getClient(
+            TextRecognizerOptions.DEFAULT_OPTIONS
+        ).also { recognizerLatin = it }
 
     /**
      * 从 Uri 解码 Bitmap（自动缩放，避免超大图 OOM），然后识别。
@@ -104,14 +121,25 @@ object StaticRecognizer {
                 mlBarcodes.distinct()
             }
             Log.i(TAG, "[BARCODE_MERGE] ml=${mlBarcodes.size} merged=${mergedBarcodes.size}")
-            getRecognizer().process(input)
-                .addOnSuccessListener { text ->
-                    onResult(LabelParser.parse(mergedBarcodes, text.text?.trim() ?: "", lookup69))
-                }
-                .addOnFailureListener { e ->
-                    Log.w(TAG, "ocr failed", e)
-                    onResult(LabelParser.parse(mergedBarcodes, "", lookup69))
-                }
+            // 中文 + 拉丁两个识别器**并行**跑，结果合并后再解析。
+            // 标签上既有中文（"中国制造""原装耗材 品质保证"），也有纯拉丁数字
+            // （型号 M9105DN、物料 303020000401、日期 20250902）—— 任一路漏字都会
+            // 让字段缺失，所以两边都跑、都并进来。
+            val ocrTexts = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val latch = java.util.concurrent.CountDownLatch(2)
+            listOf(getRecognizer(), getLatinRecognizer()).forEach { rec ->
+                rec.process(input)
+                    .addOnSuccessListener { t ->
+                        t.text?.trim()?.takeIf { it.isNotEmpty() }?.let { ocrTexts.add(it) }
+                    }
+                    .addOnFailureListener { e -> Log.w(TAG, "ocr channel failed", e) }
+                    .addOnCompleteListener { latch.countDown() }
+            }
+            // 本方法已在线程池里执行，等待不会卡主线程
+            latch.await(25, TimeUnit.SECONDS)
+            val mergedText = ocrTexts.joinToString("\n")
+            Log.i(TAG, "[OCR_MERGE] chinese+latin => ${mergedText.length} chars")
+            onResult(LabelParser.parse(mergedBarcodes, mergedText, lookup69))
         }
     }
 
@@ -165,5 +193,7 @@ object StaticRecognizer {
     fun close() {
         try { recognizer?.close() } catch (_: Exception) {}
         recognizer = null
+        try { recognizerLatin?.close() } catch (_: Exception) {}
+        recognizerLatin = null
     }
 }

@@ -2,6 +2,8 @@ package com.anglesgirl.labelscanner.camera
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
@@ -143,11 +145,24 @@ class CaptureActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    setResult(
-                        Activity.RESULT_OK,
-                        Intent().putExtra(EXTRA_OUTPUT_URI, uri.toString())
-                    )
-                    finish()
+                    // 拿到清晰图后**先矫正成正图**，再交给静态识别。
+                    //
+                    // 阶段分工（用户明确要求）：
+                    //   实时阶段 —— 只做文档模式对准 + 拍照时机，要轻要快（不跑 OCR/不重活）；
+                    //   静态阶段 —— 取到图之后才做重活：矫正 → OCR + 扫码。
+                    // 所以矫正放在这里（已经拍完了），不影响取景流畅度。
+                    tvStatus.text = "正在校正标签..."
+                    Thread {
+                        // 矫正失败返回 null，此时回退原图继续识别 —— 矫正只为提升识别率，不该阻断流程。
+                        val outUri = rectifyToCache(file) ?: uri
+                        runOnUiThread {
+                            setResult(
+                                Activity.RESULT_OK,
+                                Intent().putExtra(EXTRA_OUTPUT_URI, outUri.toString())
+                            )
+                            finish()
+                        }
+                    }.start()
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -158,6 +173,25 @@ class CaptureActivity : AppCompatActivity() {
             }
         )
     }
+
+    /**
+     * 自动找边 + 透视矫正，把正图写到 cache 并返回其 URI。
+     *
+     * 返回 null 表示没矫正成功（比如画面里找不到标签边界）—— 调用方回退用原图，
+     * 流程照常继续。矫正只是为了提升后续 OCR/扫码的命中率，不该成为新的失败点。
+     */
+    private fun rectifyToCache(src: File): Uri? = runCatching {
+        val bmp = android.graphics.BitmapFactory.decodeFile(src.absolutePath)
+            ?: return@runCatching null
+        val result = LabelRectifier.rectify(bmp)
+        if (!result.ok) return@runCatching null
+        val out = File(cacheDir, "captures/rectified_${System.currentTimeMillis()}.jpg")
+            .also { it.parentFile?.mkdirs() }
+        out.outputStream().use {
+            result.bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, it)
+        }
+        FileProvider.getUriForFile(this, "$packageName.fileprovider", out)
+    }.getOrNull()
 
     private fun fail(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
