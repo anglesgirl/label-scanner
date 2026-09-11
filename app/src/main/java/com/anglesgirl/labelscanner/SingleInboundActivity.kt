@@ -517,6 +517,9 @@ class SingleInboundActivity : AppCompatActivity() {
         val records = snList.map { sn ->
             LabelResult(
                 materialCode = material, productionDate = date, serialNumber = sn,
+                // 数量 = 本次序列号个数（与单箱页同一套规则）：
+                // WMS 会校验"数量与 SN 是否一致"，不一致就直接拒绝导入。
+                quantity = snList.size,
                 ean69 = ean, model = model, color = color, tonerModel = toner,
                 trayCode = tray, barcodes = codeCandidates.toList()
             )

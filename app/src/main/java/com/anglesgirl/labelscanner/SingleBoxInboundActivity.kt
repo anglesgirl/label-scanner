@@ -343,7 +343,12 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 barcodes = listOf(sn),
                 serialNumber = sn,
                 materialCode = material,
-                quantity = 1,
+                // 数量 = **本箱的序列号个数**（用户要求）。
+                //
+                // 原来写死 1，结果一箱 9 个 SN 导出的「数量」还是 1，
+                // WMS 一比对就报"数量与 SN 不一致"并拒绝导入，只能手工逐个改。
+                // 用户原话："一箱里面有多少个序列号，它后面的数量就是多少。"
+                quantity = snList.size,
                 productionDate = date,
                 model = model,
                 boxCode = box,
