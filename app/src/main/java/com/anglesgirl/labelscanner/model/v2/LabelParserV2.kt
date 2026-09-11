@@ -33,6 +33,16 @@ data class BoxParseResultV2(
     val ean13: List<String> = emptyList(),
     val warnings: List<String> = emptyList(),
 ) {
+    /**
+     * 是否解析出任何可用内容。
+     * UI 用它判断"这一箱能不能入库"，避免把空结果写进托盘。
+     */
+    val hasData: Boolean
+        get() = materialCode.isNotBlank() ||
+            serialNumbers.isNotEmpty() ||
+            boxCode.isNotBlank() ||
+            productionDate.isNotBlank()
+
     /** 这一箱应该导出几条记录。 */
     val recordCount: Int
         get() = when {

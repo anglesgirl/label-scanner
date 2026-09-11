@@ -157,7 +157,12 @@ object LabelParserV2Test {
         case6BoxOnly()
         case7QtyMismatch()
         case8MissingFields()
-        println("\n=== 通过 $pass / 失败 $fail ===")
+                println("\n[9] hasData 语义")
+        check("空码 → hasData=false", !LabelParserV2.parse(codes = emptyList()).hasData)
+        check("有物料 → hasData=true", LabelParserV2.parse(codes = listOf("3011231031")).hasData)
+        check("只有日期也算有数据", LabelParserV2.parse(codes = listOf("20250902")).hasData)
+
+println("\n=== 通过 $pass / 失败 $fail ===")
         if (fail > 0) throw AssertionError("有 $fail 项断言失败")
     }
 }
