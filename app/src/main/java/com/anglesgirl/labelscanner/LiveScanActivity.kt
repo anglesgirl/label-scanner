@@ -189,6 +189,16 @@ class LiveScanActivity : AppCompatActivity() {
      * 全量收码：把这一帧识别到的所有码都交给用户确认，而不是挑一个丢掉其余。
      * 集成码（含逗号 / 2D）排前面，方便一眼看到真正要的那个。
      */
+    /**
+     * ML Kit 格式码是否为二维码。
+     * 集成码（逗号分隔的多 SN）在标签上通常是 2D 码，据此把它排在候选前面，
+     * 但**只是排序、不是筛选** —— 同帧所有码照样全部带回上层。
+     */
+    private fun is2D(format: Int): Boolean = format == Barcode.FORMAT_QR_CODE ||
+        format == Barcode.FORMAT_DATA_MATRIX ||
+        format == Barcode.FORMAT_AZTEC ||
+        format == Barcode.FORMAT_PDF417
+
     private fun onCodesCollected(codes: List<TypedCode>) {
         if (codes.isEmpty() || !paused.compareAndSet(false, true)) return
         val ordered = codes.sortedWith(
