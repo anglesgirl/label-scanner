@@ -125,11 +125,45 @@ object BoxParser {
                             }
                         }
                 }
-                model.isEmpty() && (upper.startsWith("MODEL") || upper.contains("型号")) -> {
-                    Regex("[:：]?\\s*([A-Za-z0-9][A-Za-z0-9\\-]*)\\s*$").find(l)
-                        ?.groupValues?.get(1)?.takeIf { it.length in 2..40 }
-                        ?.let { model = it }
+            }
+        }
+
+        // 型号：两种排版都要认。
+        //  a) 同行写值：      "MODEL: CTO-850HK"
+        //  b) 字段名一行、值一行（奔图标签的真实排版）：
+        //        型号
+        //        MODEL
+        //        CTO-850HK        ← 值在这里
+        // 旧规则只在同一行找值，遇到 (b) 会把字段名 "MODEL" 当成型号值取走。
+        if (model.isEmpty()) {
+            val lines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            outer@ for ((i, l) in lines.withIndex()) {
+                val up = l.uppercase()
+                if (!(up.startsWith("MODEL") || l.contains("型号"))) continue
+                // (a) 同一行带分隔符的值
+                val inline = Regex("[:：]\\s*([A-Za-z0-9][A-Za-z0-9\\-]*)\\s*$").find(l)
+                if (inline != null) {
+                    val v = inline.groupValues.getOrNull(1)
+                    if (v != null && v.length in 2..40) {
+                        model = v
+                        break@outer
+                    }
                 }
+                // (b) 往下看几行，跳过同类字段名，取第一个像型号的值
+                for (j in (i + 1) until minOf(i + 4, lines.size)) {
+                    val cand = lines[j]
+                    val cup = cand.uppercase()
+                    if (cup == "MODEL" || cand.contains("型号")) continue
+                    if (cup.startsWith("SN") || cup.startsWith("SAP") || cup.startsWith("QTY") ||
+                        cup.startsWith("DATE") || cand.contains("数量") || cand.contains("日期") ||
+                        cand.contains("序列号") || cand.contains("物料")
+                    ) break
+                    if (cand.length in 2..40 && cand.all { it.isLetterOrDigit() || it == '-' }) {
+                        model = cand
+                    }
+                    break
+                }
+                if (model.isNotEmpty()) break@outer
             }
         }
 
