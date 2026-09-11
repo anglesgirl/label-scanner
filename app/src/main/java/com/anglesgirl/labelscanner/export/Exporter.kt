@@ -149,10 +149,15 @@ object Exporter {
                 <Default Extension="xml" ContentType="application/xml"/>
                 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
                 <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+                <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+                <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+                <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
                 </Types>""".trimIndent())
             zip.writeEntry("_rels/.rels", """<?xml version="1.0" encoding="UTF-8"?>
                 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
                 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+                <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+                <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
                 </Relationships>""".trimIndent())
             zip.writeEntry("xl/workbook.xml", """<?xml version="1.0" encoding="UTF-8"?>
                 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -160,10 +165,40 @@ object Exporter {
             zip.writeEntry("xl/_rels/workbook.xml.rels", """<?xml version="1.0" encoding="UTF-8"?>
                 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
                 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+                <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
                 </Relationships>""".trimIndent())
             zip.writeEntry("xl/worksheets/sheet1.xml", buildSheetXml(records))
+            // 以下三个部件 Excel 可缺，但严格解析器（微信内置预览、部分 WPS）
+            // 会因"包结构不完整"拒绝显示，故一并补上。
+            zip.writeEntry("xl/styles.xml", XLSX_STYLES)
+            zip.writeEntry("docProps/core.xml", XLSX_CORE)
+            zip.writeEntry("docProps/app.xml", XLSX_APP)
         }
     }
+
+    /** 最小可用样式表。 */
+    private val XLSX_STYLES = """<?xml version="1.0" encoding="UTF-8"?>
+        <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
+        <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+        <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+        <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+        <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+        <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+        </styleSheet>""".trimIndent()
+
+    private val XLSX_CORE = """<?xml version="1.0" encoding="UTF-8"?>
+        <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <dc:title>WMS导入</dc:title><dc:creator>LabelScanner</dc:creator>
+        <cp:lastModifiedBy>LabelScanner</cp:lastModifiedBy>
+        <dcterms:created xsi:type="dcterms:W3CDTF">2026-01-01T00:00:00Z</dcterms:created>
+        <dcterms:modified xsi:type="dcterms:W3CDTF">2026-01-01T00:00:00Z</dcterms:modified>
+        </cp:coreProperties>""".trimIndent()
+
+    private val XLSX_APP = """<?xml version="1.0" encoding="UTF-8"?>
+        <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+        <Application>LabelScanner</Application>
+        </Properties>""".trimIndent()
 
     private fun ZipOutputStream.writeEntry(name: String, content: String) {
         putNextEntry(ZipEntry(name))

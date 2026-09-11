@@ -11,6 +11,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import android.graphics.Bitmap
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
 
@@ -52,6 +53,24 @@ class BarcodeAnalyzer(
     private var lastBarcodeSig = ""
     private var processing = false
 
+    /**
+     * zxing-cpp 强通道线程池。
+     *
+     * 实时分析如果只跑 ML Kit 会漏小码/斜角/密集码 —— 旧版把 zxing-cpp
+     * 只用在了拍照（静态）路径，实时扫描没有强通道。这里补上，
+     * 但**不能每帧都跑**（C++ 解码较重，会拖垮预览帧率），
+     * 因此按帧间隔抽样执行，结果与 ML Kit 合并去重。
+     */
+    private val zxingPool = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "zxing-realtime").apply { isDaemon = true }
+    }
+    private var frameSeq = 0
+
+    companion object {
+        /** 每多少帧跑一次 zxing 强通道（折中：不漏码也不掉帧）。 */
+        private const val ZXING_EVERY_N_FRAMES = 5
+    }
+
     override fun analyze(imageProxy: ImageProxy) {
         if (processing) {
             imageProxy.close()
@@ -68,16 +87,32 @@ class BarcodeAnalyzer(
 
         val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
 
-        // 1. 条码检测（多码）
+        // 1. 条码检测（ML Kit 每帧；zxing 强通道抽样）
+        frameSeq++
+        val useZxing = frameSeq % ZXING_EVERY_N_FRAMES == 0
+        val zxingFuture: java.util.concurrent.Future<List<String>>? = if (useZxing) {
+            val bmp = try { imageProxy.toBitmap() } catch (t: Throwable) { null }
+            if (bmp != null) {
+                zxingPool.submit<List<String>> {
+                    runCatching { ZxingDecoder.decode(bmp) }.getOrDefault(emptyList())
+                }
+            } else null
+        } else null
+
         scanner.process(inputImage)
             .addOnSuccessListener { barcodes ->
-                val values = barcodes.mapNotNull { it.rawValue }.distinct()
-                // 2. OCR 与条码并行（无论条码有没有都跑）
+                val mlValues = barcodes.mapNotNull { it.rawValue }.distinct()
+                val zx = try { zxingFuture?.get() ?: emptyList() } catch (t: Throwable) { emptyList() }
+                val values = (mlValues + zx).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                if (zx.isNotEmpty() || (useZxing && values.size > mlValues.size)) {
+                    Log.i(tag, "强通道补充: ml=${mlValues.size} zxing=${zx.size} 合并=${values.size}")
+                }
                 runOcr(inputImage, values, imageProxy)
             }
             .addOnFailureListener { e ->
                 Log.w(tag, "barcode scan failed, fallback ocr only", e)
-                runOcr(inputImage, emptyList(), imageProxy)
+                val zx = try { zxingFuture?.get() ?: emptyList() } catch (t: Throwable) { emptyList() }
+                runOcr(inputImage, zx, imageProxy)
             }
     }
 
@@ -159,5 +194,6 @@ class BarcodeAnalyzer(
     fun close() {
         scanner.close()
         recognizer.close()
+        zxingPool.shutdownNow()
     }
 }
