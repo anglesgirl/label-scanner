@@ -281,7 +281,7 @@ class SingleInboundActivity : AppCompatActivity() {
         rebuildCodeCandidates()
 
         var tips = ""
-        tvStatus.setTextColor(if (result.materialFromEan69) 0xFFD32F2F.toInt() else 0xFF1B6EF3.toInt())
+        tvStatus.setTextColor(if (result.materialFromEan69) cc(R.color.ls_err) else cc(R.color.ls_primary))
         if (result.materialFromEan69) tips = "🔴 商品码提供的补码：${result.materialCode}"
         if (result.materialCode.isBlank()) {
             tips = "⚠️ 未识别到物料"
@@ -383,7 +383,7 @@ class SingleInboundActivity : AppCompatActivity() {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
             tv.text = code
-            tv.setTextColor(0xFF1B6EF3.toInt())
+            tv.setTextColor(cc(R.color.ls_primary))
             row.findViewById<Button>(R.id.btnDelSn).text = "选"
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener { showCodeActionDialog(code) }
             row.setOnClickListener { showCodeActionDialog(code) }
@@ -493,4 +493,7 @@ class SingleInboundActivity : AppCompatActivity() {
         for (id in gated) findViewById<Button>(id).isEnabled = !locked
         tvStatus.text = if (locked) "⚠️ 请先填写托盘号（必填），才能扫描入库" else ""
     }
+
+    /** 取主题色（跟随深浅模式）。 */
+    private fun cc(resId: Int): Int = androidx.core.content.ContextCompat.getColor(this, resId)
 }

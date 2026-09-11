@@ -49,7 +49,7 @@
                 android:layout_width="0dp"
                 android:layout_height="44dp"
                 android:layout_weight="1"
-                android:backgroundTint="#33405A"
+                android:backgroundTint="@color/ls_btn_scan"
                 android:text="原图"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp" />
@@ -60,7 +60,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
-                android:backgroundTint="#1B6EF3"
+                android:backgroundTint="@color/ls_primary"
                 android:text="增强"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp" />
@@ -71,7 +71,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
-                android:backgroundTint="#7B1FA2"
+                android:backgroundTint="@color/ls_accent"
                 android:text="黑白"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp" />
@@ -88,9 +88,9 @@
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:backgroundTint="#F2F4F8"
+                android:backgroundTint="@color/ls_card"
                 android:text="重拍"
-                android:textColor="#33405A"
+                android:textColor="@color/ls_text_dim"
                 android:textSize="15sp" />
 
             <Button
@@ -99,7 +99,7 @@
                 android:layout_height="52dp"
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#1B9E4B"
+                android:backgroundTint="@color/ls_ok"
                 android:text="✅ 确认拉正"
                 android:textColor="#FFFFFF"
                 android:textSize="15sp"

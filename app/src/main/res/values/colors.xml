@@ -16,4 +16,10 @@
     <color name="ls_border">#D8E0EC</color>
     <color name="ls_btn_scan">#33405A</color>
     <color name="ls_btn_split">#E65100</color>
+    <color name="ls_warn">#E65100</color>
+    <color name="ls_accent">#6A1B9A</color>
+    <color name="ls_err_bg">#FDE8E8</color>
+    <color name="ls_scrim">#99000000</color>
+    <color name="ls_badge">#1565C0</color>
+    <color name="ls_neutral">#546E7A</color>
 </resources>

@@ -289,7 +289,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     if (box.boxCode.isBlank()) tips.add("⚠️ 未识别到箱号，请手动输入")
                     if (box.productionDate.isBlank()) tips.add("⚠️ 未识别到日期，请手动输入")
                     if (snList.isEmpty()) tips.add("⚠️ 未识别到序列号，请手动添加")
-                    tvBoxStatus.setTextColor(if (box.materialFromEan69) 0xFFD32F2F.toInt() else 0xFF1B6EF3.toInt())
+                    tvBoxStatus.setTextColor(if (box.materialFromEan69) cc(R.color.ls_err) else cc(R.color.ls_primary))
                     tvBoxStatus.text = "✅ 识别完成：物料=${box.materialCode.ifBlank { "?" }} 箱号=${box.boxCode.ifBlank { "?" }} SN×${snList.size}\n${tips.joinToString("\n")}"
 
                     // 物料空但有条码 → 远程反查（Turso 库）
@@ -302,7 +302,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                                     if (material != null && etMaterial.text.toString().isBlank()) {
                                         etMaterial.setText(material)
                                         materialFromEan69 = true
-                                        tvBoxStatus.setTextColor(0xFFD32F2F.toInt())
+                                        tvBoxStatus.setTextColor(cc(R.color.ls_err))
                                         tvBoxStatus.text = "🔴 商品码提供的补码：$material（可修改）"
                                     }
                                 }
@@ -492,7 +492,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             val src = codeCandidateSources[code]
             tv.text = if (src == null) code else "[$src] $code"
             tv.setTextColor(
-                if (src == "OCR") 0xFF00897B.toInt() else 0xFF1B6EF3.toInt()
+                if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)
             )
             row.findViewById<Button>(R.id.btnDelSn).text = "选"
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener { showCodeActionDialog(code) }
@@ -531,4 +531,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             }
             .show()
     }
+
+    /** 取主题色（跟随深浅模式）。 */
+    private fun cc(resId: Int): Int = androidx.core.content.ContextCompat.getColor(this, resId)
 }

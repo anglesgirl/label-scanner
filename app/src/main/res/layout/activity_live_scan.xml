@@ -16,7 +16,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#99000000"
+        android:background="@color/ls_scrim"
         android:paddingStart="16dp"
         android:paddingEnd="8dp"
         android:paddingBottom="8dp">
@@ -34,7 +34,7 @@
             android:id="@+id/btnCloseScan"
             android:layout_width="wrap_content"
             android:layout_height="44dp"
-            android:backgroundTint="#E53935"
+            android:backgroundTint="@color/ls_err"
             android:text="✕ 关闭"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
@@ -73,7 +73,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#DD000000"
+        android:background="@color/ls_scrim"
         android:orientation="vertical"
         android:padding="10dp"
         android:visibility="gone">
@@ -96,7 +96,7 @@
                 android:layout_width="0dp"
                 android:layout_height="44dp"
                 android:layout_weight="1"
-                android:backgroundTint="#1B6EF3"
+                android:backgroundTint="@color/ls_primary"
                 android:text="✓ 一起拆"
                 android:textColor="#FFFFFF" />
 
@@ -105,7 +105,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="44dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#33405A"
+                android:backgroundTint="@color/ls_btn_scan"
                 android:text="清空"
                 android:textColor="#FFFFFF" />
         </LinearLayout>

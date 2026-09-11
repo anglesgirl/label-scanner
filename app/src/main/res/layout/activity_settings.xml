@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#EDF1F7"
+    android:background="@color/ls_bg"
     android:fillViewport="true">
 
     <LinearLayout
@@ -17,7 +17,7 @@
             android:text="⚙️ 设置"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:textColor="#14213D" />
+            android:textColor="@color/ls_text" />
 
         <!-- ===== 69 码反查数据库 ===== -->
         <TextView
@@ -27,7 +27,7 @@
             android:text="🔁 69 码反查数据库"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <TextView
             android:layout_width="match_parent"
@@ -35,14 +35,14 @@
             android:layout_marginTop="2dp"
             android:text="散货物料只有 69 码（无物料编码）时，自动查询此库反查物料，并缓存到本地。内部使用，参数手动填写，不对外。"
             android:textSize="12sp"
-            android:textColor="#5A6B85" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:orientation="vertical"
-            android:background="#FFFFFF"
+            android:background="@color/ls_card"
             android:padding="12dp">
 
             <TextView
@@ -51,7 +51,7 @@
                 android:text="数据库连接地址"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:textColor="#33405A" />
+                android:textColor="@color/ls_text_dim" />
 
             <EditText
                 android:id="@+id/etTursoUrl"
@@ -59,8 +59,8 @@
                 android:layout_height="wrap_content"
                 android:hint="https://xxx-org.aws-ap-northeast-1.turso.io"
                 android:textSize="14sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD" />
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -69,7 +69,7 @@
                 android:text="访问 Token"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:textColor="#33405A" />
+                android:textColor="@color/ls_text_dim" />
 
             <EditText
                 android:id="@+id/etTursoToken"
@@ -77,8 +77,8 @@
                 android:layout_height="wrap_content"
                 android:hint="eyJ...（Turso 控制台生成）"
                 android:textSize="13sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
                 android:inputType="textPassword" />
 
             <LinearLayout
@@ -92,7 +92,7 @@
                     android:layout_width="0dp"
                     android:layout_height="46dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#1B9E4B"
+                    android:backgroundTint="@color/ls_ok"
                     android:text="💾 保存"
                     android:textColor="#FFFFFF"
                     android:textSize="14sp" />
@@ -103,7 +103,7 @@
                     android:layout_height="46dp"
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
-                    android:backgroundTint="#1B6EF3"
+                    android:backgroundTint="@color/ls_primary"
                     android:text="🔌 测试连接"
                     android:textColor="#FFFFFF"
                     android:textSize="14sp" />
@@ -114,9 +114,9 @@
                     android:layout_height="46dp"
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
-                    android:backgroundTint="#F2F4F8"
+                    android:backgroundTint="@color/ls_card"
                     android:text="🧪 示例数据"
-                    android:textColor="#33405A"
+                    android:textColor="@color/ls_text_dim"
                     android:textSize="13sp" />
             </LinearLayout>
 
@@ -127,7 +127,7 @@
                 android:layout_marginTop="8dp"
                 android:text=""
                 android:textSize="13sp"
-                android:textColor="#1B6EF3"
+                android:textColor="@color/ls_primary"
                 android:minHeight="32dp" />
 
             <Button
@@ -135,7 +135,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="46dp"
                 android:layout_marginTop="4dp"
-                android:backgroundTint="#1B6EF3"
+                android:backgroundTint="@color/ls_primary"
                 android:text="📋 69码映射管理（查看/新增/删除）"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" />
@@ -149,21 +149,21 @@
             android:text="🔬 开发者工具"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:orientation="vertical"
-            android:background="#FFFFFF"
+            android:background="@color/ls_card"
             android:padding="12dp">
 
             <Button
                 android:id="@+id/btnTestRecognize"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:backgroundTint="#7B1FA2"
+                android:backgroundTint="@color/ls_accent"
                 android:text="🔬 测试识别（打印原始条码 + OCR）"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" />
@@ -174,7 +174,7 @@
                 android:layout_marginTop="6dp"
                 android:text="诊断用：只识别不保存，查看原始条码/OCR 便于排查识别问题。"
                 android:textSize="12sp"
-                android:textColor="#5A6B85" />
+                android:textColor="@color/ls_text_dim" />
         </LinearLayout>
 
     </LinearLayout>

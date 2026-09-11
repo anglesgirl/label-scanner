@@ -25,7 +25,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:layout_marginTop="36dp"
-        android:background="#99000000"
+        android:background="@color/ls_scrim"
         android:gravity="center"
         android:padding="12dp"
         android:text="正在启动相机..."

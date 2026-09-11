@@ -19,23 +19,23 @@
             android:layout_height="wrap_content"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:textColor="#14213D" />
+            android:textColor="@color/ls_text" />
 
         <TextView
             android:id="@+id/tvEan69Material"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="13sp"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
     </LinearLayout>
 
     <Button
         android:id="@+id/btnEan69Del"
         android:layout_width="wrap_content"
         android:layout_height="40dp"
-        android:backgroundTint="#FDE8E8"
+        android:backgroundTint="@color/ls_err_bg"
         android:text="🗑"
-        android:textColor="#D32F2F"
+        android:textColor="@color/ls_err"
         android:textSize="14sp"
         android:minWidth="56dp"
         android:insetTop="0dp"

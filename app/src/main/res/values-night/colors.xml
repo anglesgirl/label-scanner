@@ -14,4 +14,10 @@
     <color name="ls_btn_split">#C85A1F</color>
     <color name="result_idle">#22283A</color>
     <color name="result_highlight">#24361F</color>
+    <color name="ls_warn">#FFB74D</color>
+    <color name="ls_accent">#CE93D8</color>
+    <color name="ls_err_bg">#3A1F1F</color>
+    <color name="ls_scrim">#99000000</color>
+    <color name="ls_badge">#82B1FF</color>
+    <color name="ls_neutral">#90A4AE</color>
 </resources>

@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#EDF1F7"
+    android:background="@color/ls_bg"
     android:fillViewport="true">
 
     <LinearLayout
@@ -17,7 +17,7 @@
             android:text="📦 单箱入库（一箱多 SN）"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:textColor="#14213D" />
+            android:textColor="@color/ls_text" />
 
         <TextView
             android:layout_width="match_parent"
@@ -25,7 +25,7 @@
             android:layout_marginTop="4dp"
             android:text="识别外箱标签 → 自动填物料/箱号/日期 + 全部序列号 → 保存（每 SN 一行）"
             android:textSize="12sp"
-            android:textColor="#5A6B85" />
+            android:textColor="@color/ls_text_dim" />
 
         <!-- 识别来源：拍照 / 文档扫描 / 相册 -->
         <LinearLayout
@@ -39,7 +39,7 @@
                 android:layout_width="0dp"
                 android:layout_height="50dp"
                 android:layout_weight="1"
-                android:backgroundTint="#1B6EF3"
+                android:backgroundTint="@color/ls_primary"
                 android:text="📷 拍照"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" />
@@ -50,7 +50,7 @@
                 android:layout_height="50dp"
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#1B6EF3"
+                android:backgroundTint="@color/ls_primary"
                 android:text="📄 文档扫描"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" />
@@ -61,7 +61,7 @@
                 android:layout_height="50dp"
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#1B6EF3"
+                android:backgroundTint="@color/ls_primary"
                 android:text="🖼️ 相册"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" />
@@ -75,7 +75,7 @@
             android:text="已识别条码（点击选择用途）"
             android:textSize="13sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:id="@+id/llCodeCandidates"
@@ -83,7 +83,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:orientation="vertical"
-            android:background="#FFFFFF"
+            android:background="@color/ls_card"
             android:padding="8dp" />
 
         <!-- 共享字段（每项：外部标识 + 输入框 + 扫描按钮） -->
@@ -94,7 +94,7 @@
             android:text="共享字段（自动识别，扫描按钮可补扫修正）"
             android:textSize="13sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <TextView
             android:layout_width="match_parent"
@@ -103,7 +103,7 @@
             android:text="托盘号（必填，WMS 按托盘导入）"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -118,8 +118,8 @@
                 android:layout_weight="1"
                 android:hint="扫描/输入托盘码"
                 android:textSize="15sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
                 android:inputType="text" />
 
             <Button
@@ -127,7 +127,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#33405A"
+                android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
@@ -143,7 +143,7 @@
             android:text="物料编码（SAP 号）"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -158,8 +158,8 @@
                 android:layout_weight="1"
                 android:hint="识别不到请扫描或输入"
                 android:textSize="15sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
                 android:inputType="text" />
 
             <Button
@@ -167,7 +167,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#6A4A9C"
+                android:backgroundTint="@color/ls_accent"
                 android:text="69"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp" />
@@ -177,7 +177,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#33405A"
+                android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
@@ -193,7 +193,7 @@
             android:text="箱号 / LPN"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -208,8 +208,8 @@
                 android:layout_weight="1"
                 android:hint="识别不到请扫描或输入"
                 android:textSize="15sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
                 android:inputType="text" />
 
             <Button
@@ -217,7 +217,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#33405A"
+                android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
@@ -233,7 +233,7 @@
             android:text="生产日期（yyyyMMdd）"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -248,8 +248,8 @@
                 android:layout_weight="1"
                 android:hint="识别不到请扫描或输入"
                 android:textSize="15sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
                 android:inputType="date" />
 
             <Button
@@ -257,7 +257,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#33405A"
+                android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
@@ -273,7 +273,7 @@
             android:text="型号"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -288,8 +288,8 @@
                 android:layout_weight="1"
                 android:hint="参考信息，可不填"
                 android:textSize="15sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
                 android:inputType="text" />
 
             <Button
@@ -297,7 +297,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#33405A"
+                android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
@@ -314,7 +314,7 @@
             android:text="序列号列表（一箱多个）"
             android:textSize="13sp"
             android:textStyle="bold"
-            android:textColor="#33405A" />
+            android:textColor="@color/ls_text_dim" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -330,8 +330,8 @@
                 android:layout_weight="1"
                 android:hint="手动输入/扫描序列号"
                 android:textSize="14sp"
-                android:textColor="#14213D"
-                android:textColorHint="#9AA7BD"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
                 android:inputType="text" />
 
             <Button
@@ -339,7 +339,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#1B6EF3"
+                android:backgroundTint="@color/ls_primary"
                 android:text="🔍 扫"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
@@ -352,7 +352,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="42dp"
                 android:layout_marginStart="8dp"
-                android:backgroundTint="#1B9E4B"
+                android:backgroundTint="@color/ls_ok"
                 android:text="＋加"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
@@ -374,7 +374,7 @@
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:layout_marginTop="16dp"
-            android:backgroundTint="#1B9E4B"
+            android:backgroundTint="@color/ls_ok"
             android:text="✅ 保存入库（每 SN 一行）"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
@@ -385,9 +385,9 @@
             android:layout_width="match_parent"
             android:layout_height="46dp"
             android:layout_marginTop="8dp"
-            android:backgroundTint="#F2F4F8"
+            android:backgroundTint="@color/ls_card"
             android:text="🔄 清空，下一箱"
-            android:textColor="#33405A"
+            android:textColor="@color/ls_text_dim"
             android:textSize="14sp" />
 
         <TextView
@@ -397,7 +397,7 @@
             android:layout_marginTop="12dp"
             android:text=""
             android:textSize="13sp"
-            android:textColor="#1B6EF3"
+            android:textColor="@color/ls_primary"
             android:minHeight="40dp" />
 
     </LinearLayout>

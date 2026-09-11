@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#EDF1F7"
+    android:background="@color/ls_bg"
     android:padding="20dp">
 
     <TextView
@@ -13,7 +13,7 @@
         android:text="🏭 标签扫码入库"
         android:textSize="22sp"
         android:textStyle="bold"
-        android:textColor="#14213D" />
+        android:textColor="@color/ls_text" />
 
     <TextView
         android:layout_width="match_parent"
@@ -21,14 +21,14 @@
         android:layout_marginTop="4dp"
         android:text="识别标签 → 按托盘入库 → 导出 WMS 喂系统"
         android:textSize="13sp"
-        android:textColor="#5A6B85" />
+        android:textColor="@color/ls_text_dim" />
 
     <Button
         android:id="@+id/btnModeSingle"
         android:layout_width="match_parent"
         android:layout_height="72dp"
         android:layout_marginTop="32dp"
-        android:backgroundTint="#2E7D32"
+        android:backgroundTint="@color/ls_ok"
         android:text="📋 单条入库\n一箱一码 / 单品标签 / 可多条序列号"
         android:textSize="15sp"
         android:textColor="#FFFFFF"
@@ -39,7 +39,7 @@
         android:layout_width="match_parent"
         android:layout_height="72dp"
         android:layout_marginTop="14dp"
-        android:backgroundTint="#6A1B9A"
+        android:backgroundTint="@color/ls_accent"
         android:text="📦 单箱入库\n一箱多 SN / 二维码集成 SN / 自动分箱号"
         android:textSize="15sp"
         android:textColor="#FFFFFF"
@@ -50,7 +50,7 @@
         android:layout_width="match_parent"
         android:layout_height="64dp"
         android:layout_marginTop="14dp"
-        android:backgroundTint="#E65100"
+        android:backgroundTint="@color/ls_warn"
         android:text="🧩 集成码拆分\n扫集成码拆 SN / 每 SN 生成独立条码"
         android:textSize="15sp"
         android:textColor="#FFFFFF"
@@ -61,7 +61,7 @@
         android:layout_width="match_parent"
         android:layout_height="72dp"
         android:layout_marginTop="14dp"
-        android:backgroundTint="#1565C0"
+        android:backgroundTint="@color/ls_badge"
         android:text="🗂️ 托盘中心\n多选托盘 / 导出 WMS（一次喂多个托盘）"
         android:textSize="15sp"
         android:textColor="#FFFFFF"
@@ -77,7 +77,7 @@
         android:layout_width="match_parent"
         android:layout_height="52dp"
         android:layout_marginBottom="12dp"
-        android:backgroundTint="#4A5568"
+        android:backgroundTint="@color/ls_text_dim"
         android:text="⚙️ 设置（69 码反查数据库 / 测试识别）"
         android:textSize="14sp"
         android:textColor="#FFFFFF" />

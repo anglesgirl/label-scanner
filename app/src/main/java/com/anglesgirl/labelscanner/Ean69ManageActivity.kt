@@ -65,7 +65,7 @@ class Ean69ManageActivity : AppCompatActivity() {
         if (entries.isEmpty()) {
             val tv = TextView(this).apply {
                 text = "（暂无映射，点 ➕ 新增）"
-                setTextColor(0xFF5A6B85.toInt())
+                setTextColor(cc(R.color.ls_text_dim))
                 setPadding(8, 16, 8, 16)
             }
             llList.addView(tv)
@@ -156,4 +156,7 @@ class Ean69ManageActivity : AppCompatActivity() {
             }
         }
     }
+
+    /** 取主题色（跟随深浅模式）。 */
+    private fun cc(resId: Int): Int = androidx.core.content.ContextCompat.getColor(this, resId)
 }

@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:textSize="13sp"
-        android:textColor="#1A1A1A"
+        android:textColor="@color/ls_text"
         android:maxLines="1"
         android:ellipsize="middle" />
 
