@@ -22,6 +22,14 @@ data class BoxParseResult(
     val materialFromEan69: Boolean = false,
     val serialNumbers: List<String> = emptyList(),
     val allBarcodes: List<String> = emptyList(),
+    /**
+     * 箱号是否由「单台机器：箱号 = 序列号」规则推得。
+     *
+     * 用户明确说："对于这种单台的机器来说，它的箱号就是序列号。"
+     * 这种情况箱号不是标签上独立印的，而是跟着 SN 走的 —— UI 可以据此提示用户
+     * 核对一下，避免在一箱多台的标签上被误用。
+     */
+    val boxFromSn: Boolean = false,
 ) {
     val hasData: Boolean
         get() = allBarcodes.isNotEmpty() || materialCode.isNotBlank() ||
@@ -292,6 +300,25 @@ object BoxParser {
             }
         }
 
+        // 【业务规则】单台机器标签：箱号就是序列号。
+        //
+        // 用户原话："对于这种单台的机器来说，它的箱号就是序列号。"
+        // （与他先前说的"打印机一箱一台、粉盒一箱多台"一致）
+        //
+        // 只在**确实像单台**时才套用，三个条件缺一不可：
+        //  ① SN 恰好 1 个；
+        //  ② 标签上没有独立印制的箱号（box 为空）；
+        //  ③ 这个 SN **不是**从集成码拆出来的 —— 出现逗号/分号分隔的多值码
+        //     说明是"一箱多台"，那种箱子箱号 ≠ SN，套上去就是错的。
+        val hasIntegratedCode = barcodes.any {
+            it.contains(',') || it.contains(';') || it.contains('，') || it.contains('；')
+        }
+        var boxFromSn = false
+        if (box.isEmpty() && sns.size == 1 && !hasIntegratedCode) {
+            box = sns.first()
+            boxFromSn = true
+        }
+
         return BoxParseResult(
             materialCode = material,
             boxCode = box,
@@ -301,6 +328,7 @@ object BoxParser {
             materialFromEan69 = materialFromEan69,
             serialNumbers = sns,
             allBarcodes = classified,
+            boxFromSn = boxFromSn,
         )
     }
 }
