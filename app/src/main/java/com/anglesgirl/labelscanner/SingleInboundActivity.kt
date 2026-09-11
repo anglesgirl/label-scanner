@@ -442,9 +442,20 @@ class SingleInboundActivity : AppCompatActivity() {
         for (code in codeCandidates) {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
-            // 易混淆字符照样标红（span 颜色优先于 setTextColor 的整行设色）
-            tv.text = AmbiguousChar.highlight(code)
-            tv.setTextColor(cc(R.color.ls_primary))
+            // 标出这个候选值的来源（条码 / OCR）—— 否则用户无法判断哪个是扫码枪读出来的、
+            // 哪个是 OCR 认出来的。两者可信度差别很大，必须一眼可分。
+            // （片段颜色由 ForegroundColorSpan 决定，会盖过下面 setTextColor 的整行设色，
+            //   所以来源前缀仍是主题色，只有可疑字符变红。）
+            val src = codeCandidateSources[code]
+            tv.text = if (src == null) {
+                AmbiguousChar.highlight(code)
+            } else {
+                android.text.TextUtils.concat("[$src] ", AmbiguousChar.highlight(code))
+            }
+            // OCR 来源用弱化色，条码来源用主色 —— 视觉上进一步拉开差距
+            tv.setTextColor(
+                if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)
+            )
             row.findViewById<Button>(R.id.btnDelSn).text = "选"
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener { showCodeActionDialog(code) }
             row.setOnClickListener { showCodeActionDialog(code) }
