@@ -27,6 +27,7 @@ import com.anglesgirl.labelscanner.util.Diag
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.anglesgirl.labelscanner.camera.ZxingDecoder
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.atomic.AtomicBoolean
@@ -245,6 +246,23 @@ class LiveScanActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * zxing-cpp 强通道：ML Kit 对高密度 2D 码（集成码常见 DataMatrix）经常解不出，
+     * 而旧版"入库"那条路（CaptureActivity→StaticRecognizer）是 ML Kit + zxing 双通道，
+     * 所以它能读出集成码、实时扫码读不出。这里给实时路径补上同一条强通道。
+     *
+     * 每 N 帧抽一次（zxing 比 ML Kit 慢，不能每帧跑），在独立线程池异步执行，
+     * 结果并入 ML Kit 的候选里交给上层，不阻塞预览。
+     */
+    private val zxingPool = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "live-zxing").apply { isDaemon = true }
+    }
+    private val zxingBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var zxingFrameCounter = 0
+
+    /** zxing 补出的码（跨帧暂存，取用时清空）。 */
+    private val zxingExtra = mutableListOf<String>()
+
     /** 本页是否是来扫集成码的。 */
     private var wantIntegrated = false
 
@@ -257,6 +275,24 @@ class LiveScanActivity : AppCompatActivity() {
         val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
         barcodeScanner?.process(inputImage)
             ?.addOnSuccessListener { barcodes ->
+                // 抽样跑 zxing 强通道：ML Kit 解不出高密度 2D 码，需要它兜底。
+                // 必须在 imageProxy.close() 之前取 bitmap，所以在这里同步取、
+                // 送到线程池异步解码，结果经 zxingExtra 并入本轮候选。
+                if (zxingFrameCounter++ % 6 == 0 && zxingBusy.compareAndSet(false, true)) {
+                    runCatching {
+                        val bmp = imageProxy.toBitmap()
+                        zxingPool.execute {
+                            try {
+                                val zx = ZxingDecoder.decode(bmp)
+                                if (zx.isNotEmpty()) zxingExtra.addAll(zx)
+                            } catch (t: Throwable) {
+                                android.util.Log.w("LiveScan", "zxing 实时解码失败", t)
+                            } finally {
+                                zxingBusy.set(false)
+                            }
+                        }
+                    }.onFailure { zxingBusy.set(false) }
+                }
                 if (pickMode) {
                     // 挑码模式：识别到码就**截屏定格**，在静止画面上标出码的位置让用户点选。
                     // 不能实时叠加 —— 画面里码在移动，手指按下去时码已经移开，必然点错。
@@ -300,7 +336,12 @@ class LiveScanActivity : AppCompatActivity() {
                     }
                     return@addOnSuccessListener
                 }
-                val values = barcodes.mapNotNull { it.rawValue?.trim()?.takeIf(String::isNotBlank) }
+                // 合并 ML Kit 与 zxing 两路结果（zxing 补高密度 2D 码）
+                val drained = java.util.Collections.synchronizedList(zxingExtra).let {
+                    synchronized(it) { val c = it.toList(); it.clear(); c }
+                }
+                val values = (barcodes.mapNotNull { it.rawValue?.trim()?.takeIf(String::isNotBlank) } + drained)
+                    .distinct()
                 if (bulkMode) {
                     onBarcodesDetected(values)
                 } else if (wantIntegrated) {
