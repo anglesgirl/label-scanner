@@ -1,141 +1,112 @@
 package com.anglesgirl.labelscanner.camera
 
-import android.graphics.Rect
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.max
-import kotlin.math.min
 
 /**
- * 轻量取景检测：用条码或 OCR 文本的包围盒判断标签是否进入中央取景框。
- * 连续稳定若干帧后通知拍照，识别结果仍由拍照后的原图流程负责。
+ * 取景稳定性检测：**判准依据改为"码认出来了没有"，不再看文档框在哪**。
+ *
+ * 为什么换掉旧实现（用户反馈"对不准、边框乱跳、出图慢半拍"）：
+ *  - 旧版用 ML Kit 条码通道，没有结果时**退回每帧跑 OCR**（中文 OCR 很慢），
+ *    整条链路被拖住，观感就是"反应慢、对不上"。
+ *  - 旧版用"文档四边形的位置/面积"判稳定，而位置检测本身逐帧抖动，
+ *    稍微一晃计数就衰减，**很难攒满** → 常常永远不触发拍照。
+ *
+ * 新思路（也与"条码全交 zxing、ML Kit 只做 OCR"的分工一致）：
+ *  - 只用 zxing-cpp 解码，**解出码本身就是"标签在画面里"的硬证据**；
+ *  - **连续若干帧解出同一组码**即认为稳定 → 触发拍照；
+ *  - 不依赖任何位置判断，因此不会因框抖动而反复归零。
+ *
+ * 与实时扫码页的区别：这里**不关心码的具体内容**，只要能稳定解出即可
+ * （真正取数据是拍照后在原图上跑的，那张图分辨率更高、更准）。
  */
 class CaptureAlignmentAnalyzer(
     private val onState: (AlignmentState) -> Unit,
     private val onStable: () -> Unit,
 ) : ImageAnalysis.Analyzer {
+
     enum class AlignmentState { SEARCHING, MOVE_CLOSER, CENTERED, STABLE }
 
-    private val barcodeScanner = BarcodeScanning.getClient()
-    private val textRecognizer: TextRecognizer = TextRecognition.getClient(
-        ChineseTextRecognizerOptions.Builder().build()
-    )
-    private val busy = AtomicBoolean(false)
-
     private companion object {
-        /** 稳定判定：中心位移与面积变化的阈值（比旧版放宽，适应手持抖动）。 */
-        const val STABLE_MOVE_TH = 0.045f
-        const val STABLE_AREA_TH = 0.10f
-
-        /** 连续多少帧稳定即认为对准。 */
-        const val STABLE_NEEDED = 3
+        const val TAG = "CaptureAlign"
+        /** 每 N 帧抽一次（zxing 比 ML Kit 慢，不能每帧）。 */
+        const val SAMPLE_EVERY = 2
+        /** 连续多少帧解出同一组码就算稳定。 */
+        const val STABLE_NEEDED = 2
+        /** 状态上报的最小间隔（迟滞，防闪烁）。 */
+        const val EMIT_GAP_SAME = 250L
+        const val EMIT_GAP_CHANGE = 150L
     }
-    private var stableFrames = 0
-    private var lastCenterX = 0f
-    private var lastCenterY = 0f
-    private var lastArea = 0f
+
+    private val pool = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "capture-zxing").apply { isDaemon = true }
+    }
+    private val busy = AtomicBoolean(false)
+    private var frameCounter = 0
+
+    /** 上一次解出的码签名与连续命中次数。 */
+    private var lastSignature = ""
+    private var stableHits = 0
 
     override fun analyze(imageProxy: ImageProxy) {
         if (!busy.compareAndSet(false, true)) {
             imageProxy.close()
             return
         }
-        val mediaImage = imageProxy.image
-        if (mediaImage == null) {
-            finish(imageProxy)
+        if (frameCounter++ % SAMPLE_EVERY != 0) {
+            imageProxy.close()
+            busy.set(false)
             return
         }
-        val input = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-        barcodeScanner.process(input)
-            .addOnSuccessListener { barcodes ->
-                val barcodeRects = barcodes.mapNotNull { it.boundingBox }
-                if (barcodeRects.isNotEmpty()) {
-                    evaluate(barcodeRects, input.width, input.height)
-                    finish(imageProxy)
-                } else {
-                    textRecognizer.process(input)
-                        .addOnSuccessListener { text ->
-                            val textRects = text.textBlocks.flatMap { block ->
-                                block.lines.mapNotNull { it.boundingBox }
-                            }
-                            evaluate(textRects, input.width, input.height)
-                        }
-                        .addOnFailureListener { evaluate(emptyList(), input.width, input.height) }
-                        .addOnCompleteListener { finish(imageProxy) }
-                }
+        // 必须在 close 之前取像素
+        val bmp = runCatching { imageProxy.toBitmap() }.getOrNull()
+        imageProxy.close()
+        if (bmp == null) {
+            busy.set(false)
+            return
+        }
+        val w = bmp.width
+        val h = bmp.height
+        pool.execute {
+            try {
+                val codes = ZxingDecoder.decode(bmp)
+                evaluate(codes)
+            } catch (t: Throwable) {
+                Log.w(TAG, "解码失败", t)
+                evaluate(emptyList())
+            } finally {
+                busy.set(false)
             }
-            .addOnFailureListener {
-                evaluate(emptyList(), input.width, input.height)
-                finish(imageProxy)
-            }
+        }
     }
 
-    private fun evaluate(rects: List<Rect>, width: Int, height: Int) {
-        if (rects.isEmpty() || width <= 0 || height <= 0) {
-            stableFrames = 0
+    private fun evaluate(codes: List<String>) {
+        if (codes.isEmpty()) {
+            stableHits = 0
+            lastSignature = ""
             lastStateIsStable = false
             emitState(AlignmentState.SEARCHING)
             return
         }
 
-        // 【关键修复】先剔除离群框，再求并集。
-        // 旧实现直接把所有 rects 取 min/max 并集，只要混进一个离群的文字块
-        // （哪怕是画面边缘的噪点），框面积就会超过 notTooLarge 上限，
-        // 状态永远停在 CENTERED → 永远"对不准"、永远不拍照。
-        val usable = dropOutliers(rects)
-        val left = usable.minOf { it.left }.coerceIn(0, width)
-        val top = usable.minOf { it.top }.coerceIn(0, height)
-        val right = usable.maxOf { it.right }.coerceIn(0, width)
-        val bottom = usable.maxOf { it.bottom }.coerceIn(0, height)
-
-        // 平滑后的框供预览绘制（EMA）：原始检测逐帧跳动，直接画会"边框乱跳"
-        val centerX = (left + right) / 2f / width
-        val centerY = (top + bottom) / 2f / height
-        val area = (right - left).toFloat() * (bottom - top) / (width * height).toFloat()
-
-        // 判定条件整体放宽：旧版的 0.30~0.70 / 0.025 / 0.88 在现场很难同时满足
-        val centered = centerX in 0.22f..0.78f && centerY in 0.18f..0.82f
-        val largeEnough = area >= 0.015f
-        val notTooLarge = area <= 0.96f
-
-        if (!largeEnough) {
-            stableFrames = 0
-            lastStateIsStable = false
-            emitState(AlignmentState.MOVE_CLOSER)
-            return
-        }
-        if (!centered || !notTooLarge) {
-            stableFrames = 0
-            lastStateIsStable = false
-            emitState(AlignmentState.CENTERED)
-            return
-        }
-
-        val movement = max(kotlin.math.abs(centerX - lastCenterX), kotlin.math.abs(centerY - lastCenterY))
-        val areaChange = kotlin.math.abs(area - lastArea)
-        // 轻抖不再把计数清零，而是衰减：现场手持必然有抖动，
-        // 旧版 "else stableFrames = 1" 会让计数永远攒不满。
-        if (movement < STABLE_MOVE_TH && areaChange < STABLE_AREA_TH) {
-            stableFrames++
+        // 码签名：同一组码（顺序无关）连续出现即视为画面稳定。
+        // 只比较"能不能稳定解出同一批码"，不比较它们的位置 —— 位置逐帧抖，
+        // 用它判稳定正是旧版对不准的原因。
+        val sig = codes.sorted().joinToString("|")
+        if (sig == lastSignature) {
+            stableHits++
         } else {
-            stableFrames = (stableFrames - 1).coerceAtLeast(0)
+            lastSignature = sig
+            stableHits = 1
         }
-        lastCenterX = centerX
-        lastCenterY = centerY
-        lastArea = area
 
-        if (stableFrames >= STABLE_NEEDED) {
+        if (stableHits >= STABLE_NEEDED) {
+            stableHits = 0
             lastStateIsStable = true
             emitState(AlignmentState.STABLE)
-            stableFrames = 0
             onStable()
         } else {
             lastStateIsStable = false
@@ -143,56 +114,27 @@ class CaptureAlignmentAnalyzer(
         }
     }
 
-    /**
-     * 剔除离群框：以面积最大的框为基准，只保留与它中心距离在合理范围内的框。
-     * 这样能挡住画面边缘的噪点/无关文字把标签框撑爆。
-     */
-    private fun dropOutliers(rects: List<Rect>): List<Rect> {
-        if (rects.size <= 1) return rects
-        val base = rects.maxByOrNull { it.width().toLong() * it.height().toLong() } ?: return rects
-        val limit = maxOf(base.width(), base.height()).toFloat() * 1.6f
-        val kept = rects.filter { r ->
-            val dx = kotlin.math.abs(r.centerX() - base.centerX()).toFloat()
-            val dy = kotlin.math.abs(r.centerY() - base.centerY()).toFloat()
-            dx <= limit && dy <= limit
-        }
-        return kept.ifEmpty { listOf(base) }
-    }
-
-    private fun finish(imageProxy: ImageProxy) {
-        imageProxy.close()
-        busy.set(false)
-    }
-
-    /** 上一次真正上报给 UI 的状态与时间（用于迟滞，避免状态闪烁）。 */
+    /** 上一次真正上报的状态与时间（迟滞用）。 */
     private var lastEmitted: AlignmentState? = null
     private var lastEmittedAt = 0L
 
-    /**
-     * 上报状态（带迟滞）。
-     *
-     * 旧实现每帧都回调 UI，而坐标/面积是逐帧抖动的，于是取景框在
-     * "位置合适"与"已对齐"之间高频闪烁 —— 观感就是"跳得更严重"。
-     * 这里要求：状态变化后至少停 150ms 才允许再变；同一状态 250ms 内不重复上报。
-     */
     private fun emitState(st: AlignmentState) {
         val now = System.currentTimeMillis()
         val changed = st != lastEmitted
         val gap = now - lastEmittedAt
-        if (changed && gap < 150) return
-        if (!changed && gap < 250) return
+        if (changed && gap < EMIT_GAP_CHANGE) return
+        if (!changed && gap < EMIT_GAP_SAME) return
         lastEmitted = st
         lastEmittedAt = now
         onState(st)
     }
 
-    /** 最近一次状态是否 STABLE（供预览决定框的颜色）。 */
+    /** 最近一次状态是否 STABLE（供预览决定取景框颜色）。 */
     @Volatile
     var lastStateIsStable: Boolean = false
         private set
 
     fun close() {
-        barcodeScanner.close()
-        textRecognizer.close()
+        try { pool.shutdownNow() } catch (_: Throwable) {}
     }
 }

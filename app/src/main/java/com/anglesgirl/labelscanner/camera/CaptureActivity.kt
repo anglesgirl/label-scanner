@@ -79,7 +79,11 @@ class CaptureActivity : AppCompatActivity() {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
                 val capture = ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                    // 出图"慢半拍"的根因：MAXIMIZE_QUALITY 会做多帧合成再出图，
+                    // 于是快门按下到文件落地有明显延迟，用户看到的是"拍到的不是刚才那一帧"。
+                    // 改成 MINIMIZE_LATENCY：尽量贴近"所见即所得"；分辨率仍取高，
+                    // 标签文字 OCR 与码识别都够用。
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                     .setJpegQuality(95)
                     .build()
                 imageCapture = capture
