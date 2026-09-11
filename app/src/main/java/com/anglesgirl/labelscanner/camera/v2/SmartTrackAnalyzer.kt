@@ -5,6 +5,7 @@ import android.graphics.Rect
 import androidx.camera.core.CameraControl
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.ZoomState
 import com.google.mlkit.vision.barcode.BarcodeScanner
@@ -160,12 +161,15 @@ class SmartTrackAnalyzer(
         }
 
         // ── 自动对焦：对焦点放在标签中心（限频）────────────────────────
+        // 注意：startFocusAndMetering 需要的是 MeteringPoint（由工厂按
+        // 分析帧的像素坐标系构造），不是归一化的 PointF。
         val now = System.currentTimeMillis()
         if (now - lastFocusAt > FOCUS_INTERVAL_MS) {
-            val cx = (box.centerX().toFloat() / frameW)
-            val cy = (box.centerY().toFloat() / frameH)
-            val point = PointF(cx.coerceIn(0.05f, 0.95f), cy.coerceIn(0.05f, 0.95f))
             try {
+                val factory = SurfaceOrientedMeteringPointFactory(
+                    frameW.toFloat(), frameH.toFloat()
+                )
+                val point = factory.createPoint(box.centerX().toFloat(), box.centerY().toFloat())
                 getCameraControl()?.startFocusAndMetering(
                     FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
                         .setAutoCancelDuration(2, TimeUnit.SECONDS)
@@ -173,6 +177,7 @@ class SmartTrackAnalyzer(
                 )
                 lastFocusAt = now
             } catch (_: Throwable) {
+                // 个别机型/状态下不支持，忽略
             }
         }
 

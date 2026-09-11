@@ -27,6 +27,7 @@ import com.anglesgirl.labelscanner.camera.v2.SmartTrackAnalyzer
 import com.anglesgirl.labelscanner.data.v2.BoxRecordV2
 import com.anglesgirl.labelscanner.data.v2.TraySessionV2
 import com.anglesgirl.labelscanner.databinding.ActivityCollectV2Binding
+import com.anglesgirl.labelscanner.model.v2.BoxParseResultV2
 import com.anglesgirl.labelscanner.model.v2.LabelParserV2
 import com.anglesgirl.labelscanner.util.Diag
 import java.io.File
@@ -211,9 +212,25 @@ class CollectActivityV2 : AppCompatActivity() {
         return String.format("%.2f", z ?: 0f)
     }
 
+    /**
+     * 统一的解析入口：把"含分隔符的码"（集成二维码，如
+     * `SCAG...B3,SCAG...B4,...`）分流给 qrPayloads，其余走普通码。
+     * 不分流的话，整串会被 classify 当成非法值丢弃，一箱 8/24 个 SN 全丢。
+     */
+    private fun parseCurrentBox(): BoxParseResultV2 {
+        val raw = codesThisBox.toList()
+        val qr = raw.filter { it.contains(',') || it.contains(';') }
+        val plain = raw.filterNot { it in qr }
+        return LabelParserV2.parse(
+            codes = plain,
+            ocrLines = ocrThisBox.toList(),
+            qrPayloads = qr,
+        )
+    }
+
     /** 用已测过的解析内核实时预览"这一箱现在解析成什么样"。 */
     private fun refreshParsedPreview() {
-        val result = LabelParserV2.parseAll(codesThisBox.toList(), ocrThisBox.toList())
+        val result = parseCurrentBox()
         binding.textParsed.text = buildString {
             appendLine("物料  ${result.materialCode.ifBlank { "—" }}")
             appendLine("序列号  ${if (result.serialNumbers.isEmpty()) "—" else "${result.serialNumbers.size} 个"}")
@@ -289,7 +306,7 @@ class CollectActivityV2 : AppCompatActivity() {
 
     /** 确认入库：把当前累计的码交给解析内核归组，加入托盘。 */
     private fun confirmBox() {
-        val result = LabelParserV2.parseAll(codesThisBox.toList(), ocrThisBox.toList())
+        val result = parseCurrentBox()
         if (!result.hasData) {
             Toast.makeText(this, "还没有识别到内容", Toast.LENGTH_SHORT).show()
             return
