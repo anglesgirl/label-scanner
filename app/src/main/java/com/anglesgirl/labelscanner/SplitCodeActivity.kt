@@ -107,16 +107,18 @@ class SplitCodeActivity : AppCompatActivity() {
         llSplitResult = findViewById(R.id.llSplitResult)
         tvSplitStatus = findViewById(R.id.tvSplitStatus)
 
-        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener
+        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
+        // 挑码取码：集成码不适合拍照识别，改为"扫到后点选"
         findViewById<Button>(R.id.btnScanPick).setOnClickListener { startPick() }
         llBoxes = findViewById(R.id.llBoxes)
         btnAddBox = findViewById(R.id.btnAddBox)
+        // 单箱拆 / 多箱拆
         findViewById<Button>(R.id.btnModeSingle).setOnClickListener { setMultiMode(false) }
         findViewById<Button>(R.id.btnModeMulti).setOnClickListener { setMultiMode(true) }
         findViewById<Button>(R.id.btnAddBox).setOnClickListener {
-            // 多箱模式：点一次就进相机挑一个集成码，形成一个新箱
+            // 多箱模式：点一次进相机挑一个集成码，作为新的一箱
             startPick()
-        } { launchCamera() }
+        }
         findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
         findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
         findViewById<Button>(R.id.btnSplit).setOnClickListener { splitManual() }
