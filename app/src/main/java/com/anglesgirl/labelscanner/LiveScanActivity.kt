@@ -17,6 +17,10 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.core.content.ContextCompat
 import com.anglesgirl.labelscanner.camera.BarcodePickOverlay
 import com.google.mlkit.vision.barcode.BarcodeScanner
@@ -77,7 +81,22 @@ class LiveScanActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge：状态栏/导航栏不遮内容。
+        // 注意扫描页是全屏相机，**不能给根布局整体加 padding**（会让取景画面缩水），
+        // 只让顶栏与底栏各自避开系统栏。
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_live_scan)
+
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.scanTopBar)) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(top = bars.top, left = bars.left, right = bars.right)
+            insets
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.llPickBar)) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(bottom = bars.bottom, left = bars.left, right = bars.right)
+            insets
+        }
 
         previewView = findViewById(R.id.pvScan)
         val tvHint = findViewById<TextView>(R.id.tvScanHint)
