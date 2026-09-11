@@ -25,9 +25,6 @@ import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
 import com.anglesgirl.labelscanner.model.LabelResult
 import com.anglesgirl.labelscanner.util.TrayPrefs
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
-import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.File
 
 /**
@@ -103,25 +100,14 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         }
     }
 
-    /** 拍照（系统相机） */
-    private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) {
-            result.data?.getStringExtra(com.anglesgirl.labelscanner.camera.CaptureActivity.EXTRA_OUTPUT_URI)
-                ?.let { recognizeLabel(Uri.parse(it)) }
-        }
-    }
-
-    /** 文档扫描（ML Kit，自动找边/裁切/增强） */
-    private val scanDoc = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            GmsDocumentScanningResult.fromActivityResultIntent(result.data)?.pages
-                ?.firstOrNull()?.imageUri?.let { recognizeLabel(it) }
-        }
-    }
-
-    /** 相册选图 */
-    private val pickGallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) recognizeLabel(uri)
+    /**
+     * 取图入口：统一走 camera.ImageIn。
+     *
+     * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数 ——
+     * 之前单条采集、整箱采集、集成码拆分、设置测试各写了一份，参数容易走偏。
+     */
+    private val imageIn by lazy {
+        com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -147,9 +133,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         llCodeCandidates = findViewById(R.id.llCodeCandidates)
         tvBoxStatus = findViewById(R.id.tvBoxStatus)
 
-        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
-        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
-        findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
+        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
+        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { imageIn.scanDocument() }
+        findViewById<Button>(R.id.btnPickGallery).setOnClickListener { imageIn.pickGallery() }
         findViewById<Button>(R.id.btnAddSn).setOnClickListener { addManualSn() }
         findViewById<Button>(R.id.btnSaveBox).setOnClickListener { saveBox() }
         findViewById<Button>(R.id.btnResetBox).setOnClickListener { resetBox() }
@@ -201,37 +187,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     }
 
     /** 系统相机拍照 → 全分辨率存 captures/ → 识别 */
-    private fun launchCamera() {
-        takePhoto.launch(Intent(this, com.anglesgirl.labelscanner.camera.CaptureActivity::class.java))
-    }
-
-    /** ML Kit 文档扫描（GMS；自动找边/裁切/增强，标签拍摄最佳） */
-    private fun launchDocScan() {
-        try {
-            val options = GmsDocumentScannerOptions.Builder()
-                .setGalleryImportAllowed(true)   // 也允许从相册导入文档
-                .setPageLimit(1)
-                // FULL 模式（最强）：自动找边 + 裁切 + 透视矫正 + 图像增强。
-                // 对 PDF417 集成码/密集条码至关重要——系统相机拍照有透视变形，
-                // 二维堆叠码对透视极敏感，矫正后才能稳定解出。
-                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
-                .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-                .build()
-            GmsDocumentScanning.getClient(options).getStartScanIntent(this)
-                .addOnSuccessListener { intentSender ->
-                    scanDoc.launch(
-                        androidx.activity.result.IntentSenderRequest.Builder(intentSender).build()
-                    )
-                }
-                .addOnFailureListener { e ->
-                    Toast.makeText(this, "文档扫描不可用（设备无 Google 服务?）:\n${e.message}", Toast.LENGTH_LONG).show()
-                }
-        } catch (e: Exception) {
-            Toast.makeText(this, "文档扫描不可用: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    /** 相册选图 → 静态识别（ML Kit + ZXing 双解码）→ BoxParser 解析填表 */
     private fun recognizeLabel(uri: Uri) {
         tvBoxStatus.text = "识别中..."
         StaticRecognizer.recognizeUri(

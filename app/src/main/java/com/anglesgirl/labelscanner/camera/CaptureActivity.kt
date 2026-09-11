@@ -189,14 +189,47 @@ class CaptureActivity : AppCompatActivity() {
     }
 
     /**
+     * 按 EXIF 方向把图转正。
+     *
+     * 为什么必须做（用户报"拍照和文档模式现在不处理 y 轴"）：
+     * 相机写出的 JPEG 物理像素常常是**传感器方向**（横向），真实方向记在 EXIF 里。
+     * `BitmapFactory.decodeFile / decodeFileDescriptor` **不会**读取 EXIF，
+     * 于是解码出来的图是横的 —— 取景框看着是竖的，矫正器和识别器拿到的却是横图，
+     * 表现为"y 轴方向不对/上下颠倒/裁错位"。
+     */
+    private fun applyExifRotation(src: File, bmp: android.graphics.Bitmap): android.graphics.Bitmap =
+        runCatching {
+            val exif = android.media.ExifInterface(src.absolutePath)
+            val deg = when (
+                exif.getAttributeInt(
+                    android.media.ExifInterface.TAG_ORIENTATION,
+                    android.media.ExifInterface.ORIENTATION_NORMAL,
+                )
+            ) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+            if (deg == 0) bmp
+            else android.graphics.Bitmap.createBitmap(
+                bmp, 0, 0, bmp.width, bmp.height,
+                android.graphics.Matrix().apply { postRotate(deg.toFloat()) },
+                true,
+            )
+        }.getOrDefault(bmp)
+
+    /**
      * 自动找边 + 透视矫正，把正图写到 cache 并返回其 URI。
      *
      * 返回 null 表示没矫正成功（比如画面里找不到标签边界）—— 调用方回退用原图，
      * 流程照常继续。矫正只是为了提升后续 OCR/扫码的命中率，不该成为新的失败点。
      */
     private fun rectifyToCache(src: File): Uri? = runCatching {
-        val bmp = android.graphics.BitmapFactory.decodeFile(src.absolutePath)
+        val raw = android.graphics.BitmapFactory.decodeFile(src.absolutePath)
             ?: return@runCatching null
+        // 先按 EXIF 转正再矫正：否则是在横图上找标签边界，必然找错、裁错。
+        val bmp = applyExifRotation(src, raw)
         val result = LabelRectifier.rectify(bmp)
         if (!result.ok) return@runCatching null
         val out = File(cacheDir, "captures/rectified_${System.currentTimeMillis()}.jpg")

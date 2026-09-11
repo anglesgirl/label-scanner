@@ -62,6 +62,42 @@ object StaticRecognizer {
         ).also { recognizerLatin = it }
 
     /**
+     * 按 EXIF 方向把图转正。
+     *
+     * 为什么必须做（用户报"拍照和文档模式现在不处理 y 轴"）：
+     * 相机/系统相册给的 JPEG，真实方向记在 EXIF 里，`BitmapFactory` 不会读取，
+     * 解码出来就是横的 —— OCR 与 zxing 都在横图上工作，标签横躺，识别率骤降。
+     * 用系统自带的 `android.media.ExifInterface`（API 24+，本项目 minSdk 26），
+     * 不额外引依赖。
+     */
+    private fun applyExifRotation(
+        resolver: ContentResolver,
+        uri: Uri,
+        bmp: Bitmap,
+    ): Bitmap = runCatching {
+        val deg = resolver.openInputStream(uri)?.use { ins ->
+            val exif = android.media.ExifInterface(ins)
+            when (
+                exif.getAttributeInt(
+                    android.media.ExifInterface.TAG_ORIENTATION,
+                    android.media.ExifInterface.ORIENTATION_NORMAL,
+                )
+            ) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+        } ?: 0
+        if (deg == 0) bmp
+        else Bitmap.createBitmap(
+            bmp, 0, 0, bmp.width, bmp.height,
+            android.graphics.Matrix().apply { postRotate(deg.toFloat()) },
+            true,
+        )
+    }.getOrDefault(bmp)
+
+    /**
      * 从 Uri 解码 Bitmap（自动缩放，避免超大图 OOM），然后识别。
      * 解码用 FileDescriptor（content:// 最可靠），失败 fallback 到流。
      */
@@ -72,11 +108,13 @@ object StaticRecognizer {
         onResult: (LabelResult) -> Unit,
         onError: (String) -> Unit,
     ) {
-        val bmp = decodeSampledBitmap(resolver, uri)
-        if (bmp == null) {
+        val raw = decodeSampledBitmap(resolver, uri)
+        if (raw == null) {
             onError("无法读取图片")
             return
         }
+        // 先按 EXIF 转正，再交给识别通道（否则 OCR / zxing 拿到的都是躺着的图）。
+        val bmp = applyExifRotation(resolver, uri, raw)
         // 相册路径保持原有的安全识别流程；拍照路径的增强已在 CropActivity 中完成。
         // 不在这里逐像素处理 4096 边长图片，避免主线程卡死/OOM。
         recognize(bmp, lookup69, onResult, onError)
