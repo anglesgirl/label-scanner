@@ -293,7 +293,19 @@ class LiveScanActivity : AppCompatActivity() {
                     ))
                     onCodesCollected(typed)
                 } else {
-                    values.firstOrNull()?.let(::onBarcodeDetected)
+                    // 采集层原则：全量获得数据，不做取舍（"先到先得"不属于这一层）。
+                    // 谁先解出来、谁更短更长，都不是这里该判断的；上层拿到全部再决定。
+                    val typed = barcodes.mapNotNull { b ->
+                        val v = b.rawValue?.trim()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                        TypedCode(v, is2D(b.format), b.format)
+                    }.distinctBy { it.value }
+                    if (typed.isNotEmpty()) {
+                        Diag.event("scan_frame_all", mapOf(
+                            "all" to typed.joinToString(" | ") { (if (it.is2D) "2D:" else "1D:") + it.value }.take(260),
+                            "mode" to "plain",
+                        ))
+                        onCodesCollected(typed)
+                    }
                 }
             }
             ?.addOnFailureListener { /* 单帧失败忽略，继续下一帧 */ }
@@ -319,31 +331,6 @@ class LiveScanActivity : AppCompatActivity() {
             if (pickedBoxes.isEmpty()) "" else "：" + pickedBoxes.joinToString("、") { it.take(18) }
     }
 
-    private fun onBarcodeDetected(value: String) {
-        val now = System.currentTimeMillis()
-        // 刚取消过的码：1.5s 冷却，避免取消后立刻又弹
-        if (value == lastRejected && now - lastRejectedAt < 1500) return
-        if (!paused.compareAndSet(false, true)) return
-
-        runOnUiThread {
-            beep()
-            AlertDialog.Builder(this)
-                .setTitle("📦 扫码结果")
-                .setMessage("条码：$value\n\n确认使用这个条码吗？")
-                .setCancelable(false)
-                .setPositiveButton("确定") { _, _ ->
-                    setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT_CODE, value))
-                    finish()
-                }
-                .setNegativeButton("取消") { _, _ ->
-                    lastRejected = value
-                    lastRejectedAt = System.currentTimeMillis()
-                    paused.set(false)
-                }
-                .setOnDismissListener { paused.set(false) }
-                .show()
-        }
-    }
 
     /** SN 批量补扫：同帧返回全部条码，已有 SN 不重复加入。 */
 

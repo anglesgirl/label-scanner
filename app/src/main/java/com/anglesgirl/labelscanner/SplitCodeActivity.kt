@@ -100,11 +100,18 @@ class SplitCodeActivity : AppCompatActivity() {
                 if (others.isNotEmpty()) "（另有 ${others.size} 个非集成码未填入）" else ""
         } else {
             // 没扫到集成码：仍填进去让用户自己判断，并明确提示这不是集成码
-            val target = if (idx >= 0 && idx < rows.size) rows[idx]
-            else rows.firstOrNull { it.input.text.isNullOrBlank() } ?: addBoxRow()
-            target.input.setText(list.first())
-            target.check.isChecked = true
-            tvSplitStatus.text = "未识别到集成码（这看起来是单条码），如不对请重扫"
+            // 没有集成码时也不丢弃：同帧的码全部填进去（各占一行），让上层/用户决定。
+            var first = true
+            for (code in list) {
+                if (first && idx >= 0 && idx < rows.size) {
+                    rows[idx].input.setText(code); rows[idx].check.isChecked = true; first = false
+                } else {
+                    val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
+                    if (empty != null) { empty.input.setText(code); empty.check.isChecked = true }
+                    else addBoxRow().input.setText(code)
+                }
+            }
+            tvSplitStatus.text = "未识别到集成码（这些看起来是单条码），如不对请重扫"
         }
     }
 
