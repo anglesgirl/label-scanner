@@ -56,9 +56,10 @@ class SplitCodeActivity : AppCompatActivity() {
      * 这里原来是"系统相机 ACTION_IMAGE_CAPTURE + FileProvider"自己的一套 ——
      * 同一个"拍照"在采集页和拆分页走的却是不同相机、不同参数。
      */
-    private val imageIn by lazy {
-        com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
-    }
+    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**：
+    // registerForActivityResult 要求在当前状态仍为 CREATED 时注册，
+    // 延迟到点击按钮时才初始化会抛异常，表现为"相机入口点不进去"。
+    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
 
     /** 多箱拆模式（每箱一行，全部完成后再出结果）。 */
     /** 多箱模式下每箱的集成码。 */

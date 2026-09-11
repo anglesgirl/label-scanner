@@ -65,9 +65,10 @@ class SingleInboundActivity : AppCompatActivity() {
      * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数 ——
      * 用户在采集/拆分/测试各处看到过"同一个功能、参数却不一致"的问题。
      */
-    private val imageIn by lazy {
-        com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeStatic(uri) }
-    }
+    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**：
+    // registerForActivityResult 要求在当前状态仍为 CREATED 时注册，
+    // 延迟到点击按钮时才初始化会抛异常，表现为"相机入口点不进去"。
+    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeStatic(uri) }
 
     /** 字段补扫：实时扫码相机 → 确认框 → 填目标框（不拍照，自动识别） */
     private val liveScan = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->

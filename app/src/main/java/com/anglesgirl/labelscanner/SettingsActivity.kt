@@ -87,9 +87,10 @@ class SettingsActivity : AppCompatActivity() {
      * 设置页的"测试识别"原来自己注册了一个 GetContent —— 与采集页/拆分页的
      * 相册入口是同一个功能、却各写一份。现统一到 ImageIn 这一份实现和参数。
      */
-    private val imageIn by lazy {
-        com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> testRecognize(uri) }
-    }
+    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**：
+    // registerForActivityResult 要求在当前状态仍为 CREATED 时注册，
+    // 延迟到点击按钮时才初始化会抛异常，表现为"相机入口点不进去"。
+    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> testRecognize(uri) }
 
     /** 测试识别：打印原始条码 + OCR（诊断用，不解析、不保存） */
     private fun testRecognize(uri: Uri) {

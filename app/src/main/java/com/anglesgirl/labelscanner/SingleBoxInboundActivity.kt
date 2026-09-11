@@ -119,9 +119,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
      * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数 ——
      * 之前单条采集、整箱采集、集成码拆分、设置测试各写了一份，参数容易走偏。
      */
-    private val imageIn by lazy {
-        com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
-    }
+    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**：
+    // registerForActivityResult 要求在当前状态仍为 CREATED 时注册，
+    // 延迟到点击按钮时才初始化会抛异常，表现为"相机入口点不进去"。
+    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
