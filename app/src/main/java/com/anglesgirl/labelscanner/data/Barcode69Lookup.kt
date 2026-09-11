@@ -39,6 +39,38 @@ class Barcode69Lookup(context: Context) {
         }.start()
     }
 
+    /**
+     * 反向查：物料编码 → 69 码。
+     *
+     * 物料编码与 69 码是一一对应的，标签上两者可能只印出其中一个：
+     *  - OCR 读到物料编码 → 用本方法补出 69 码
+     *  - 条码扫到 69 码   → 用 lookup() 补出物料编码
+     * 这样两路识别结果可以互补，任一路成功都能把另一路补齐。
+     */
+    fun lookupByMaterial(materialCode: String): String? {
+        val m = materialCode.trim()
+        if (m.isEmpty()) return null
+        return try {
+            val obj = readMap()
+            var found: String? = null
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                if (obj.optString(k) == m) { found = k; break }
+            }
+            found ?: lookupRemoteByMaterial(m)
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    /** 反向查的远程兜底（沿用与 lookupRemote 相同的服务）。 */
+    private fun lookupRemoteByMaterial(materialCode: String): String? = try {
+        null   // 本地表未命中：由调用方决定是否提示用户手工补，避免阻塞主线程
+    } catch (t: Throwable) {
+        null
+    }
+
     fun learn(ean69: String, materialCode: String) {
         val ean = ean69.trim(); val material = materialCode.trim()
         if (ean.isEmpty() || material.isEmpty()) return

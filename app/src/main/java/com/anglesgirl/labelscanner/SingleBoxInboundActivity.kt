@@ -64,6 +64,16 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private var materialFromEan69 = false
     private var recognizedEan69 = ""
 
+    /**
+     * 物料输入框当前显示的是 69 码还是物料编码。
+     * 两者一一对应，UI 上合并为一个字段 + 按钮切换，不再占两行。
+     */
+    private var showingEan69 = false
+    /** 最近已知的 69 码（条码扫到的或由物料反查得到的）。 */
+    private var lastKnownEan69 = ""
+    /** 最近已知的物料编码。 */
+    private var lastKnownMaterial = ""
+
     private var pendingPhotoUri: Uri? = null
     private var photoFile: File? = null
 
@@ -126,6 +136,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         setContentView(R.layout.activity_single_box)
 
         etMaterial = findViewById(R.id.etMaterial)
+        // 物料编码 ⟷ 69 码 一一对应：同一个输入框，按钮切换显示
+        findViewById<Button>(R.id.btnToggle69).setOnClickListener { toggleMaterialEanView() }
         etBox = findViewById(R.id.etBox)
         etDate = findViewById(R.id.etDate)
         etModel = findViewById(R.id.etModel)
@@ -237,7 +249,12 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                         tvBoxStatus.text = "⚠️ 未识别到内容，请换图重试"
                         return@runOnUiThread
                     }
-                    etMaterial.setText(box.materialCode)
+                    // 互补互查：OCR 读到的物料 ↔ 条码扫到的 69 码，哪边有就补另一边
+                    crossFillMaterialEan(box.materialCode, box.ean69)
+                    etMaterial.setText(
+                        if (showingEan69 && lastKnownEan69.isNotBlank()) lastKnownEan69
+                        else box.materialCode
+                    )
                     recognizedEan69 = box.ean69
                     materialFromEan69 = box.materialFromEan69
                     etBox.setText(box.boxCode)
@@ -400,6 +417,65 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             llSnList.addView(row)
         }
         updateStatus()
+    }
+
+    /**
+     * 切换物料字段显示形态：物料编码 ⟷ 69 码。
+     * 切换时顺便用对照表补出另一侧，这就是"互补互查"。
+     */
+    private fun toggleMaterialEanView() {
+        val cur = etMaterial.text.toString().trim()
+        showingEan69 = !showingEan69
+        findViewById<Button>(R.id.btnToggle69).text = if (showingEan69) "物料" else "69"
+        if (cur.isEmpty()) return
+
+        val other = if (showingEan69) {
+            lookup69().lookupByMaterial(cur) ?: lastKnownEan69.takeIf { it.isNotBlank() }
+        } else {
+            lookup69().lookup(cur) ?: lastKnownMaterial.takeIf { it.isNotBlank() }
+        }
+        if (other.isNullOrBlank()) {
+            Toast.makeText(this, "对照表里没有这一项，请手工填写", Toast.LENGTH_SHORT).show()
+            return
+        }
+        etMaterial.setText(other)
+        if (showingEan69) lastKnownEan69 = other else lastKnownMaterial = other
+        Toast.makeText(
+            this,
+            if (showingEan69) "已切换为 69 码：$other" else "已切换为物料编码：$other",
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    /**
+     * 互补互查：识别结果里只要有一侧，就补出另一侧并写入对照表。
+     *  - 有物料编码 → 反查 69 码（OCR 常常只能读到物料）
+     *  - 有 69 码   → 正查物料编码（外箱往往只有 69 条码）
+     * 查到即互相 learn，下一次直接命中。
+     */
+    private fun crossFillMaterialEan(material: String, ean69: String) {
+        val m = material.trim()
+        val e = ean69.trim()
+        if (m.isNotEmpty()) lastKnownMaterial = m
+        if (e.isNotEmpty()) lastKnownEan69 = e
+
+        if (m.isNotEmpty() && e.isEmpty()) {
+            val found = lookup69().lookupByMaterial(m)
+            if (!found.isNullOrBlank()) {
+                lastKnownEan69 = found
+                lookup69().learn(found, m)
+            }
+        }
+        if (e.isNotEmpty() && m.isEmpty()) {
+            val found = lookup69().lookup(e)
+            if (!found.isNullOrBlank()) {
+                lastKnownMaterial = found
+                lookup69().learn(e, found)
+            }
+        }
+        if (m.isNotEmpty() && e.isNotEmpty()) {
+            lookup69().learn(e, m)
+        }
     }
 
     /** 重建「已识别条码」候选区：点击任一码 → 弹选择用途（修正识别错误） */
