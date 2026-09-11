@@ -4,12 +4,15 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -23,7 +26,8 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.anglesgirl.labelscanner.camera.v2.SmartTrackAnalyzer
+import com.anglesgirl.labelscanner.camera.v2.LabelRectifier
+import com.anglesgirl.labelscanner.camera.v2.SingleShotAnalyzer
 import com.anglesgirl.labelscanner.data.v2.BoxRecordV2
 import com.anglesgirl.labelscanner.data.v2.TraySessionV2
 import com.anglesgirl.labelscanner.databinding.ActivityCollectV2Binding
@@ -34,45 +38,59 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /**
- * 采集页：**一个界面走完一箱的采集**。
+ * 采集页：**一箱一张，拍完核对，再进下一箱**。
  *
- * 设计目标（针对旧版的三个体验问题）：
- *  - 旧版每扫一次弹一次确认框 → 这里改为**实时累加 + 常驻列表**，不打断
- *  - 旧版靠检测文档四边形定位 → 这里用**条码 boundingBox 追踪**（稳）
- *  - 旧版"稳定即拍"时机与眼睛错位 → 这里稳定后**自动拍照**，但参数全部上报日志，
- *    便于按真机手感回调阈值
+ * 设计原则（用户明确要求）：
+ *   进入托盘 → 对准标签 → 拍照（一张）→ 核对数据 → 对则保存 / 不对则重拍 → 下一张
  *
- * 所有关键环节都写 [Diag]，用户实际使用后可直接从日志定位问题（不必口述）。
+ * 为什么不做成"实时连续识别"：
+ *  1. **费电** —— 相机与分析器需持续工作；
+ *  2. 实时多帧累加会让人不知道"什么时候算识别完"，且误识别的值会混进来；
+ *  3. 把"按下快门的时机"交给算法判断，必然与人的直觉错位。
+ *   改成单张后：相机只在拍摄那一下工作，结果确定，核对独立成一步。
+ *
+ * 状态机：PREVIEW（取景）→ REVIEW（核对）→ 保存后回 PREVIEW
+ * 核对期间相机不采集（省电）。
  */
 class CollectActivityV2 : AppCompatActivity() {
 
     companion object {
         private const val TAG = "CollectV2"
         private const val REQ_CAMERA = 1001
-
         const val EXTRA_TRAY_CODE = "tray_code"
+
+        /** 对准后是否自动拍一张（可在界面上切换；关掉就完全手动）。 */
+        private const val AUTO_CAPTURE_DEFAULT = true
+
+        /** 拍完静图后最长等多久拿识别结果（超时则按"没识别到"处理）。 */
+        private const val STILL_TIMEOUT_MS = 6000L
 
         fun intent(context: Context, trayCode: String): Intent =
             Intent(context, CollectActivityV2::class.java).putExtra(EXTRA_TRAY_CODE, trayCode)
     }
 
+    private enum class Phase { PREVIEW, REVIEW }
+
     private lateinit var binding: ActivityCollectV2Binding
     private lateinit var tray: TraySessionV2
-    private var analyzer: SmartTrackAnalyzer? = null
-    private var imageCapture: ImageCapture? = null
     private val cameraExecutor = Executors.newSingleThreadExecutor()
 
-    /** 当前这一箱累计到的原始码（跨帧累加，去重由解析器负责）。 */
-    private val codesThisBox = linkedSetOf<String>()
-    /** 当前这一箱累计到的 OCR 文本行。 */
-    private val ocrThisBox = linkedSetOf<String>()
+    private var provider: ProcessCameraProvider? = null
+    private var imageCapture: ImageCapture? = null
+    /** bindToLifecycle 之后才有值（分析器通过 lambda 惰性读取）。 */
+    @Volatile
+    private var cameraControlOrNull: androidx.camera.core.CameraControl? = null
+    private var analyzer: SingleShotAnalyzer? = null
 
-    /** 是否允许自动拍照（用户可关，避免连续误拍）。 */
-    private var autoCapture = true
-    /** 拍照进行中，避免稳定判定连发。 */
+    private var phase = Phase.PREVIEW
+    private var autoCapture = AUTO_CAPTURE_DEFAULT
     private var capturing = false
-    /** 帧计数，用于 scan_frame 采样上报。 */
-    private var frameCount = 0
+    private var pendingFile: File? = null
+
+    // 本张标签的识别结果（单张，不跨张累加）
+    private var codesThisShot = emptyList<String>()
+    private var ocrThisShot = ""
+    private var parsed: BoxParseResultV2? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,14 +102,20 @@ class CollectActivityV2 : AppCompatActivity() {
         Diag.event("collect_open", mapOf("tray" to trayCode))
 
         binding.trayCodeText.text = trayCode.ifBlank { "(未命名托盘)" }
-        binding.btnConfirm.setOnClickListener { confirmBox() }
-        binding.btnRescan.setOnClickListener { resetCurrentBox("用户点重扫") }
-        binding.btnManual.setOnClickListener { showManualInput() }
+        binding.switchAuto.isChecked = autoCapture
         binding.switchAuto.setOnCheckedChangeListener { _, checked ->
             autoCapture = checked
             Diag.event("auto_capture_toggle", mapOf("on" to checked))
         }
+
+        binding.btnShutter.setOnClickListener { captureNow("manual") }
+        binding.btnConfirm.setOnClickListener { saveCurrentShot() }
+        binding.btnRescan.setOnClickListener { backToPreview("用户点重拍") }
+        binding.btnManual.setOnClickListener { showManualInput() }
         binding.btnFinish.setOnClickListener { finishTray() }
+
+        refreshTrayLine()
+        refreshPreviewHint()
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
@@ -109,21 +133,21 @@ class CollectActivityV2 : AppCompatActivity() {
         if (requestCode == REQ_CAMERA && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
             startCamera()
         } else {
-            Toast.makeText(this, "需要相机权限才能采集", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "需要相机权限；也可以点「补录」手工填", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun startCamera() {
-        val providerFuture = ProcessCameraProvider.getInstance(this)
-        providerFuture.addListener({
-            val provider = providerFuture.get()
-            cameraProviderRef = provider
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            val p = future.get()
+            provider = p
+
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(binding.previewView.surfaceProvider)
             }
 
-            // 分析帧不需要高分辨率：识别靠静图，实时帧只用于追踪与粗筛，
-            // 降一档能显著降低 CPU/延迟（旧版卡顿的一个来源）。
+            // 分析帧只用于"对准了没有"的判断，分辨率压到 720p 省电
             val resolution = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(
@@ -136,31 +160,33 @@ class CollectActivityV2 : AppCompatActivity() {
                 .setResolutionSelector(resolution)
                 .build()
 
-            // 拍照用最高质量：强通道(zxing-cpp)靠的是这张静图
             val capture = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                 .build()
             imageCapture = capture
 
-            val track = SmartTrackAnalyzer(
-                getZoomState = { provider.getCameraInfo(CameraSelector.DEFAULT_BACK_CAMERA).zoomState.value },
-                getCameraControl = { cameraControlHolderOrNull },
-                onStable = {
-                    if (autoCapture) runOnUiThread { takePicture() }
+            val a = SingleShotAnalyzer(
+                getZoomState = {
+                    p.getCameraInfo(CameraSelector.DEFAULT_BACK_CAMERA).zoomState.value
                 },
-                onFrame = { barcodes, lines, box ->
-                    runOnUiThread { onFrame(barcodes, lines, box) }
+                getCameraControl = { cameraControlOrNull },
+                onAligned = {
+                    // 对准且稳定：只在自动模式、且当前处于取景态时拍一张
+                    if (autoCapture && phase == Phase.PREVIEW && !capturing) {
+                        runOnUiThread { captureNow("aligned") }
+                    }
+                },
+                onProgress = { aligned, areaRatio ->
+                    runOnUiThread { showAlignment(aligned, areaRatio) }
                 },
             )
-            analyzer = track
-            analysis.setAnalyzer(cameraExecutor, track)
+            analyzer = a
+            analysis.setAnalyzer(cameraExecutor, a)
 
             try {
-                val camera = provider.bindToLifecycle(
-                    this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis, capture,
-                )
-                cameraControlHolderOrNull = camera.cameraControl
-                Diag.event("camera_started", mapOf("zoom_max" to camera.cameraInfo.zoomState.value?.maxZoomRatio))
+                val cam = p.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis, capture)
+                cameraControlOrNull = cam.cameraControl
+                Diag.event("camera_started", emptyMap())
             } catch (t: Throwable) {
                 Log.e(TAG, "相机启动失败", t)
                 Diag.event("camera_failed", mapOf("err" to t.message))
@@ -169,231 +195,238 @@ class CollectActivityV2 : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    /** bindToLifecycle 之后才有值；分析器通过 lambda 惰性读取。 */
-    @Volatile
-    private var cameraControlHolderOrNull: androidx.camera.core.CameraControl? = null
+    // ===== 取景态 =====
 
-    /** 每帧回调：累加码与文本，刷新预览信息。 */
-    private fun onFrame(barcodes: List<String>, lines: List<String>, box: android.graphics.Rect?) {
-        var added = 0
-        for (c in barcodes) {
-            if (codesThisBox.add(c)) added++
+    private fun showAlignment(aligned: Boolean, areaRatio: Float) {
+        if (phase != Phase.PREVIEW) return
+        binding.hint.text = if (aligned) {
+            if (autoCapture) "✅ 已对准，正在拍摄…" else "✅ 已对准，按快门"
+        } else {
+            "把标签放进取景框（当前占 ${(areaRatio * 100).toInt()}%）"
         }
-        for (l in lines) ocrThisBox.add(l)
-
-        frameCount++
-        // scan_frame 采样上报：每 10 帧或本帧有新增码时
-        if (frameCount % 10 == 0 || added > 0) {
-            val areaRatio = box?.let {
-                (it.width().toFloat() * it.height()) / (1280f * 720f)
-            } ?: 0f
-            Diag.event(
-                "scan_frame",
-                mapOf(
-                    "barcodes" to barcodes.size,
-                    "added" to added,
-                    "codes_total" to codesThisBox.size,
-                    "ocr_lines" to lines.size,
-                    "ocr_total" to ocrThisBox.size,
-                    "box_area" to String.format("%.3f", areaRatio),
-                    "zoom" to zoomRatioForLog(),
-                ),
-            )
-        }
-        if (added > 0) beep()
-        refreshParsedPreview()
     }
 
-    private var cameraProviderRef: ProcessCameraProvider? = null
-
-    /** 当前变焦倍数（用于日志）。 */
-    private fun zoomRatioForLog(): String {
-        val z = cameraProviderRef
-            ?.getCameraInfo(CameraSelector.DEFAULT_BACK_CAMERA)
-            ?.zoomState?.value?.zoomRatio
-        return String.format("%.2f", z ?: 0f)
+    private fun refreshPreviewHint() {
+        binding.hint.text = if (autoCapture) "对准标签，自动拍摄一张" else "对准标签后按快门"
     }
 
-    /**
-     * 统一的解析入口：把"含分隔符的码"（集成二维码，如
-     * `SCAG...B3,SCAG...B4,...`）分流给 qrPayloads，其余走普通码。
-     * 不分流的话，整串会被 classify 当成非法值丢弃，一箱 8/24 个 SN 全丢。
-     */
-    private fun parseCurrentBox(): BoxParseResultV2 {
-        val raw = codesThisBox.toList()
-        val qr = raw.filter { it.contains(',') || it.contains(';') }
-        val plain = raw.filterNot { it in qr }
-        return LabelParserV2.parse(
-            codes = plain,
-            ocrLines = ocrThisBox.toList(),
-            qrPayloads = qr,
-        )
-    }
-
-    /** 用已测过的解析内核实时预览"这一箱现在解析成什么样"。 */
-    private fun refreshParsedPreview() {
-        val result = parseCurrentBox()
-        binding.textParsed.text = buildString {
-            appendLine("物料  ${result.materialCode.ifBlank { "—" }}")
-            appendLine("序列号  ${if (result.serialNumbers.isEmpty()) "—" else "${result.serialNumbers.size} 个"}")
-            appendLine("日期  ${result.productionDate.ifBlank { "—" }}")
-            appendLine("箱号  ${result.boxCode.ifBlank { "—" }}")
-            if (result.warnings.isNotEmpty()) {
-                appendLine()
-                result.warnings.forEach { appendLine("⚠️ $it") }
-            }
-            appendLine()
-            append(
-                when {
-                    result.warnings.isNotEmpty() -> "⚠️ 有问题，请重扫或补录后再入库"
-                    result.hasData -> "✅ 已识别，确认无误后点「入库」保存这一箱"
-                    codesThisBox.isEmpty() && ocrThisBox.isEmpty() -> "对准标签，自动识别…"
-                    else -> "识别中…（也可点「补录」手工填）"
-                }
-            )
-        }
-        binding.textParsed.setTextColor(
-            if (result.warnings.isEmpty()) 0xFF1B5E20.toInt() else 0xFFB71C1C.toInt()
-        )
-    }
-
-    private fun takePicture() {
+    private fun captureNow(reason: String) {
         val capture = imageCapture ?: return
-        if (capturing) return
+        if (phase != Phase.PREVIEW || capturing) return
         capturing = true
         val t0 = System.currentTimeMillis()
-        val file = File(cacheDir, "box_${System.currentTimeMillis()}.jpg")
+        val file = File(cacheDir, "shot_${System.currentTimeMillis()}.jpg")
+        Diag.event("capture_start", mapOf("reason" to reason))
 
         capture.takePicture(
             ImageCapture.OutputFileOptions.Builder(file).build(),
             cameraExecutor,
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
-                    val cost = System.currentTimeMillis() - t0
-                    Diag.event(
-                        "photo_taken",
-                        mapOf("ms" to cost, "bytes" to file.length(), "codes" to codesThisBox.size),
-                    )
-                    runOnUiThread {
-                        capturing = false
-                        // 静图交给强通道再跑一遍（实时帧会漏小码/斜角）
-                        recognizeStill(file)
-                    }
+                    val shotMs = System.currentTimeMillis() - t0
+                    Diag.event("photo_taken", mapOf("ms" to shotMs, "bytes" to file.length()))
+                    pendingFile = file
+                    // 先在静图上做透视矫正得到"正图"，再用正图识别。
+                    // 静图只检测一次，不存在实时预览那种边框乱跳。
+                    rectifyThenRecognize(file, shotMs)
                 }
 
                 override fun onError(e: ImageCaptureException) {
                     capturing = false
                     Diag.event("photo_error", mapOf("err" to e.message))
-                    Log.w(TAG, "拍照失败", e)
+                    runOnUiThread { Toast.makeText(this@CollectActivityV2, "拍照失败：${e.message}", Toast.LENGTH_SHORT).show() }
                 }
             },
         )
     }
 
     /**
-     * 静图识别：走上层的强通道（zxing-cpp 3× + ML Kit）。
-     * 具体实现放在 StillRecognizerBridge，避免本文件与相机库耦合。
+     * 先矫正（自动找标签四角做透视变换），再用正图识别。
+     * 矫正失败不影响流程：退回原图继续识别。
      */
-    private fun recognizeStill(file: File) {
-        StillRecognizerBridge.recognize(
-            file,
-            onDone = { extra, ocrText ->
-                var added = 0
-                for (c in extra) if (codesThisBox.add(c)) added++
-                // 静图 OCR 文本按行并入同一个池子（实时帧的 OCR 也在里面）
-                val stillLines = ocrText.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
-                ocrThisBox.addAll(stillLines)
-                if (added > 0) beep()
-                refreshParsedPreview()
-                Diag.event(
-                    "still_recognized",
-                    mapOf(
-                        "found" to extra.size,
-                        "added" to added,
-                        "codes_total" to codesThisBox.size,
-                        "ocr_lines" to stillLines.size,
-                        "ocr_total" to ocrThisBox.size,
-                    ),
-                )
-                file.delete()
-            },
-            onFail = { msg ->
-                Diag.event("still_failed", mapOf("err" to msg))
-                file.delete()
-            },
-        )
+    private fun rectifyThenRecognize(file: File, shotMs: Long) {
+        cameraExecutor.execute {
+            val src = BitmapFactory.decodeFile(file.absolutePath)
+            if (src == null) {
+                runOnUiThread {
+                    capturing = false
+                    Toast.makeText(this, "照片解码失败，请重拍", Toast.LENGTH_SHORT).show()
+                }
+                return@execute
+            }
+            val tRect = System.currentTimeMillis()
+            val rect = LabelRectifier.rectify(src)
+            val rectMs = System.currentTimeMillis() - tRect
+            Diag.event(
+                "rectify",
+                mapOf(
+                    "ok" to rect.ok,
+                    "note" to rect.note,
+                    "ms" to rectMs,
+                    "in_wh" to "${src.width}x${src.height}",
+                    "out_wh" to "${rect.bitmap.width}x${rect.bitmap.height}",
+                    "corners" to (rect.corners?.joinToString("|") { "${it.x.toInt()},${it.y.toInt()}" } ?: "-"),
+                ),
+            )
+            // 用矫正后的图识别（条码通道 + OCR 通道都在这里跑）
+            StillRecognizerBridge.recognizeBitmap(
+                bitmap = rect.bitmap,
+                onDone = { codes, ocrText ->
+                    codesThisShot = codes
+                    ocrThisShot = ocrText
+                    parsed = parseShot()
+                    Diag.event(
+                        "still_recognized",
+                        mapOf(
+                            "codes" to codes.size,
+                            "ocr_len" to ocrText.length,
+                            "rectified" to rect.ok,
+                            "material" to parsed?.materialCode.orEmpty(),
+                            "sn_count" to (parsed?.serialNumbers?.size ?: 0),
+                            "date" to parsed?.productionDate.orEmpty(),
+                            "box" to parsed?.boxCode.orEmpty(),
+                        ),
+                    )
+                    runOnUiThread { enterReview() }
+                },
+                onFail = { msg ->
+                    Diag.event("still_failed", mapOf("err" to msg))
+                    runOnUiThread {
+                        capturing = false
+                        Toast.makeText(this, "识别失败：$msg（可重拍）", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
+        }
     }
 
-    /** 确认入库：把当前累计的码交给解析内核归组，加入托盘。 */
-    private fun confirmBox() {
-        val result = parseCurrentBox()
-        if (!result.hasData) {
-            Toast.makeText(this, "还没有识别到内容", Toast.LENGTH_SHORT).show()
+    /**
+     * 静图识别 → 进入核对态。
+     * 这是**唯一**的识别入口：一箱只识别一次，结果确定，不存在"还在扫"的中间态。
+     */
+
+    /** 单张解析（集成码分流：含分隔符的走 qrPayloads）。 */
+    private fun parseShot(): BoxParseResultV2 {
+        val qr = codesThisShot.filter { it.contains(',') || it.contains(';') }
+        val plain = codesThisShot.filterNot { it in qr }
+        val ocrLines = ocrThisShot.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        return LabelParserV2.parse(codes = plain, ocrLines = ocrLines, qrPayloads = qr)
+    }
+
+    // ===== 核对态 =====
+
+    private fun enterReview() {
+        phase = Phase.REVIEW
+        capturing = false
+        beep()
+
+        // 核对期间不再需要实时分析：停掉分析器省电（预览画面保留）
+        setAnalysisEnabled(false)
+
+        val r = parsed
+        binding.textParsed.text = buildString {
+            appendLine("物料编码   ${r?.materialCode?.ifBlank { "—" } ?: "—"}")
+            appendLine("序列号     ${r?.serialNumbers?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "—"}")
+            appendLine("生产日期   ${r?.productionDate?.ifBlank { "—" } ?: "—"}")
+            appendLine("箱号       ${r?.boxCode?.ifBlank { "—" } ?: "—"}")
+            val warns = r?.warnings.orEmpty()
+            if (warns.isNotEmpty()) {
+                appendLine()
+                warns.forEach { appendLine("⚠️ $it") }
+            }
+            appendLine()
+            append(if (r?.hasData == true) "核对无误后点「保存这一箱」" else "没读到内容，请点「重拍」或「补录」")
+        }
+        binding.textParsed.setTextColor(
+            if (r?.warnings.isNullOrEmpty() && r?.hasData == true) 0xFF1B5E20.toInt() else 0xFFB71C1C.toInt()
+        )
+        binding.hint.text = "核对识别结果"
+        setReviewButtons(true)
+    }
+
+    private fun backToPreview(reason: String) {
+        val f = pendingFile
+        if (f != null && f.exists()) f.delete()
+        pendingFile = null
+        codesThisShot = emptyList()
+        ocrThisShot = ""
+        parsed = null
+        phase = Phase.PREVIEW
+        capturing = false
+        analyzer?.restart()
+        setAnalysisEnabled(true)
+        setReviewButtons(false)
+        refreshPreviewHint()
+        Diag.event("shot_discarded", mapOf("reason" to reason))
+    }
+
+    /** 核对态下：只留「保存 / 重拍 / 补录」，隐藏快门。 */
+    private fun setReviewButtons(inReview: Boolean) {
+        binding.btnShutter.visibility = if (inReview) View.GONE else View.VISIBLE
+        binding.btnConfirm.visibility = if (inReview) View.VISIBLE else View.GONE
+        binding.btnRescan.visibility = if (inReview) View.VISIBLE else View.GONE
+    }
+
+    private fun saveCurrentShot() {
+        val r = parsed
+        if (r == null || !r.hasData) {
+            Toast.makeText(this, "没有可保存的数据", Toast.LENGTH_SHORT).show()
             return
         }
-        val record = BoxRecordV2.from(result)
+        val record = BoxRecordV2.from(r)
         tray.addBox(record)
         Diag.event(
-            "box_confirmed",
+            "box_saved",
             mapOf(
                 "material" to record.materialCode,
                 "box" to record.boxCode,
                 "sn_count" to record.serialNumbers.size,
                 "qty" to record.effectiveQty,
                 "warnings" to record.warnings.joinToString(";"),
-                "ocr_total" to ocrThisBox.size,
                 "tray_boxes" to tray.totalBoxes,
                 "tray_units" to tray.totalUnits,
             ),
         )
-        Toast.makeText(
-            this,
-            "已入库（本托盘 ${tray.totalBoxes} 箱 / ${tray.totalUnits} 件）",
-            Toast.LENGTH_SHORT,
-        ).show()
-        resetCurrentBox("入库后自动清空")
+        pendingFile?.let { if (it.exists()) it.delete() }
+        pendingFile = null
         refreshTrayLine()
-    }
-
-    private fun resetCurrentBox(reason: String) {
-        codesThisBox.clear()
-        ocrThisBox.clear()
-        analyzer?.restartStability()
-        refreshParsedPreview()
-        Diag.event("box_reset", mapOf("reason" to reason))
-        binding.textParsed.text = "对准标签，自动识别…"
-        binding.textParsed.setTextColor(0xFF37474F.toInt())
+        Toast.makeText(this, "已保存（本托盘 ${tray.totalBoxes} 箱 / ${tray.totalUnits} 件）", Toast.LENGTH_SHORT).show()
+        backToPreview("保存后进入下一张")
     }
 
     private fun refreshTrayLine() {
         binding.trayStat.text = "本托盘：${tray.totalBoxes} 箱 / ${tray.totalUnits} 件"
     }
 
+    private fun setAnalysisEnabled(enabled: Boolean) {
+        // 核对期间停分析（省电）；预览画面保持不动，便于对照实物。
+        val a = analyzer ?: return
+        if (enabled) a.resume() else a.pause()
+    }
+
     private fun showManualInput() {
         val input = android.widget.EditText(this)
         AlertDialog.Builder(this)
-            .setTitle("手工补录（扫不到时用）")
+            .setTitle("手工补录")
             .setMessage("每行一个值：物料编码 / 序列号 / 日期 / 箱号 都可以")
             .setView(input)
-            .setPositiveButton("加入") { _, _ ->
-                val lines = input.text.toString().split('\n', ',', ';')
-                    .map { it.trim() }.filter { it.isNotEmpty() }
-                var added = 0
-                for (l in lines) if (codesThisBox.add(l)) added++
-                Diag.event("manual_input", mapOf("lines" to lines.size, "added" to added))
-                refreshParsedPreview()
+            .setPositiveButton("用这些值核对") { _, _ ->
+                codesThisShot = input.text.toString()
+                    .split('\n', ',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+                ocrThisShot = ""
+                parsed = parseShot()
+                Diag.event("manual_input", mapOf("lines" to codesThisShot.size))
+                enterReview()
             }
             .setNegativeButton("取消", null)
             .show()
     }
 
     private fun finishTray() {
-        tray.let {
-            Diag.event(
-                "tray_finished",
-                mapOf("boxes" to it.totalBoxes, "units" to it.totalUnits, "rows" to it.totalRows),
-            )
-        }
+        Diag.event(
+            "tray_finished",
+            mapOf("boxes" to tray.totalBoxes, "units" to tray.totalUnits, "rows" to tray.totalRows),
+        )
         startActivity(TraySummaryActivityV2.intent(this, tray))
         finish()
     }
@@ -412,6 +445,7 @@ class CollectActivityV2 : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        pendingFile?.let { if (it.exists()) it.delete() }
         analyzer?.close()
         cameraExecutor.shutdown()
         super.onDestroy()

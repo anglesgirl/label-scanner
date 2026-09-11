@@ -35,7 +35,18 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
-    <!-- 实时解析结果：采到什么就显示什么，异常当场红字 -->
+    <!-- 对准提示：告诉用户现在能不能拍 -->
+    <TextView
+        android:id="@+id/hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#22000000"
+        android:padding="8dp"
+        android:gravity="center"
+        android:text="对准标签，自动拍摄一张"
+        android:textSize="14sp" />
+
+    <!-- 识别结果（核对态显示，取景态也保留最近一次结果） -->
     <TextView
         android:id="@+id/textParsed"
         android:layout_width="match_parent"
@@ -73,25 +84,33 @@
         android:padding="8dp">
 
         <Button
+            android:id="@+id/btnShutter"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:enabled="true"
+            android:text="📷 拍一张" />
+
+        <Button
             android:id="@+id/btnConfirm"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="✓ 入库" />
+            android:text="✓ 保存这一箱" />
 
         <Button
             android:id="@+id/btnRescan"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="重扫" />
+            android:text="↻ 重拍" />
 
         <Button
             android:id="@+id/btnManual"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="补录" />
+            android:text="✎ 补录" />
 
         <Button
             android:id="@+id/btnFinish"

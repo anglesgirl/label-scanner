@@ -32,13 +32,24 @@ object StillRecognizerBridge {
             onFail("照片文件为空")
             return
         }
-
         val bitmap = decodeScaled(file)
         if (bitmap == null) {
             onFail("照片解码失败")
             return
         }
+        recognizeBitmap(bitmap, onDone, onFail)
+    }
 
+    /**
+     * 直接识别一张 Bitmap。
+     * 之所以单独提供：拍照后会先用 [LabelRectifier] 做透视矫正，
+     * 要识别的对象是**矫正后的正图**，而不是原始照片。
+     */
+    fun recognizeBitmap(
+        bitmap: Bitmap,
+        onDone: (codes: List<String>, ocrText: String) -> Unit,
+        onFail: (String) -> Unit,
+    ) {
         try {
             StaticRecognizer.recognize(
                 bitmap = bitmap,
@@ -62,9 +73,6 @@ object StillRecognizerBridge {
         } catch (t: Throwable) {
             Log.e(TAG, "静图识别异常", t)
             onFail(t.message ?: "识别异常")
-        } finally {
-            // StaticRecognizer 内部是异步的，Bitmap 交给它用完自行回收；
-            // 这里只在同步异常路径回收，避免提前释放导致 native crash。
         }
     }
 
