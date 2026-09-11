@@ -159,6 +159,10 @@ class SplitCodeActivity : AppCompatActivity() {
             return
         }
         snList.clear()
+        // 逐箱独立拆分：绝不把多箱拼成一个字符串再拆。
+        // 集成码末位不带逗号，若直接首尾相接（"…尾" + "头…"）会粘成一个不存在的号，
+        // 且拆分结果看起来"正常"，属于最难发现的那种错。将来若确需拼接，
+        // 一律用 joinToString(",") 显式插入分隔符，禁止字符串相加。
         for (c in codes) snList.addAll(splitCodes(listOf(c)))
         tvSourceCode.text = "共 ${codes.size} 箱，拆出 ${snList.size} 个 SN"
         tvSourceCode.visibility = TextView.VISIBLE

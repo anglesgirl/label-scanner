@@ -5,6 +5,12 @@
     android:background="#EDF1F7"
     android:fillViewport="true">
 
+    <!-- ScrollView 只允许一个直接子元素，所有内容都放在这个垂直容器里 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -26,9 +32,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:layout_marginTop="4dp"
-                android:text="＋ 再加一箱"
-                android:visibility="gone" />
-        </LinearLayout>
+                android:text="＋ 再加一箱" />
 
         <!-- 手动粘贴集成码 -->
         <TextView
