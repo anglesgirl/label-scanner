@@ -385,9 +385,11 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             // 易混淆字符（O/0、I/l/1）标红加粗 —— OCR 分不清这些形状，人眼扫过去
             // 同样分不清（如 "CS1RVO09B4" 里字母 O 和数字 0 紧挨着），
             // 标出来才能让人专注于核对这些位。
+            // 只有 OCR 兜底得到的 SN 才标红 + 打来源标记：条码是扫码枪读的权威值，
+            // 不可能认错字符，标红反而变噪音（用户明确要求）。
             tvSn.text = android.text.TextUtils.concat(
                 "${index + 1}. ",
-                AmbiguousChar.highlight(sn),
+                if (sn in snFromOcr) AmbiguousChar.highlight(sn) else sn,
                 // 条码扫不出来的标签才会走到 OCR 兜底，这类值必须人工核对 ——
                 // 标出来，别跟条码扫出的可信值混着看。
                 if (sn in snFromOcr) ocrTag() else "",
@@ -520,14 +522,13 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
             val src = codeCandidateSources[code]
-            // 易混淆字符照样标红 —— 候选区是用户挑值的地方，尤其需要能看清 O/0、I/l/1。
+            // 只有 OCR 来源才标红易混字符 —— 条码是扫码枪读出来的权威值，不存在认错
+            // 字符的问题，标红只会变成噪音、还让人误以为需要核对（用户明确要求）。
             // （片段颜色由 ForegroundColorSpan 决定，会盖过下面 setTextColor 的整行设色，
             //   所以 `[OCR]` 前缀仍是主题色，只有可疑字符变红。）
-            tv.text = if (src == null) {
-                AmbiguousChar.highlight(code)
-            } else {
-                android.text.TextUtils.concat("[$src] ", AmbiguousChar.highlight(code))
-            }
+            val body: CharSequence = if (src == "OCR") AmbiguousChar.highlight(code) else code
+            tv.text = if (src == null) body
+            else android.text.TextUtils.concat("[$src] ", body)
             tv.setTextColor(
                 if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)
             )
