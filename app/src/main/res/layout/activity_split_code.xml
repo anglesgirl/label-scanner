@@ -35,6 +35,28 @@
                 android:layout_marginTop="4dp"
                 android:text="＋ 再加一箱" />
 
+        <!-- 候选码区：本次扫到的码先全量收下，再由用户逐个决定填入哪一箱。
+             采集层负责"不丢"，分配交给用户 —— 这是两种不同性质的判断。 -->
+        <TextView
+            android:id="@+id/tvCandTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📥 候选码（点「填入」指定归属）"
+            android:textColor="@color/ls_text"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:layout_marginTop="14dp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/llScanCandidates"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="6dp"
+            android:visibility="gone" />
+
+
         <!-- 手动粘贴集成码 -->
         <TextView
             android:layout_width="match_parent"

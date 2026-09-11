@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.view.LayoutInflater
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -74,46 +75,102 @@ class SplitCodeActivity : AppCompatActivity() {
             ?: return@registerForActivityResult
         if (list.isEmpty()) return@registerForActivityResult
 
+        // 采集层已"全量收下"，这里只决定归属：
+        // 只有一个码且指定了目标箱 → 直接填，少一次点击；
+        // 多个码（或没指定目标）→ 进候选区，由用户逐个点「填入」指定归属，
+        // 而不是替用户挑一个填掉、其余静默丢弃。
         val idx = scanTargetRow
-        // 采集的原则是「全量获得数据」，不是「挑最快的那个」。
-        // 同一帧里识别到的集成码一个都不能丢：第一个进目标箱，其余各占新行。
-        val integrated = list.filter { it.contains(',') || it.contains('，') }
-        val others = list.filterNot { it.contains(',') || it.contains('，') }
-
-        if (integrated.isNotEmpty()) {
-            var first = true
-            for (code in integrated) {
-                if (first && idx >= 0 && idx < rows.size) {
-                    rows[idx].input.setText(code)
-                    rows[idx].check.isChecked = true
-                    first = false
-                } else {
-                    val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
-                    if (empty != null) {
-                        empty.input.setText(code); empty.check.isChecked = true
-                    } else {
-                        addBoxRow().input.setText(code)
-                    }
-                }
-            }
-            tvSplitStatus.text = "已扫入 ${integrated.size} 个集成码" +
-                if (others.isNotEmpty()) "（另有 ${others.size} 个非集成码未填入）" else ""
+        if (list.size == 1 && idx >= 0 && idx < rows.size) {
+            rows[idx].input.setText(list[0])
+            rows[idx].check.isChecked = true
+            tvSplitStatus.text = "已填第 ${idx + 1} 箱"
         } else {
-            // 没扫到集成码：仍填进去让用户自己判断，并明确提示这不是集成码
-            // 没有集成码时也不丢弃：同帧的码全部填进去（各占一行），让上层/用户决定。
-            var first = true
-            for (code in list) {
-                if (first && idx >= 0 && idx < rows.size) {
-                    rows[idx].input.setText(code); rows[idx].check.isChecked = true; first = false
-                } else {
-                    val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
-                    if (empty != null) { empty.input.setText(code); empty.check.isChecked = true }
-                    else addBoxRow().input.setText(code)
-                }
-            }
-            tvSplitStatus.text = "未识别到集成码（这些看起来是单条码），如不对请重扫"
+            addCandidates(list)
+            tvSplitStatus.text = "扫到 ${list.size} 个码，已放入候选区，请点「填入」指定归属"
         }
     }
+
+    /** 扫到但尚未指定归属的码（全量收下，一个不丢）。 */
+    private val pendingCodes = mutableListOf<String>()
+
+    private fun addCandidates(codes: List<String>) {
+        for (c in codes) if (c !in pendingCodes) pendingCodes.add(c)
+        renderCandidates()
+    }
+
+    /** 候选区：每行一个码 + 「填入 ▾」（选它去第几箱）+ 「✕」（丢弃）。 */
+    private fun renderCandidates() {
+        llScanCandidates.removeAllViews()
+        val show = pendingCodes.isNotEmpty()
+        tvCandTitle.visibility = if (show) View.VISIBLE else View.GONE
+        llScanCandidates.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) return
+
+        tvCandTitle.text = "\uD83D\uDCE5 候选码（${pendingCodes.size} 个，点「填入」指定归属）"
+        for (code in pendingCodes.toList()) {
+            val isInt = code.contains(',') || code.contains('\uFF0C')
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            val tv = TextView(this).apply {
+                text = (if (isInt) "[集成码] " else "[条码] ") + summarize(code)
+                textSize = 13f
+                setTextColor(c(R.color.ls_text))
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val btnAssign = Button(this).apply {
+                text = "填入 \u25BE"
+                textSize = 12f
+                minWidth = 0
+                minimumWidth = 0
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+            }
+            btnAssign.setOnClickListener { showAssignMenu(code) }
+            val btnDrop = Button(this).apply {
+                text = "\u2715"
+                textSize = 12f
+                minWidth = 0
+                minimumWidth = 0
+                setPadding(dp(8), dp(4), dp(8), dp(4))
+            }
+            btnDrop.setOnClickListener { pendingCodes.remove(code); renderCandidates() }
+            row.addView(tv)
+            row.addView(btnAssign)
+            row.addView(btnDrop)
+            llScanCandidates.addView(row)
+        }
+    }
+
+    /** 点「填入 ▾」：列出各箱，点哪个就填哪个。 */
+    private fun showAssignMenu(code: String) {
+        val labels = rows.indices.map { "第 ${it + 1} 箱" } + "＋ 新增一箱"
+        AlertDialog.Builder(this)
+            .setTitle("把这个码填入：")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which < rows.size) {
+                    rows[which].input.setText(code)
+                    rows[which].check.isChecked = true
+                } else {
+                    addBoxRow().also {
+                        it.input.setText(code)
+                        it.check.isChecked = true
+                    }
+                }
+                pendingCodes.remove(code)
+                renderCandidates()
+                tvSplitStatus.text = "已填入${labels[which]}"
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 长码只显示头尾，完整内容在箱里点一下可看（避免把界面撑开）。 */
+    private fun summarize(code: String): String =
+        if (code.length <= 26) code else code.take(14) + "…" + code.takeLast(8)
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     /** 一箱一行：勾选 + 输入框。 */
     private inner class BoxRow(val check: CheckBox, val input: EditText)
@@ -272,6 +329,8 @@ class SplitCodeActivity : AppCompatActivity() {
         llSplitResult = findViewById(R.id.llSplitResult)
         tvSplitStatus = findViewById(R.id.tvSplitStatus)
         llBoxes = findViewById(R.id.llBoxes)
+        llScanCandidates = findViewById(R.id.llScanCandidates)
+        tvCandTitle = findViewById(R.id.tvCandTitle)
 
         // 每箱一行：勾选 + 集成码输入框 + 扫 + 删（行由代码生成，默认给一箱）
         findViewById<Button>(R.id.btnAddBox).setOnClickListener { addBoxRow() }
@@ -489,6 +548,8 @@ class SplitCodeActivity : AppCompatActivity() {
 
     private fun resetAll() {
         // 清空所有箱，恢复成"一箱空白"
+        pendingCodes.clear()
+        renderCandidates()
         rows.clear()
         llBoxes.removeAllViews()
         addBoxRow()
