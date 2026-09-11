@@ -215,7 +215,7 @@ class LiveScanActivity : AppCompatActivity() {
         format == Barcode.FORMAT_PDF417
 
     private fun onCodesCollected(codes: List<TypedCode>) {
-        if (codes.isEmpty() || !paused.compareAndSet(false, true)) return
+        if (codes.isEmpty() || paused.get()) return
         val ordered = codes.sortedWith(
             compareByDescending<TypedCode> { it.value.contains(',') || it.value.contains('，') }
                 .thenByDescending { it.is2D }
@@ -225,6 +225,8 @@ class LiveScanActivity : AppCompatActivity() {
         // 不再多一次"全部使用"确认点击；填错了由拆分页的候选区修正。
         val hasIntegrated = ordered.any { it.value.contains(',') || it.value.contains('\uFF0C') }
         if (hasIntegrated) {
+            singleOnlyStreak = 0
+            if (!paused.compareAndSet(false, true)) return
             runOnUiThread {
                 beep()
                 setResult(RESULT_OK, Intent()
@@ -234,8 +236,12 @@ class LiveScanActivity : AppCompatActivity() {
             return
         }
 
-        // 只有单条码时仍弹框：这类多半是没对准（集成码没进画面），
-        // 直接返回会让用户以为扫到了，反而制造错误数据。
+        // 只有单条码：**先忍几帧**再考虑弹框。
+        // zxing 每 6 帧才跑一次，第一帧必然只有 ML Kit 的结果；若立刻弹框，
+        // 就会在集成码还没机会出现时反复打断用户（实测症状：一直提示、只有单个条码）。
+        if (++singleOnlyStreak < singleOnlyTolerance) return
+
+        if (!paused.compareAndSet(false, true)) return
         runOnUiThread {
             beep()
             val lines = ordered.mapIndexed { i, c ->
@@ -255,7 +261,7 @@ class LiveScanActivity : AppCompatActivity() {
                         .putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(ordered.map { it.value })))
                     finish()
                 }
-                .setNegativeButton("重新扫") { _, _ -> paused.set(false) }
+                .setNegativeButton("重新扫") { _, _ -> singleOnlyStreak = 0; paused.set(false) }
                 .show()
         }
     }
@@ -273,6 +279,16 @@ class LiveScanActivity : AppCompatActivity() {
     }
     private val zxingBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private var zxingFrameCounter = 0
+
+    /**
+     * 连续多少帧只看到单条码（没看到集成码）。
+     * zxing 强通道每 6 帧才跑一次，若不等待就会在第一帧误判「没有集成码」
+     * 而反复弹框 —— 用户实测到的「一直提示、实际只有单个条码」正是此因。
+     */
+    private var singleOnlyStreak = 0
+
+    /** 容忍帧数：约 0.2~0.3 秒，足够 zxing 跑一到两轮。 */
+    private val singleOnlyTolerance = 10
 
     /** zxing 补出的码（跨帧暂存，取用时清空）。 */
     private val zxingExtra = mutableListOf<String>()
