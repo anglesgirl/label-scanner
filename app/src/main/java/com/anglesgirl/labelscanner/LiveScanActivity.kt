@@ -39,6 +39,13 @@ class LiveScanActivity : AppCompatActivity() {
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_CODES = "extra_result_codes"
         const val EXTRA_BULK_MODE = "extra_bulk_mode"
+
+        /**
+         * 挑码模式：扫到的码**列出**在屏幕上，用户点哪个就用哪个（微信扫码的手感）。
+         * 与 bulkMode 的区别：bulkMode 是扫到即自动累加并返回，用户没机会挑选；
+         * 集成码这类场景常有多个码同屏出现，必须让用户点选才能取对。
+         */
+        const val EXTRA_PICK_MODE = "extra_pick_mode"
         const val EXTRA_EXPECTED_COUNT = "extra_expected_count"
         const val EXTRA_INITIAL_CODES = "extra_initial_codes"
     }
@@ -52,6 +59,10 @@ class LiveScanActivity : AppCompatActivity() {
 
     private var barcodeScanner: BarcodeScanner? = null
     private var bulkMode = false
+    /** 挑码模式：列出扫到的码供用户点选。 */
+    private var pickMode = false
+    /** 挑码模式下累计扫到的所有码（保持出现顺序、去重）。 */
+    private val seenCodes = linkedSetOf<String>()
     private var expectedCount = 0
     private val initialCodes = linkedSetOf<String>()
 
@@ -63,6 +74,7 @@ class LiveScanActivity : AppCompatActivity() {
         val tvHint = findViewById<TextView>(R.id.tvScanHint)
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
         bulkMode = intent.getBooleanExtra(EXTRA_BULK_MODE, false)
+        pickMode = intent.getBooleanExtra(EXTRA_PICK_MODE, false)
         expectedCount = intent.getIntExtra(EXTRA_EXPECTED_COUNT, 0)
         initialCodes += intent.getStringArrayListExtra(EXTRA_INITIAL_CODES).orEmpty()
         tvHint.text = if (title.isEmpty()) "对准条码，自动识别" else "对准${title}条码，自动识别"
@@ -108,7 +120,9 @@ class LiveScanActivity : AppCompatActivity() {
         barcodeScanner?.process(inputImage)
             ?.addOnSuccessListener { barcodes ->
                 val values = barcodes.mapNotNull { it.rawValue?.trim()?.takeIf(String::isNotBlank) }
-                if (bulkMode) onBarcodesDetected(values) else values.firstOrNull()?.let(::onBarcodeDetected)
+                if (pickMode) onBarcodesForPick(values)
+                else if (bulkMode) onBarcodesDetected(values)
+                else values.firstOrNull()?.let(::onBarcodeDetected)
             }
             ?.addOnFailureListener { /* 单帧失败忽略，继续下一帧 */ }
             ?.addOnCompleteListener { imageProxy.close() }
@@ -141,6 +155,59 @@ class LiveScanActivity : AppCompatActivity() {
     }
 
     /** SN 批量补扫：同帧返回全部条码，已有 SN 不重复加入。 */
+
+    /**
+     * 挑码模式：把这一帧扫到的码并入列表并刷新界面。
+     * **不自动返回** —— 由用户点击决定用哪个，这正是与 bulkMode 的关键差别。
+     */
+    private fun onBarcodesForPick(values: List<String>) {
+        var added = false
+        for (v in values) {
+            val t = v.trim()
+            if (t.isNotEmpty() && seenCodes.add(t)) added = true
+        }
+        if (!added) return
+        runOnUiThread {
+            beep()
+            renderPickList()
+        }
+    }
+
+    /** 绘制可点选的码列表：点哪一条就把哪一条返回给调用方。 */
+    private fun renderPickList() {
+        val panel = findViewById<android.view.View>(R.id.svPicked)
+        val box = findViewById<android.widget.LinearLayout>(R.id.llPickedCodes)
+        panel.visibility = android.view.View.VISIBLE
+        box.removeAllViews()
+
+        val hint = findViewById<TextView>(R.id.tvScanHint)
+        hint.text = "已扫到 ${seenCodes.size} 个码，点选要用的那个"
+
+        val dp = resources.displayMetrics.density
+        for (code in seenCodes) {
+            val row = TextView(this).apply {
+                text = code
+                textSize = 15f
+                setTextColor(0xFF1B6EF3.toInt())
+                setBackgroundColor(0xFFFFFFFF.toInt())
+                val p = (10 * dp).toInt()
+                setPadding(p, p, p, p)
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = (6 * dp).toInt() }
+            }
+            row.setOnClickListener {
+                setResult(
+                    RESULT_OK,
+                    Intent().putExtra(EXTRA_RESULT_CODE, code),
+                )
+                finish()
+            }
+            box.addView(row)
+        }
+    }
+
     private fun onBarcodesDetected(values: List<String>) {
         val newCodes = values.filterNot(initialCodes::contains).distinct()
         if (newCodes.isEmpty() || !paused.compareAndSet(false, true)) return

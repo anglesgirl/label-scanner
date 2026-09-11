@@ -50,4 +50,22 @@
         android:layout_gravity="center"
         android:background="@drawable/bg_scan_frame" />
 
+
+    <!-- 挑码模式：把扫到的码列出来，用户点哪个就用哪个（微信扫码那种手感） -->
+    <ScrollView
+        android:id="@+id/svPicked"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#CC000000"
+        android:maxHeight="220dp"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/llPickedCodes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
 </FrameLayout>

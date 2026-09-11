@@ -50,6 +50,27 @@ class SplitCodeActivity : AppCompatActivity() {
 
     private var pendingPhotoUri: Uri? = null
 
+    /** 多箱拆模式（每箱一行，全部完成后再出结果）。 */
+    private var multiMode = false
+    /** 多箱模式下每箱的集成码。 */
+    private val boxCodes = mutableListOf<String>()
+    private var llBoxes: android.widget.LinearLayout? = null
+    private var btnAddBox: android.view.View? = null
+
+    /**
+     * 挑码取码：调起 LiveScanActivity 的挑码模式 —— 相机实时扫到多个码后
+     * **列出让用户点选**，而不是像 bulkMode 那样扫到就自动返回。
+     * 集成码常与其它码同框出现，必须让用户点，否则极易取错码。
+     */
+    private val pickCode = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val code = result.data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)
+            ?: return@registerForActivityResult
+        onPickedCode(code)
+    }
+
     /** 拍照（系统相机） */
     private val takePhoto = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -86,7 +107,16 @@ class SplitCodeActivity : AppCompatActivity() {
         llSplitResult = findViewById(R.id.llSplitResult)
         tvSplitStatus = findViewById(R.id.tvSplitStatus)
 
-        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { launchCamera() }
+        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener
+        findViewById<Button>(R.id.btnScanPick).setOnClickListener { startPick() }
+        llBoxes = findViewById(R.id.llBoxes)
+        btnAddBox = findViewById(R.id.btnAddBox)
+        findViewById<Button>(R.id.btnModeSingle).setOnClickListener { setMultiMode(false) }
+        findViewById<Button>(R.id.btnModeMulti).setOnClickListener { setMultiMode(true) }
+        findViewById<Button>(R.id.btnAddBox).setOnClickListener {
+            // 多箱模式：点一次就进相机挑一个集成码，形成一个新箱
+            startPick()
+        } { launchCamera() }
         findViewById<Button>(R.id.btnScanDoc).setOnClickListener { launchDocScan() }
         findViewById<Button>(R.id.btnPickGallery).setOnClickListener { pickGallery.launch("image/*") }
         findViewById<Button>(R.id.btnSplit).setOnClickListener { splitManual() }
@@ -95,6 +125,102 @@ class SplitCodeActivity : AppCompatActivity() {
     }
 
     /** 系统相机拍照 → captures/ → 识别 */
+
+    /** 调起挑码相机：扫到多个码后由用户点选。 */
+    private fun startPick() {
+        try {
+            pickCode.launch(Intent(this, LiveScanActivity::class.java)
+                .putExtra(LiveScanActivity.EXTRA_TITLE, "扫集成码（扫到后点选）")
+                .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true))
+        } catch (t: Throwable) {
+            Toast.makeText(this, "相机启动失败：${t.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 切换单箱/多箱：多箱显示每箱一行与"添加一箱"，单箱隐藏这些。 */
+    private fun setMultiMode(multi: Boolean) {
+        multiMode = multi
+        val vis = if (multi) android.view.View.VISIBLE else android.view.View.GONE
+        llBoxes?.visibility = vis
+        btnAddBox?.visibility = vis
+        findViewById<Button>(R.id.btnModeMulti).alpha = if (multi) 1f else 0.6f
+        findViewById<Button>(R.id.btnModeSingle).alpha = if (multi) 0.6f else 1f
+        snList.clear()
+        rebuildResultList()
+        if (multi) {
+            renderBoxes()
+            tvSplitStatus.text = "多箱拆：每箱扫一个集成码，扫完全部后自动汇总"
+        } else {
+            tvSplitStatus.text = "单箱拆：扫到集成码立即拆分出序列号"
+        }
+    }
+
+    /** 挑到的码：单箱模式直接拆；多箱模式作为新的一箱加入列表。 */
+    private fun onPickedCode(code: String) {
+        if (multiMode) {
+            boxCodes.add(code)
+            renderBoxes()
+        } else {
+            etManualCode.setText(code)
+            splitManual()   // 单箱：直接出拆解结果
+        }
+    }
+
+    /**
+     * 多箱列表：每箱一行（第几箱 / 拆出的 SN 个数 / 删除）。
+     * 所有箱都能拆出 SN 后，一次性汇总所有箱的单箱条码。
+     */
+    private fun renderBoxes() {
+        val box = llBoxes ?: return
+        box.removeAllViews()
+        val dp = resources.displayMetrics.density
+        var totalSns = 0
+
+        boxCodes.forEachIndexed { index, code ->
+            val sns = splitCodes(listOf(code))
+            totalSns += sns.size
+
+            val row = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                setBackgroundColor(0xFFFFFFFF.toInt())
+                val p = (10 * dp).toInt()
+                setPadding(p, p, p, p)
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = (6 * dp).toInt() }
+            }
+            val label = android.widget.TextView(this).apply {
+                text = "箱${index + 1}  拆出 ${sns.size} 个 SN"
+                textSize = 14f
+                setTextColor(if (sns.isEmpty()) 0xFFD32F2F.toInt() else 0xFF1B5E20.toInt())
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val del = android.widget.Button(this).apply {
+                text = "删"
+                textSize = 12f
+                setOnClickListener {
+                    boxCodes.removeAt(index)
+                    renderBoxes()
+                }
+            }
+            row.addView(label)
+            row.addView(del)
+            box.addView(row)
+        }
+
+        // 全部完成 → 汇总列出所有箱的单箱条码
+        snList.clear()
+        for (c in boxCodes) snList.addAll(splitCodes(listOf(c)))
+        rebuildResultList()
+        tvSplitStatus.text = if (boxCodes.isEmpty()) {
+            "多箱拆：每箱扫一个集成码，扫完全部后自动汇总"
+        } else {
+            "${boxCodes.size} 箱，共拆出 ${totalSns} 个 SN" +
+                if (totalSns == 0) "（有箱没拆出内容，请检查）" else ""
+        }
+    }
+
     private fun launchCamera() {
         try {
             val dir = File(cacheDir, "captures").apply { mkdirs() }
@@ -293,6 +419,9 @@ class SplitCodeActivity : AppCompatActivity() {
     }
 
     private fun resetAll() {
+        // 多箱状态一并清空，避免残留上一次的箱
+        boxCodes.clear()
+        renderBoxes()
         etManualCode.setText("")
         snList.clear()
         llSplitResult.removeAllViews()
