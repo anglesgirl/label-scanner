@@ -81,11 +81,16 @@ class Barcode69Lookup(context: Context) {
         val out = LinkedHashMap<String, String>()
         try {
             val db = com.anglesgirl.labelscanner.data.LocalDatabase.get(appContext).readableDatabase
-            db.query("barcode69_lookup", arrayOf("ean69", "material_code")).use { c ->
+            // 用 rawQuery：SQLiteDatabase.query(table, columns) 这个重载并不存在
+            // （只有带 selection/orderBy 等完整参数的那几个），之前调用方式编译不过。
+            db.rawQuery("SELECT ean69, material_code FROM barcode69_lookup", null).use { c ->
+                val iEan = c.getColumnIndex("ean69")
+                val iMat = c.getColumnIndex("material_code")
+                if (iEan < 0 || iMat < 0) return@use
                 while (c.moveToNext()) {
-                    val ean = c.getString(0) ?: continue
-                    val mat = c.getString(1) ?: continue
-                    if (ean.isNotBlank() && mat.isNotBlank()) out[ean.trim()] = mat.trim()
+                    val ean = c.getString(iEan)
+                    val mat = c.getString(iMat)
+                    if (!ean.isNullOrBlank() && !mat.isNullOrBlank()) out[ean.trim()] = mat.trim()
                 }
             }
         } catch (t: Throwable) {
