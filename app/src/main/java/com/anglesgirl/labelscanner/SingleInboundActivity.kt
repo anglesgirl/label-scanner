@@ -38,7 +38,20 @@ class SingleInboundActivity : AppCompatActivity() {
     private lateinit var etTrayCode: EditText
     private lateinit var etDate: EditText
     private lateinit var etSn: EditText
-    private lateinit var etEan69: EditText
+    /**
+     * 合并后：物料编码与 69 码共用同一个输入框。
+     *
+     * 用户要求"把他们两个合并，给个按钮切换显示物料编码、切换显示 69 码"——
+     * 两者一一对应，并排占两个框没有意义；切到哪个视图，框里就显示哪个。
+     */
+    private var showingEan69 = false
+
+    /** 最近识别/输入到的 69 码。切到物料视图时它不显示，但保存时仍要用。 */
+    private var recognizedEan69 = ""
+
+    /** 当前有效的 69 码值（69 视图下取框内容，否则取暂存值）。 */
+    private val currentEan69: String
+        get() = if (showingEan69) etMaterial.text.toString().trim() else recognizedEan69
     private lateinit var etModel: EditText
     private lateinit var etColor: EditText
     private lateinit var etToner: EditText
@@ -110,7 +123,7 @@ class SingleInboundActivity : AppCompatActivity() {
         etTrayCode = findViewById(R.id.etTrayCode)
         etDate = findViewById(R.id.etDate)
         etSn = findViewById(R.id.etSn)
-        etEan69 = findViewById(R.id.etEan69)
+        findViewById<Button>(R.id.btnToggle69).setOnClickListener { toggleMaterialEanView() }
         etModel = findViewById(R.id.etModel)
         etColor = findViewById(R.id.etColor)
         etToner = findViewById(R.id.etToner)
@@ -154,15 +167,15 @@ class SingleInboundActivity : AppCompatActivity() {
         updateTrayGate()
         updateTrayCount()
 
-        // 69 码输入完（失焦或输够 13 位）自动反查
-        etEan69.addTextChangedListener(object : android.text.TextWatcher {
+        // 合并后只有这一个框：在「69 码」视图下输入满 13 位且 69 开头 → 自动反查物料
+        etMaterial.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
             override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
-                val ean = s?.toString()?.trim().orEmpty()
-                // 13 位 69 开头即自动反查（物料为空时才填）
-                if (ean.length == 13 && ean.startsWith("69") && etMaterial.text.toString().isBlank()) {
-                    doLookup69(ean, auto = true)
+                val v = s?.toString()?.trim().orEmpty()
+                if (showingEan69 && v.length == 13 && v.startsWith("69")) {
+                    recognizedEan69 = v
+                    doLookup69(v, auto = true)
                 }
             }
         })
@@ -173,7 +186,6 @@ class SingleInboundActivity : AppCompatActivity() {
             R.id.btnScanTrayCode to (etTrayCode to "托盘号"),
             R.id.btnScanDate to (etDate to "生产日期"),
             R.id.btnScanModel to (etModel to "型号"),
-            R.id.btnScanEan69 to (etEan69 to "69 商品码"),
         )
         for ((btnId, pair) in scanMap) {
             val field = pair.first
@@ -205,7 +217,8 @@ class SingleInboundActivity : AppCompatActivity() {
     private fun showResult(result: LabelResult) {
         etMaterial.setText(result.materialCode)
         etDate.setText(result.productionDate)
-        etEan69.setText(result.ean69)
+        recognizedEan69 = result.ean69
+        if (showingEan69 && result.ean69.isNotBlank()) etMaterial.setText(result.ean69)
         etModel.setText(result.model)
         etColor.setText(result.color)
         etToner.setText(result.tonerModel)
@@ -283,9 +296,46 @@ class SingleInboundActivity : AppCompatActivity() {
         etSn.setText("")
     }
 
+    /**
+     * 切换显示：物料编码 ⟷ 69 码。
+     *
+     * 两者一一对应，切换时顺带用对照表把另一侧补出来 —— 这就是"互补互查"：
+     * 无论是 OCR 认到物料、还是扫码枪扫到 69 码，都能切过去看到对应的另一个值。
+     */
+    private fun toggleMaterialEanView() {
+        val cur = etMaterial.text.toString().trim()
+        showingEan69 = !showingEan69
+        findViewById<Button>(R.id.btnToggle69).text = if (showingEan69) "物料" else "69"
+
+        val other: String = if (showingEan69) {
+            // 切到 69 视图：框里是 69 码就用它，否则用暂存的 69 码；
+            // 都没有就用对照表按物料反查 69 码。
+            val ean = if (cur.length == 13 && cur.startsWith("69")) cur else recognizedEan69
+            if (ean.isNotBlank()) {
+                recognizedEan69 = ean
+                ean
+            } else {
+                lookup69().lookupByMaterial(cur)?.also { recognizedEan69 = it } ?: cur
+            }
+        } else {
+            // 切回物料视图：按 69 码反查物料
+            val ean = if (cur.length == 13 && cur.startsWith("69")) cur else recognizedEan69
+            if (ean.isNotBlank()) {
+                recognizedEan69 = ean
+                lookup69().lookup(ean) ?: cur
+            } else cur
+        }
+        etMaterial.setText(other)
+        Toast.makeText(
+            this,
+            if (showingEan69) "已切换为 69 码" else "已切换为物料编码",
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
     /** 手动点「🔁 查」：无论物料是否已填都强制反查 */
     private fun manualLookup69() {
-        val ean = etEan69.text.toString().trim()
+        val ean = currentEan69
         if (ean.isEmpty()) {
             Toast.makeText(this, "先输入/扫描 69 商品码", Toast.LENGTH_SHORT).show()
             return
@@ -414,7 +464,14 @@ class SingleInboundActivity : AppCompatActivity() {
                     0 -> { etMaterial.setText(code); Toast.makeText(this, "物料已设为 $code", Toast.LENGTH_SHORT).show() }
                     1 -> { etTrayCode.setText(code); Toast.makeText(this, "托盘号已设为 $code", Toast.LENGTH_SHORT).show() }
                     2 -> { etDate.setText(code); Toast.makeText(this, "日期已设为 $code", Toast.LENGTH_SHORT).show() }
-                    3 -> { etEan69.setText(code); Toast.makeText(this, "69 码已设为 $code", Toast.LENGTH_SHORT).show() }
+                    3 -> {
+                        recognizedEan69 = code
+                        // 能反查到物料就直接补上，省得用户再切一次视图
+                        val m = lookup69().lookup(code)
+                        if (m != null) etMaterial.setText(m)
+                        else { showingEan69 = true; etMaterial.setText(code) }
+                        Toast.makeText(this, "69 码已设为 $code", Toast.LENGTH_SHORT).show()
+                    }
                     4 -> { etModel.setText(code); Toast.makeText(this, "型号已设为 $code", Toast.LENGTH_SHORT).show() }
                     5 -> {
                         if (code !in snList) { snList.add(code); rebuildSnList(); Toast.makeText(this, "已加入序列号", Toast.LENGTH_SHORT).show() }
@@ -440,7 +497,7 @@ class SingleInboundActivity : AppCompatActivity() {
         val tray = etTrayCode.text.toString().trim()
         if (tray.isEmpty()) { Toast.makeText(this, "托盘号必填（扫描或输入托盘码）", Toast.LENGTH_SHORT).show(); return }
         val date = etDate.text.toString().trim()
-        val ean = etEan69.text.toString().trim()
+        val ean = currentEan69
         val model = etModel.text.toString().trim()
         val color = etColor.text.toString().trim()
         val toner = etToner.text.toString().trim()
@@ -465,7 +522,7 @@ class SingleInboundActivity : AppCompatActivity() {
     private fun resetAll() {
         // 托盘号保留（整批沿用），其余清空
         etMaterial.setText(""); etDate.setText("")
-        etSn.setText(""); etEan69.setText(""); etModel.setText(""); etColor.setText(""); etToner.setText("")
+        etSn.setText(""); recognizedEan69 = ""; etModel.setText(""); etColor.setText(""); etToner.setText("")
         snList.clear(); codeCandidates.clear()
         rebuildSnList(); rebuildCodeCandidates()
         tvStatus.text = ""
@@ -497,7 +554,7 @@ class SingleInboundActivity : AppCompatActivity() {
         val locked = !hasTray
         val gated = listOf(
             R.id.btnTakePhoto, R.id.btnScanDoc, R.id.btnPickGallery,
-            R.id.btnScanMaterial, R.id.btnScanEan69,
+            R.id.btnScanMaterial, R.id.btnToggle69,
             R.id.btnLookup69, R.id.btnScanDate, R.id.btnScanModel,
             R.id.btnScanAddSn, R.id.btnSave,
         )
