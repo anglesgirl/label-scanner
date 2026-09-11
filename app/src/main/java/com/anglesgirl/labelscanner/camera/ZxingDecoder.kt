@@ -24,6 +24,43 @@ object ZxingDecoder {
     /** 单张最多解出的码数（标签一般 ≤30 码；限 100 防极端图耗时失控） */
     private const val MAX_SYMBOLS = 100
 
+    /**
+     * 带位置的解码：返回 (码值, 外接矩形)。
+     *
+     * 为什么要位置：实测把标签图缩到 35% 后集成码（PDF417）直接解不出，但把它
+     * **裁到码区再放大 3x** 就能解出 —— 瓶颈是"码在画面里占多少像素"，不是码本身
+     * 难解。拿到位置才能做"裁切放大重试"。
+     */
+    fun decodeWithPositions(original: Bitmap): List<Pair<String, android.graphics.Rect>> {
+        if (original.width < 10 || original.height < 10) return emptyList()
+        return try {
+            val reader = BarcodeReader(
+                BarcodeReader.Options(
+                    tryHarder = true,
+                    tryRotate = true,
+                    tryInvert = true,
+                    tryDownscale = true,
+                    maxNumberOfSymbols = MAX_SYMBOLS,
+                )
+            )
+            reader.read(original).mapNotNull { b ->
+                val text = b.text?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                val rect = runCatching {
+                    val p = b.position
+                    val xs = listOf(p.topLeft.x, p.topRight.x, p.bottomLeft.x, p.bottomRight.x)
+                    val ys = listOf(p.topLeft.y, p.topRight.y, p.bottomLeft.y, p.bottomRight.y)
+                    android.graphics.Rect(
+                        xs.min(), ys.min(), xs.max(), ys.max()
+                    )
+                }.getOrNull() ?: return@mapNotNull null
+                text to rect
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "decodeWithPositions failed: ${e.message}")
+            emptyList()
+        }
+    }
+
     /** 解码一张 Bitmap（内部放大 3x），返回所有条码值（distinct，按检测顺序） */
     fun decode(original: Bitmap): List<String> {
         if (original.width < 10 || original.height < 10) return emptyList()

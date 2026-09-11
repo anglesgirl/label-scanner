@@ -128,43 +128,47 @@ object BoxParser {
             }
         }
 
-        // 型号：两种排版都要认。
-        //  a) 同行写值：      "MODEL: CTO-850HK"
-        //  b) 字段名一行、值一行（奔图标签的真实排版）：
-        //        型号
-        //        MODEL
-        //        CTO-850HK        ← 值在这里
-        // 旧规则只在同一行找值，遇到 (b) 会把字段名 "MODEL" 当成型号值取走。
+        // 型号：OCR 的排版不一定"字段名: 值"同行，甚至常常是**字段名一列、值一列**
+        // （实测奔图标签的 OCR 输出顺序就是：
+        //     物料编码 / 型号 / 数量 / QTY. / PANTUM / 日期 / DATE / 序列号 / SN …
+        //     201071000501 / CTO-850HK / 9 PCS / 2025-09-17 / PA40359P10035246 …）
+        // 所以"顺着字段名往下一行找值"是不可靠的。
+        //
+        // 改为**全局候选 + 排除已知**：把所有像型号的候选收集起来，逐一排除
+        // 字段名、中文、已识别出的物料/箱号/SN/日期/数量，剩下的就是型号。
+        // 这样不管 OCR 怎么排版都不会取错。
         if (model.isEmpty()) {
-            val lines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
-            outer@ for ((i, l) in lines.withIndex()) {
-                val up = l.uppercase()
-                if (!(up.startsWith("MODEL") || l.contains("型号"))) continue
-                // (a) 同一行带分隔符的值
-                val inline = Regex("[:：]\\s*([A-Za-z0-9][A-Za-z0-9\\-]*)\\s*$").find(l)
-                if (inline != null) {
-                    val v = inline.groupValues.getOrNull(1)
-                    if (v != null && v.length in 2..40) {
-                        model = v
-                        break@outer
-                    }
+            val labelWords = setOf(
+                "MODEL", "SN", "SAP", "SAP.", "QTY", "QTY.", "DATE", "DATE.", "PANTUM",
+                "序列号", "物料编码", "物料", "型号", "数量", "日期", "中国制造", "MADE IN CHINA",
+            )
+            val known = mutableSetOf<String>()
+            if (material.isNotEmpty()) known.add(material)
+            if (box.isNotEmpty()) known.add(box)
+            if (ean.isNotEmpty()) known.add(ean)
+            known.addAll(sns)
+
+            val candidates = ocrText.lines()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .filter { l ->
+                    val up = l.uppercase()
+                    up !in labelWords &&
+                        // 不含中文（型号是纯拉丁）
+                        l.none { it.code in 0x4E00..0x9FFF } &&
+                        l.length in 2..40 &&
+                        l.all { it.isLetterOrDigit() || it == '-' || it == '.' } &&
+                        l.any { it.isLetter() } &&
+                        l !in known &&
+                        // 排除数量（如 "9 PCS"）与日期（如 "2025-09-17"）
+                        !Regex("^\\d+\\s*(?i)(PCS|PC|EA|个)?$").matches(l) &&
+                        !DATE_SEP.matcher(l).matches() &&
+                        !DATE8.matcher(l).matches()
                 }
-                // (b) 往下看几行，跳过同类字段名，取第一个像型号的值
-                for (j in (i + 1) until minOf(i + 4, lines.size)) {
-                    val cand = lines[j]
-                    val cup = cand.uppercase()
-                    if (cup == "MODEL" || cand.contains("型号")) continue
-                    if (cup.startsWith("SN") || cup.startsWith("SAP") || cup.startsWith("QTY") ||
-                        cup.startsWith("DATE") || cand.contains("数量") || cand.contains("日期") ||
-                        cand.contains("序列号") || cand.contains("物料")
-                    ) break
-                    if (cand.length in 2..40 && cand.all { it.isLetterOrDigit() || it == '-' }) {
-                        model = cand
-                    }
-                    break
-                }
-                if (model.isNotEmpty()) break@outer
-            }
+            // 优先取带连字符的（型号惯例，如 CTO-850HK / M9105DN-xx），否则取第一个候选
+            model = candidates.firstOrNull { it.contains('-') }
+                ?: candidates.firstOrNull()
+                ?: ""
         }
 
         // 第 3 轮条码：混合码区分 SN / 箱号（material 已定，才能判前缀）。
