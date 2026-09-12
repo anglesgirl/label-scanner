@@ -52,11 +52,30 @@ class LiveScanActivity : AppCompatActivity() {
 
         /** true = 本页是来扫集成码的：同帧多个码时优先取 2D / 含逗号的那个。 */
         const val EXTRA_WANT_INTEGRATED = "extra_want_integrated"
+
+        /**
+         * 目标字段语义（"tray" / "material" / "date" / "model" / ""）。
+         *
+         * 为什么需要：补扫按钮原先只传 `EXTRA_TITLE`（"托盘号"这种**显示文字**），
+         * 扫码页并不知道你要的是哪类值，于是排序只用"像不像集成码"（集成码 > 2D > 长值），
+         * 跟托盘号毫无关系；而且单码场景还要弹框让用户点"全部使用" ——
+         * 用户的感受是「大多数时候不需要这个按钮，但需要的时候又很麻烦」。
+         *
+         * ⚠️ 注意：这只影响**排序**，**不会丢弃任何码** —— 同帧全部码照样带回上层
+         * （采集层不取舍是硬规定，丢数据比取错更贵），其余候选仍进宿主的候选区。
+         */
+        const val EXTRA_WANT_FIELD = "extra_want_field"
         const val EXTRA_EXPECTED_COUNT = "extra_expected_count"
         const val EXTRA_INITIAL_CODES = "extra_initial_codes"
     }
 
     private lateinit var previewView: PreviewView
+
+    /**
+     * 本次扫码的目标字段（"tray"/"material"/"date"/"model"），空 = 通用模式。
+     * 只影响候选排序与"单候选是否直接返回"，**不影响收码的完整性**。
+     */
+    private var wantField: String = ""
 
     /** 弹框期间暂停分析，避免重复弹窗 */
     private val paused = AtomicBoolean(false)
@@ -101,6 +120,8 @@ class LiveScanActivity : AppCompatActivity() {
         previewView = findViewById(R.id.pvScan)
         val tvHint = findViewById<TextView>(R.id.tvScanHint)
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        // 目标字段语义（补扫时传入）：只用于给候选排序，不做筛选、不丢数据。
+        wantField = intent.getStringExtra(EXTRA_WANT_FIELD).orEmpty()
         bulkMode = intent.getBooleanExtra(EXTRA_BULK_MODE, false)
         pickMode = intent.getBooleanExtra(EXTRA_PICK_MODE, false)
         // 本页是否为扫集成码：识别到多个码时优先取 2D / 含逗号的那个
@@ -204,13 +225,79 @@ class LiveScanActivity : AppCompatActivity() {
         format == Barcode.FORMAT_AZTEC ||
         format == Barcode.FORMAT_PDF417
 
+    /**
+     * 候选值"有多像"目标字段 —— **只用于排序，不筛除任何值**。
+     *
+     * 规则一律取宽：宁可把不像的排在后面，也不要因为规则太窄而把正确答案压下去。
+     * （"长度写死 12 位"、"SN 必须以物料编码开头"这两类过窄规则，都已被真实标签证伪 ——
+     *  实测 SAP 号 10 位与 12 位都存在，而真实 SN 一律不以物料编码开头。）
+     */
+    private fun fieldScore(value: String, want: String): Int {
+        val v = value.trim()
+        if (v.isEmpty()) return -1000
+        return when (want) {
+            "tray" -> when {
+                // 托盘号格式（用户明确给出）：**TP + 8 位数字**，实测样本 TP36217944
+                v.matches(Regex("^TP\\d{8}$", RegexOption.IGNORE_CASE)) -> 200
+                v.startsWith("TP", ignoreCase = true) -> 100
+                // 箱号类（CA/PA 前缀）在采集里跟托盘号同源，一并靠前
+                v.startsWith("CA", ignoreCase = true) || v.startsWith("PA", ignoreCase = true) -> 80
+                v.length in 8..20 -> 20
+                else -> 0
+            }
+            "material" -> when {
+                v.matches(Regex("^\\d{10,12}$")) -> 100      // 纯数字 10~12 位（别写死 12）
+                v.matches(Regex("^\\d{10,12}[A-Za-z].*")) -> 60  // 混合码的前缀即物料
+                else -> 0
+            }
+            "date" -> when {
+                v.matches(Regex("^\\d{8}$")) -> 100
+                v.matches(Regex("^\\d{4}[-/.\\u5e74]\\d{1,2}[-/.\\u6708]\\d{1,2}\\u65e5?$")) -> 90
+                else -> 0
+            }
+            "model" -> when {
+                v.any { it.isLetter() } && v.matches(Regex("^[A-Za-z0-9\\-]{4,20}$")) -> 60
+                else -> 0
+            }
+            else -> 0
+        }
+    }
+
     private fun onCodesCollected(codes: List<TypedCode>) {
         if (codes.isEmpty() || paused.get()) return
-        val ordered = codes.sortedWith(
-            compareByDescending<TypedCode> { it.value.contains(',') || it.value.contains('，') }
-                .thenByDescending { it.is2D }
-                .thenByDescending { it.value.length }
-        )
+        val ordered = if (wantField.isNotEmpty()) {
+            // 补扫模式：按目标字段的格式特征排序。
+            // ⚠️ 只是**排序**：同帧所有码照样全部带回上层（采集层不取舍是硬规定）。
+            codes.sortedWith(
+                compareByDescending<TypedCode> { fieldScore(it.value, wantField) }
+                    .thenByDescending { it.value.length }
+            )
+        } else {
+            codes.sortedWith(
+                compareByDescending<TypedCode> { it.value.contains(',') || it.value.contains('，') }
+                    .thenByDescending { it.is2D }
+                    .thenByDescending { it.value.length }
+            )
+        }
+        // 补扫单个字段、且只有一个候选 → 直接带回，不弹确认框。
+        // 用户点「扫」时已明确说了要哪个字段，画面里就一个码那就是答案 ——
+        // 原来这里要多弹一次「全部使用」，是用户说的"需要的时候又很麻烦"的一部分。
+        // 多候选的情况仍走下面的弹框（全量列出，由人决定），不替他选。
+        if (wantField.isNotEmpty() && ordered.size == 1) {
+            if (!paused.compareAndSet(false, true)) return
+            runOnUiThread {
+                beep()
+                setResult(
+                    RESULT_OK,
+                    Intent().putStringArrayListExtra(
+                        EXTRA_RESULT_CODES, ArrayList(ordered.map { it.value })
+                    )
+                )
+                finish()
+            }
+            return
+        }
+
         // 自动填是主力（用户明确要求省力）—— 扫到集成码就直接带回上层填箱，
         // 不再多一次"全部使用"确认点击；填错了由拆分页的候选区修正。
         val hasIntegrated = ordered.any { it.value.contains(',') || it.value.contains('\uFF0C') }
