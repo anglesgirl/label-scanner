@@ -165,22 +165,25 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         })
 
         // 字段补扫按钮：弹实时扫码相机 → 确认框 → 填入（不拍照后识别）
+        // 第三个元素是"目标字段语义"：让扫码页能按该字段的格式给候选排序
+        // （托盘号 TP+8位数字排前、物料 10/12 位数字排前、生产日期 8 位数字排前……），
+        // 单候选时直接填不弹框。原来只传了标题文字，扫码页无从判断该把哪个码排前面。
         val scanMap = mapOf(
-            R.id.btnScanTrayCode to (etTrayCode to "托盘号"),
-            R.id.btnScanMaterial to (etMaterial to "物料编码"),
-            R.id.btnScanBox to (etBox to "箱号"),
-            R.id.btnScanDate to (etDate to "生产日期"),
-            R.id.btnScanModel to (etModel to "型号"),
+            R.id.btnScanTrayCode to Triple(etTrayCode, "托盘号", "tray"),
+            R.id.btnScanMaterial to Triple(etMaterial, "物料编码", "material"),
+            R.id.btnScanBox to Triple(etBox, "箱号", "box"),
+            R.id.btnScanDate to Triple(etDate, "生产日期", "date"),
+            R.id.btnScanModel to Triple(etModel, "型号", "model"),
         )
-        for ((btnId, pair) in scanMap) {
-            val field = pair.first
-            val label = pair.second
+        for ((btnId, t) in scanMap) {
+            val (field, label, want) = t
             findViewById<Button>(btnId).setOnClickListener {
                 scanAppendToSn = false
                 scanTargetField = field
                 liveScan.launch(
                     Intent(this, LiveScanActivity::class.java)
                         .putExtra(LiveScanActivity.EXTRA_TITLE, label)
+                        .putExtra(LiveScanActivity.EXTRA_WANT_FIELD, want)
                 )
             }
         }

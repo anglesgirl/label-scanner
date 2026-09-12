@@ -336,6 +336,17 @@ class LiveScanActivity : AppCompatActivity() {
                 v.matches(Regex("^\\d{4}[-/.\\u5e74]\\d{1,2}[-/.\\u6708]\\d{1,2}\\u65e5?$")) -> 90
                 else -> 0
             }
+            "box" -> when {
+                // 箱号：单台机器时**箱号就等于序列号**，粉盒（一箱多台）时箱号是另一套。
+                // 两种形态都与托盘号同源（TP/CA/PA 前缀 + 数字），所以这里与 tray 一致，
+                // 只是额外让"纯数字/字母数字混合的长串"（SN 形态）也靠前。
+                v.matches(Regex("^TP\\d{8}$", RegexOption.IGNORE_CASE)) -> 200
+                v.startsWith("TP", ignoreCase = true) -> 100
+                v.startsWith("CA", ignoreCase = true) || v.startsWith("PA", ignoreCase = true) -> 90
+                v.matches(Regex("^[A-Za-z0-9]{8,26}$")) && v.any { it.isDigit() } -> 70
+                v.length in 8..26 -> 20
+                else -> 0
+            }
             "model" -> when {
                 v.any { it.isLetter() } && v.matches(Regex("^[A-Za-z0-9\\-]{4,20}$")) -> 60
                 else -> 0
