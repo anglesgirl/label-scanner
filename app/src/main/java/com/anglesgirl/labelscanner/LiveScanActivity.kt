@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.widget.Button
+import android.graphics.Bitmap
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -26,6 +27,10 @@ import com.anglesgirl.labelscanner.camera.BarcodePickOverlay
 import com.anglesgirl.labelscanner.util.Diag
 import com.anglesgirl.labelscanner.camera.ZxingDecoder
 import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -38,6 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class LiveScanActivity : AppCompatActivity() {
 
     companion object {
+        private const val TAG = "LiveScan"
         const val EXTRA_TITLE = "extra_title"          // 提示文字，如"扫描托盘号"
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_CODES = "extra_result_codes"
@@ -76,6 +82,25 @@ class LiveScanActivity : AppCompatActivity() {
      * 只影响候选排序与"单候选是否直接返回"，**不影响收码的完整性**。
      */
     private var wantField: String = ""
+
+    /**
+     * OCR 兜底通道（用户原则：**有条码优先条码，没条码才用 OCR**）。
+     *
+     * 为什么需要：不是所有字段都在标签上有条码 —— 用户明确指出的「型号」就"不可能有条码，
+     * 直接就是 OCR 识别"。托盘号/物料/日期虽有码，但码可能磨损或被塑料膜反光糊掉，
+     * 这时标签上的印字（如 TP36217944）就是唯一的读取途径。
+     *
+     * 代价控制：**OCR 只在连续多帧没解出任何条码之后才跑**，有条码时一次都不跑 ——
+     * 既保住"条码优先"的准确率，也不让 OCR 拖慢正常扫码（OCR 单次约百毫秒级）。
+     */
+    private val ocrRecognizer: TextRecognizer by lazy {
+        TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+    }
+    private val ocrBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** 连续无条码的 zxing 周期数，达到阈值才启用 OCR。 */
+    private var noCodeStreak = 0
+    /** 无条码多少轮后启用 OCR：型号（已知无码）更快，其余多等等以免打断正常扫条码。 */
+    private fun ocrAfterRounds(): Int = if (wantField == "model") 3 else 8
 
     /** 弹框期间暂停分析，避免重复弹窗 */
     private val paused = AtomicBoolean(false)
@@ -226,6 +251,55 @@ class LiveScanActivity : AppCompatActivity() {
         format == Barcode.FORMAT_PDF417
 
     /**
+     * OCR 兜底：把画面里的**印字**识别出来作为候选值。
+     *
+     * 触发条件见 `analyzeFrame`：连续多轮没解出任何条码才跑（型号字段阈值更短，
+     * 因为它天然没有条码）。有条码时一次都不跑 —— 保住条码的准确率，也不拖慢正常扫码。
+     *
+     * ⚠️ 仍遵循"采集层不取舍"：OCR 到的**每一行都带回上层**（按目标字段评分排序，
+     * 最像的排最前），不是只留一个 —— 其余照样进宿主的候选区供人工修正。
+     * 典型用途：托盘码被塑料膜反光糊掉时，读标签上印的 TP36217944。
+     */
+    private fun runOcrFallback(bmp: Bitmap) {
+        if (!ocrBusy.compareAndSet(false, true)) return
+        ocrRecognizer.process(InputImage.fromBitmap(bmp, 0))
+            .addOnSuccessListener { text ->
+                ocrBusy.set(false)
+                if (paused.get()) return@addOnSuccessListener
+                // 逐行取：标签上的印字通常一行一个字段值
+                val lines = text.textBlocks
+                    .flatMap { it.lines }
+                    .map { it.text.trim() }
+                    .filter { it.length in 4..40 }
+                    .distinct()
+                if (lines.isEmpty()) return@addOnSuccessListener
+                val scored = if (wantField.isNotEmpty()) {
+                    lines.sortedByDescending { fieldScore(it, wantField) }
+                } else {
+                    lines.sortedByDescending { it.length }
+                }
+                if (Diag.enabled) {
+                    Diag.event(
+                        "scan_ocr",
+                        mapOf(
+                            "field" to wantField.ifEmpty { "-" },
+                            "lines" to lines.size,
+                            "top" to scored.take(3).joinToString(" | ").take(160),
+                        ),
+                    )
+                }
+                // OCR 已经是"等不到条码才退而求其次"的结果，不必再让上层等单码轮次
+                singleOnlyStreak = singleOnlyTolerance
+                val typed = scored.map { TypedCode(it, false, 0) }
+                runOnUiThread { onCodesCollected(typed) }
+            }
+            .addOnFailureListener { e ->
+                ocrBusy.set(false)
+                android.util.Log.w(TAG, "ocr fallback failed: ${e.message}")
+            }
+    }
+
+    /**
      * 候选值"有多像"目标字段 —— **只用于排序，不筛除任何值**。
      *
      * 规则一律取宽：宁可把不像的排在后面，也不要因为规则太窄而把正确答案压下去。
@@ -246,8 +320,15 @@ class LiveScanActivity : AppCompatActivity() {
                 else -> 0
             }
             "material" -> when {
-                v.matches(Regex("^\\d{10,12}$")) -> 100      // 纯数字 10~12 位（别写死 12）
-                v.matches(Regex("^\\d{10,12}[A-Za-z].*")) -> 60  // 混合码的前缀即物料
+                // 物料（SAP）编码（用户明确给出）：**只有 10 位和 12 位**
+                //   10 位 → 导出时后面补 01；12 位 → 不补
+                // 不用 \d{10,12} —— 那会把 11 位也纳进来，是把规则写宽了
+                v.matches(Regex("^\\d{10}$")) || v.matches(Regex("^\\d{12}$")) -> 100
+                // 69 开头的 13 位是**商品条码（69 码）**，不是物料 —— 明确压低，
+                // 避免"要物料时把 69 码填进去"（两者靠双向查关联，不是一回事）
+                v.startsWith("69") && v.length == 13 -> -50
+                // 混合码的前 10~12 位纯数字前缀即物料（如 201051012201V00224）
+                v.matches(Regex("^\\d{10,12}[A-Za-z].*")) -> 60
                 else -> 0
             }
             "date" -> when {
@@ -436,6 +517,16 @@ class LiveScanActivity : AppCompatActivity() {
                         TypedCode(it, integ, 0)
                     }.distinctBy { it.value }
                     runOnUiThread { onCodesCollected(typed) }
+                } else {
+                    // ⭐ 无条码 → 累计轮数，达到阈值启用 OCR 兜底。
+                    // 用户原则："有条码的优先识别条码；没有条码的，就用 OCR 补。"
+                    // 型号字段天然没有条码（用户明确指出），所以它的阈值取得更短。
+                    // 有条码时**一次都不跑 OCR** —— 既保住条码的准确率，也不拖慢正常扫码。
+                    noCodeStreak += 1
+                    if (noCodeStreak >= ocrAfterRounds()) {
+                        noCodeStreak = 0
+                        runOcrFallback(bmp)
+                    }
                 }
             } catch (t: Throwable) {
                 android.util.Log.w("LiveScan", "zxing 解码失败", t)
