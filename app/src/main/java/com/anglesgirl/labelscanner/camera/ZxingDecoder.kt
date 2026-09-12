@@ -61,12 +61,25 @@ object ZxingDecoder {
         }
     }
 
-    /** 解码一张 Bitmap（内部放大 3x），返回所有条码值（distinct，按检测顺序） */
-    fun decode(original: Bitmap): List<String> {
+    /**
+     * 解码一张 Bitmap。
+     *
+     * ⚠️ **scale 要按场景选，不是越大越好**：
+     * - **静态图 / 密集小码** → 用 3x（`SCALE`）。实测 905×1280 的标签图上条码只有
+     *   17~27px 高、模块宽约 1px，不放大解不出；放大后 10/10、15/15 全解。
+     * - **实时预览里的单码字段**（托盘号 / 物料 / 日期 / 型号）→ **用 1x**。
+     *   分析帧本身已是 1920×1080，一维条码在这里像素充足，再放大 3x 到 5760×3240
+     *   （1860 万像素、ARGB 约 74MB）会让单次解码涨到 1~3 秒 —— 用户表现为
+     *   **「能识别但很慢，要举很久」**（2026-09 实测反馈：托盘码）。
+     *   而且托盘标签常包着塑料膜，**反光区会被一起放大**，反而更难解。
+     *
+     * @param scale 放大倍数，1f = 原始分辨率（快），3f = 强通道（慢但能啃小码）
+     */
+    fun decode(original: Bitmap, scale: Float = SCALE): List<String> {
         if (original.width < 10 || original.height < 10) return emptyList()
         return try {
-            var w = (original.width * SCALE).toInt()
-            var h = (original.height * SCALE).toInt()
+            var w = (original.width * scale).toInt()
+            var h = (original.height * scale).toInt()
             // 大图保护：放大后最长边超过上限则等比收(防 3x 大图 OOM)
             val maxDim = maxOf(w, h)
             if (maxDim > MAX_DIM) {

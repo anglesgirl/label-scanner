@@ -313,7 +313,10 @@ class LiveScanActivity : AppCompatActivity() {
             imageProxy.close()
             return
         }
-        val interval = if (wantIntegrated) 2 else 3
+        // 帧抽样：困难模式（密集 2D 码）走 3x 强通道、单次耗时长 → 每 2 帧；
+        // 普通模式（单码字段：托盘号/物料/日期/型号）用**原始分辨率**解码，很快 →
+        // **每帧都跑**（原为每 3 帧），用户一举起来就能出结果。
+        val interval = if (wantIntegrated) 2 else 1
         if (zxingFrameCounter++ % interval != 0 || !zxingBusy.compareAndSet(false, true)) {
             imageProxy.close()
             return
@@ -327,7 +330,12 @@ class LiveScanActivity : AppCompatActivity() {
         }
         zxingPool.execute {
             try {
-                val codes = ZxingDecoder.decode(bmp)
+                // 放大倍数按模式区分（见 ZxingDecoder.decode 的注释）：
+                // 普通模式用 1x —— 分析帧已是 1920×1080，一维条码像素充足；放大 3x
+                // 到 5760×3240 会让单次解码 1~3 秒（实测"要举很久"就是这个原因），
+                // 而且托盘标签的塑料膜反光会被一起放大、反而更难解。
+                // 困难模式仍用 3x 强通道啃密集小码。
+                val codes = ZxingDecoder.decode(bmp, if (wantIntegrated) 3f else 1f)
                 if (codes.isNotEmpty()) {
                     if (Diag.enabled) {
                         Diag.event("scan_zxing", mapOf(
