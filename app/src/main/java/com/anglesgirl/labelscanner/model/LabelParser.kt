@@ -134,8 +134,27 @@ object LabelParser {
             }
         }
 
-        // 5. OCR 通道：补缺 + 提取型号/颜色/硒鼓/供应商
-        val lines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        // 5. OCR 通道：补缺 + 提取型号/颜色/硒鼓/供应商。
+        //    先剔除相机水印（与 BoxParser 同款逻辑，2026-09-14 真实标签实测）：
+        //    翻拍时 OCR 会读进状态栏 `16:38 / 2026.09.11 / 星期五`，那个"拍摄当天"
+        //    的日期会先于标签真日期被 classify 取走。时间行/星期行直接丢；
+        //    日期行紧邻时间/星期行、或点号日期(2026.09.11)且全文有星期行 → 丢。
+        val ocrTextLines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val isTimeLine = { l: String -> Regex("^\\d{1,2}:\\d{2}$").matches(l) }
+        val isWeekLine = { l: String -> Regex("^星期[一二三四五六日天]$").matches(l) }
+        val isDateLikeLine = { l: String ->
+            DATE8.matcher(l).matches() || DATE_SEP.matcher(l).matches() || DATE_CN.matcher(l).matches()
+        }
+        val hasWeekLine = ocrTextLines.any { isWeekLine(it) }
+        val lines = ocrTextLines.filterIndexed { i, l ->
+            if (isTimeLine(l) || isWeekLine(l)) false
+            else if (isDateLikeLine(l)) {
+                val prevIsTime = i > 0 && isTimeLine(ocrTextLines[i - 1])
+                val nextIsWeek = i + 1 < ocrTextLines.size && isWeekLine(ocrTextLines[i + 1])
+                val dottedAndWeek = Regex("^\\d{4}\\.\\d{2}\\.\\d{2}$").matches(l) && hasWeekLine
+                !prevIsTime && !nextIsWeek && !dottedAndWeek
+            } else true
+        }
         for (line in lines) {
             applyOcrLine(result, line, lookup69)
         }

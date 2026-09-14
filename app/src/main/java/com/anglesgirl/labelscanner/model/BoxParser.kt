@@ -109,6 +109,33 @@ object BoxParser {
     }
 
     fun parse(barcodes: List<String>, ocrText: String, lookup69: ((String) -> String?)? = null): BoxParseResult {
+        // 相机水印剔除（2026-09-14 真实标签实测）：
+        // 翻拍/截屏时 OCR 会把状态栏时间、日期、星期读进来（实测 `16:38 / 2026.09.11 /
+        // 星期五`），那个"拍摄当天"的日期会抢在生产日期前面。判据：
+        //  ① 单独的时间行（16:38）与星期行（星期五）直接丢弃；
+        //  ② 日期行紧邻时间行或星期行（状态栏三行连排）→ 丢弃；
+        //  ③ 点号日期（2026.09.11）且全文出现星期行 → 丢弃（两个 OCR 识别器合并后
+        //     行序可能打乱，相邻判据失效时兜底）。
+        // 标签真日期不受影响：PANTUM 整箱标签走"DATE/生产日期"字段行优先，
+        // 碳粉盒小签是横杠/斜杠格式（2025-06-12、2022/5/17），8 位连写（20250814）同理。
+        val ocrTextLines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val isTimeLine = { l: String -> Regex("^\\d{1,2}:\\d{2}$").matches(l) }
+        val isWeekLine = { l: String -> Regex("^星期[一二三四五六日天]$").matches(l) }
+        val isDateLikeLine = { l: String ->
+            DATE8.matcher(l).matches() || DATE_SEP.matcher(l).matches() ||
+                Regex("^\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日$").matches(l)
+        }
+        val hasWeekLine = ocrTextLines.any { isWeekLine(it) }
+        val ocrLines = ocrTextLines.filterIndexed { i, l ->
+            if (isTimeLine(l) || isWeekLine(l)) false
+            else if (isDateLikeLine(l)) {
+                val prevIsTime = i > 0 && isTimeLine(ocrTextLines[i - 1])
+                val nextIsWeek = i + 1 < ocrTextLines.size && isWeekLine(ocrTextLines[i + 1])
+                val dottedAndWeek = Regex("^\\d{4}\\.\\d{2}\\.\\d{2}$").matches(l) && hasWeekLine
+                !prevIsTime && !nextIsWeek && !dottedAndWeek
+            } else true
+        }
+
         var material = ""
         var ean = ""
         var materialFromEan69 = false
@@ -150,7 +177,7 @@ object BoxParser {
             }
         }
         // 条码没有物料时，OCR 才作为补充来源。
-        for (line in ocrText.lines()) {
+        for (line in ocrLines) {
             val l = line.trim()
             if (l.isEmpty()) continue
             val upper = l.uppercase()
@@ -186,7 +213,7 @@ object BoxParser {
         val today = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
             .format(java.util.Date())
         val bareDates = mutableListOf<String>()
-        for (line in ocrText.lines()) {
+        for (line in ocrLines) {
             val l = line.trim()
             if (l.isEmpty()) continue
             val upper = l.uppercase()
@@ -226,11 +253,25 @@ object BoxParser {
             if (material.isNotEmpty()) known.add(material)
             if (box.isNotEmpty()) known.add(box)
             if (ean.isNotEmpty()) known.add(ean)
+            // 条码扫出的值绝不可能是型号（图12：CS2NV00RJN 是 SN，不能当型号）——
+            // 但型号识别发生在 SN 解析之前，先把全部条码值排除掉。
+            for (b in barcodes) if (b.trim().isNotEmpty()) known.add(b.trim())
             known.addAll(sns)
 
-            val candidates = ocrText.lines()
+            val modelPrefix = mutableListOf<String>()
+            val candidates = ocrLines
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
+                .mapNotNull { l ->
+                    // 带 "Model:" 前缀的行（图6/8：`Model:M9105DN`）直接取冒号后的值，
+                    // 并记录到 modelPrefix —— 这类字段行最可信，优先采用；
+                    // 其余行保留整行走候选过滤。
+                    val m = Regex("^Model\\s*[:：]\\s*([A-Za-z0-9][A-Za-z0-9\\-]*)$", RegexOption.IGNORE_CASE)
+                        .find(l)
+                    if (m != null) {
+                        m.groupValues[1].also { modelPrefix.add(it) }
+                    } else l
+                }
                 .filter { l ->
                     val up = l.uppercase()
                     up !in labelWords &&
@@ -245,8 +286,9 @@ object BoxParser {
                         !DATE_SEP.matcher(l).matches() &&
                         !DATE8.matcher(l).matches()
                 }
-            // 优先取带连字符的（型号惯例，如 CTO-850HK / M9105DN-xx），否则取第一个候选
-            model = candidates.firstOrNull { it.contains('-') }
+            // 型号优先级：Model: 字段行 > 带连字符的（型号惯例 CTO-850HK）> 首个候选
+            model = modelPrefix.firstOrNull()
+                ?: candidates.firstOrNull { it.contains('-') }
                 ?: candidates.firstOrNull()
                 ?: ""
         }
@@ -256,6 +298,10 @@ object BoxParser {
         // 以物料开头的混合码 → SN；独立混合码 → 箱号候选（可人工改）。
         // ⚠️ 二维码可能是多值（逗号分隔的多个 SN，如 PANTUM 箱标签 QR：
         //    "SN1,SN2,...,SN32"）→ 先拆分再分类。
+        val allMixedCodes = barcodes.map { it.trim() }.filter { c ->
+            c.isNotEmpty() && c.any { it.isLetter() } &&
+                !EAN13.matcher(c).matches() && !SAP_NUM.matcher(c).matches()
+        }
         for (code in barcodes) {
             val c = code.trim()
             if (c.isEmpty() || c == material || c == ean) continue
@@ -279,10 +325,18 @@ object BoxParser {
             // 旧逻辑下第一个 SN 会被当成箱号、真正的箱号被丢掉、SN 少一个 ——
             // 这正是"取序列号取不对"的根因。
             // 改为按**格式特征**判定：箱号是 CA/PA 开头且明显更长的独立码。
+            // ⚠️ 单台整箱标签（PANTUM 表格式：整箱/单台机器）只有一个 CA/PA 码、
+            //    它就是序列号（"箱号=SN"，用户原话）——该码既要当箱号、也要进 SN
+            //    列表，否则 UI 显示"序列号 0 个"、保存被拦。判断"唯一"要数**全部
+            //    混合码**（含 SCAG 等多 SN），不能只看 CA/PA 数量（一箱 8 台标签：
+            //    CA + 8×SN 是 9 个混合码，CA 只当箱号，SN 一个不少）。
             val looksLikeBoxCode = c.length >= 14 &&
                 (c.startsWith("CA", ignoreCase = true) || c.startsWith("PA", ignoreCase = true))
             when {
-                looksLikeBoxCode && box.isEmpty() -> box = c
+                looksLikeBoxCode && box.isEmpty() -> {
+                    box = c
+                    if (allMixedCodes.size == 1 && c !in sns) sns.add(c)
+                }
                 looksLikeBoxCode && box == c -> { /* 同值重复，忽略 */ }
                 else -> if (c != material && c != box && c !in sns) sns.add(c)
             }
@@ -312,7 +366,7 @@ object BoxParser {
             val known = mutableSetOf<String>()
             for (v in listOf(material, box, ean, model)) if (v.isNotEmpty()) known.add(v)
             known.addAll(sns)
-            for (line in ocrText.lines()) {
+            for (line in ocrLines) {
                 // OCR 常把标点/字段名残渣粘在值前面（实测行是 `: CS1RVO09B4`），
                 // 不剥掉的话"全字母数字"这条就把它挡在外面，真 SN 反而丢了。
                 var l = line.trim()
@@ -348,6 +402,10 @@ object BoxParser {
             box = sns.first()
             boxFromSn = true
         }
+
+        // 物料编码统一补位：10 位 SAP 号 → 补 01 成 12 位（与 LabelParser 一致，
+        // 用户既定规则"SAP 物料 10 位导出补 01"；69 反查回来的已是规范值不受影响）。
+        if (material.length == 10) material += "01"
 
         return BoxParseResult(
             materialCode = material,
