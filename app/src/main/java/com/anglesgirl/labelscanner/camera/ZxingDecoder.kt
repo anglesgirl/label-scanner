@@ -25,6 +25,30 @@ object ZxingDecoder {
     private const val MAX_SYMBOLS = 100
 
     /**
+     * 格式白名单（2026-09-14 扫码优化）：
+     *
+     * 为什么限制：全格式盲扫时，zxing-cpp 会把噪声/图案/反光误判成"几乎不可能
+     * 出现的格式"（AZTEC/MAXICODE/RMQR/CODABAR…），产生乱码值。用户实测感受
+     * 就是"扫出来一串用不上的垃圾"。标签场景真正会出现的格式就这 8 种：
+     *  - EAN_13 / UPC_A：69 商品码（UPC-A 是 EAN-13 的美版，扫描器可能报任一）
+     *  - CODE_128 / CODE_39：SN / 物料条码（PANTUM SN 条码实测是 CODE39 类）
+     *  - ITF：外箱物流码（ITF-14 是出口纸箱条码惯例，保留防漏）
+     *  - QR_CODE / DATA_MATRIX / PDF_417：集成码 / SN 二维码
+     * 砍掉的（标签上不会出现）：AZTEC、CODABAR、CODE_93、DATA_BAR 系列、
+     * DX_FILM_EDGE、EAN_8、MAXICODE、MICRO_QR、RMQR、UPC_E。
+     */
+    private val FORMATS: Set<BarcodeReader.Format> = setOf(
+        BarcodeReader.Format.EAN_13,
+        BarcodeReader.Format.UPC_A,
+        BarcodeReader.Format.CODE_128,
+        BarcodeReader.Format.CODE_39,
+        BarcodeReader.Format.ITF,
+        BarcodeReader.Format.QR_CODE,
+        BarcodeReader.Format.DATA_MATRIX,
+        BarcodeReader.Format.PDF_417,
+    )
+
+    /**
      * 带位置的解码：返回 (码值, 外接矩形)。
      *
      * 为什么要位置：实测把标签图缩到 35% 后集成码（PDF417）直接解不出，但把它
@@ -36,6 +60,7 @@ object ZxingDecoder {
         return try {
             val reader = BarcodeReader(
                 BarcodeReader.Options(
+                    formats = FORMATS,
                     tryHarder = true,
                     tryRotate = true,
                     tryInvert = true,
@@ -96,6 +121,7 @@ object ZxingDecoder {
 
             val reader = BarcodeReader(
                 BarcodeReader.Options(
+                    formats = FORMATS,
                     tryHarder = true,            // 密集小码实测必需
                     tryRotate = true,            // 防拍歪
                     tryInvert = true,            // 反色条码

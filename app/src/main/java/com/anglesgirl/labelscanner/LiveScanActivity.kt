@@ -551,6 +551,17 @@ class LiveScanActivity : AppCompatActivity() {
     private var zxingFrameCounter = 0
 
     /**
+     * 多帧确认（2026-09-14 扫码优化）：
+     * 同一组码**连续 2 帧命中**才上报，防单帧误读 —— 模糊/反光时 zxing 偶尔
+     * 一帧解出乱码，不确认就直接填进去就是"扫出来一串垃圾"。帧率 30fps，
+     * 两帧约 66ms，用户对准停稳即触发，无感。
+     */
+    private var lastFrameKey: String? = null
+    /** 同码上报冷却：确认上报后 500ms 内不重复报同一组码（持续对准时防反复弹框）。 */
+    private var lastReportAt = 0L
+    private val reportCooldownMs = 500L
+
+    /**
      * 连续多少帧只看到单条码（没看到集成码）。
      * zxing 强通道每 6 帧才跑一次，若不等待就会在第一帧误判「没有集成码」
      * 而反复弹框 —— 用户实测到的「一直提示、实际只有单个条码」正是此因。
@@ -629,9 +640,21 @@ class LiveScanActivity : AppCompatActivity() {
                             val integ = v.contains(',') || v.contains('\uFF0C')
                             TypedCode(v, integ, 0)
                         }.distinctBy { it.value }
-                        runOnUiThread { onCodesCollected(typed) }
+                        // 多帧确认 + 冷却：同一组码连续 2 帧命中才上报；上报后 500ms
+                        // 冷却期内不重复报同一组（持续对准不弹重复框）。码变化则重新累计。
+                        val key = typed.joinToString("|") { it.value }
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (key == lastFrameKey && now - lastReportAt >= reportCooldownMs) {
+                            lastReportAt = now
+                            lastFrameKey = null
+                            runOnUiThread { onCodesCollected(typed) }
+                        } else if (key != lastFrameKey) {
+                            lastFrameKey = key
+                        }
                     }
                 } else {
+                    // 当前帧无码 → 多帧累计清零（下一帧重新开始数）
+                    lastFrameKey = null
                     // ⭐ 无条码 → 累计轮数，达到阈值启用 OCR 兜底。
                     // 用户原则："有条码的优先识别条码；没有条码的，就用 OCR 补。"
                     // 型号字段天然没有条码（用户明确指出），所以它的阈值取得更短。
