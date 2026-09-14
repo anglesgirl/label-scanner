@@ -111,12 +111,15 @@ class LiveScanActivity : AppCompatActivity() {
     /** 挑码模式：列出扫到的码供用户点选。 */
     private var pickMode = false
 
-    // 挑码模式：预览浮层 + 底部「已选/拆解」栏
+    // 挑码模式：预览浮层 + 底部「已选/填入」栏
     private lateinit var pickOverlay: BarcodePickOverlay
     private lateinit var ivSnapshot: android.widget.ImageView
     private lateinit var llPickBar: android.view.View
     private lateinit var tvPickInfo: TextView
-    /** 已选集成码，按扫描顺序（下标 0 → 序号 1 → 第一箱） */
+    private lateinit var btnPickDone: Button
+    private lateinit var btnPickClear: Button
+    private lateinit var btnRescan: Button
+    /** 已选内容，按点选顺序。字段补扫（wantField 非空）单选，批量场景多选。 */
     private val pickedBoxes = mutableListOf<String>()
     /** 挑码模式下累计扫到的所有码（保持出现顺序、去重）。 */
     private val seenCodes = linkedSetOf<String>()
@@ -161,35 +164,35 @@ class LiveScanActivity : AppCompatActivity() {
             ivSnapshot = findViewById(R.id.ivSnapshot)
             llPickBar = findViewById(R.id.llPickBar)
             tvPickInfo = findViewById(R.id.tvPickInfo)
-            // 点画面上箭头所指的码 → 记下，序号即"第几箱"
-            pickOverlay.onPick = { code ->
-                if (pickedBoxes.contains(code)) {
-                    Toast.makeText(this, "这个码已经选过了", Toast.LENGTH_SHORT).show()
-                } else {
-                    pickedBoxes.add(code)      // 下标 0 → 序号 1 → 第一箱
-                    beep()
-                    updatePickBar()
-                }
-                resumeLiveScan()
-            }
-            findViewById<Button>(R.id.btnPickDone).setOnClickListener {
-                if (pickedBoxes.isEmpty()) {
-                    Toast.makeText(this, "还没选任何集成码", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                // 一起拆：把选中顺序（=第几箱）连同码值交给调用方
-                setResult(
-                    RESULT_OK,
-                    Intent().putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(pickedBoxes)),
-                )
-                finish()
-            }
-            findViewById<Button>(R.id.btnPickClear).setOnClickListener {
+            btnPickDone = findViewById(R.id.btnPickDone)
+            btnPickClear = findViewById(R.id.btnPickClear)
+            btnRescan = findViewById(R.id.btnRescan)
+
+            // 微信扫码式：识别到内容后画面定格、每个内容画框标记，
+            // 点框即选中/取消 —— **只把点选的填进去，绝不一把全填**。
+            // 字段补扫（wantField 非空）填的是单个框 → 单选（点新替旧）；
+            // SN 批量等场景 → 多选（点一下选上、再点取消）。
+            pickOverlay.onPick = { code -> togglePick(code) }
+
+            btnPickDone.setOnClickListener { confirmPicks() }
+            btnPickClear.setOnClickListener {
                 pickedBoxes.clear()
                 pickOverlay.setPicked(pickedBoxes)
                 updatePickBar()
             }
+            btnRescan.setOnClickListener { resumeLiveScan() }
+
+            // 主按钮文案按场景：
+            //  - 扫集成码（拆码页挑码）→ 「✓ 一起拆」
+            //  - 字段补扫 → 「填入所选」
+            //  - SN 批量补扫 → 「✓ 加入序列号」
+            btnPickDone.text = when {
+                wantIntegrated -> "✓ 一起拆"
+                wantField.isNotEmpty() -> "填入所选"
+                else -> "✓ 加入序列号"
+            }
             llPickBar.visibility = android.view.View.VISIBLE
+            updatePickBar()
         }
 
         startCamera()
@@ -266,7 +269,16 @@ class LiveScanActivity : AppCompatActivity() {
             .addOnSuccessListener { text ->
                 ocrBusy.set(false)
                 if (paused.get()) return@addOnSuccessListener
-                // 逐行取：标签上的印字通常一行一个字段值。
+
+                // 补扫定格点选：OCR 文字也要能框出来点选（型号等无码字段靠它），
+                // 每个识别行 = 一个画面可点区域，只标该区域里最像目标字段的值。
+                if (pickMode) {
+                    val picks = buildOcrPicks(text)
+                    if (picks.isNotEmpty()) runOnUiThread { freezeAndShow(bmp, picks) }
+                    return@addOnSuccessListener
+                }
+
+                // 非 pickMode（拆码页 OCR 兜底）：逐行取，整行 + 拆段都是候选。
                 // 但 OCR 会把同一行里并排的两个字段合成一行（如 `TP36217944   2025-09-17`），
                 // 整行打分必然落空 —— 所以除了整行，还把按空白拆出的各段也一并作为候选：
                 // 拆出的段更能命中目标字段的格式（托盘号 TP+8 位数字），整行则留给
@@ -307,6 +319,31 @@ class LiveScanActivity : AppCompatActivity() {
                 ocrBusy.set(false)
                 android.util.Log.w(TAG, "ocr fallback failed: ${e.message}")
             }
+    }
+
+    /**
+     * OCR 行 → (最优候选, 整行位置框)。
+     *
+     * 每个 Text.Line 就是一个"画面可点区域"：整行与按空白拆出的各段都是候选
+     * （一行并排两字段被 OCR 合成一行时，拆段才有正确答案），但一个框只能标一个
+     * 值 —— 取 fieldScore 最高的段（字段补扫）或最长的段（批量场景）作为该框
+     * 的可点项，其余丢弃（值都在同一画面区域里，点框即得最优值）。
+     */
+    private fun buildOcrPicks(text: com.google.mlkit.vision.text.Text): List<Pair<String, android.graphics.Rect>> {
+        val out = mutableListOf<Pair<String, android.graphics.Rect>>()
+        for (line in text.textBlocks.flatMap { it.lines }) {
+            val t = line.text.trim()
+            if (t.isEmpty()) continue
+            val box = line.boundingBox ?: continue
+            val cands = listOf(t) + t.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val best = if (wantField.isNotEmpty()) {
+                cands.maxByOrNull { fieldScore(it, wantField) } ?: t
+            } else {
+                cands.maxByOrNull { it.length } ?: t
+            }
+            if (best.length in 4..40) out.add(best to android.graphics.Rect(box))
+        }
+        return out.distinctBy { it.first }
     }
 
     /**
@@ -497,16 +534,6 @@ class LiveScanActivity : AppCompatActivity() {
     private var wantIntegrated = false
 
     /**
-     * 集成码专用分析：只用 zxing-cpp 强通道。
-     *
-     * 为什么不带 ML Kit（用户明确要求"困难模式不让 ml 参与"）:
-     *  - ML Kit 解不出高密度 2D 码，本场景它没有正面价值；
-     *  - 它每帧都会解出标签上的 1D 条码，导致"只有单个条码"的误报反复打断用户。
-     * 少一条只会添乱的通道，既去掉噪音，也省掉"等/容忍若干帧"的补丁。
-     *
-     * zxing 比 ML Kit 慢，故每 2 帧抽一次并在独立线程池跑，避免拖住预览。
-     */
-    /**
      * 实时分析：**条码 / 二维码 / 集成码一律交给 zxing-cpp**。
      *
      * 为何不用 ML Kit 扫码（用户定调）：ML Kit 扫码本就弱 —— 高密度 2D 码
@@ -545,20 +572,32 @@ class LiveScanActivity : AppCompatActivity() {
                 // 到 5760×3240 会让单次解码 1~3 秒（实测"要举很久"就是这个原因），
                 // 而且托盘标签的塑料膜反光会被一起放大、反而更难解。
                 // 困难模式仍用 3x 强通道啃密集小码。
-                val codes = ZxingDecoder.decode(bmp, if (wantIntegrated) 3f else 1f)
-                if (codes.isNotEmpty()) {
+                // 补扫（pickMode）用**带位置**解码：定格后要把每个码框出来供点选，
+                // 只有值没有位置框就没法标记。原始分辨率解 1D 码字段足够
+                // （用户已确认普通模式用原始分辨率解码）。
+                val found = if (pickMode) {
+                    ZxingDecoder.decodeWithPositions(bmp)
+                } else {
+                    ZxingDecoder.decode(bmp, if (wantIntegrated) 3f else 1f).map { it to null }
+                }
+                if (found.isNotEmpty()) {
                     if (Diag.enabled) {
                         Diag.event("scan_zxing", mapOf(
-                            "mode" to if (wantIntegrated) "integrated" else "plain",
-                            "found" to codes.size,
-                            "all" to codes.joinToString(" | ").take(260),
+                            "mode" to if (wantIntegrated) "integrated" else if (pickMode) "pick" else "plain",
+                            "found" to found.size,
+                            "all" to found.joinToString(" | ") { it.first }.take(260),
                         ))
                     }
-                    val typed = codes.map {
-                        val integ = it.contains(',') || it.contains('\uFF0C')
-                        TypedCode(it, integ, 0)
-                    }.distinctBy { it.value }
-                    runOnUiThread { onCodesCollected(typed) }
+                    if (pickMode) {
+                        // 定格 + 画框标记，用户点选后再填（只填点选的，不一把全填）
+                        runOnUiThread { freezeAndShow(bmp, found) }
+                    } else {
+                        val typed = found.map { (v, _) ->
+                            val integ = v.contains(',') || v.contains('\uFF0C')
+                            TypedCode(v, integ, 0)
+                        }.distinctBy { it.value }
+                        runOnUiThread { onCodesCollected(typed) }
+                    }
                 } else {
                     // ⭐ 无条码 → 累计轮数，达到阈值启用 OCR 兜底。
                     // 用户原则："有条码的优先识别条码；没有条码的，就用 OCR 补。"
@@ -578,19 +617,85 @@ class LiveScanActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 定格 + 标记：把这一帧固定显示，识别到的内容画框，用户在这张静止画面上点选。
+     *
+     * 为什么必须定格：实时预览里码在移动，手指点下去时码已移开，必然点错
+     * （布局里 ivSnapshot 的注释也是这个原因）。
+     *
+     * @param bmp 当前帧（zxing 分析帧 / OCR 用同一帧，坐标一致）
+     * @param pickables (值, 图像坐标外接框) —— 条码来自 decodeWithPositions，
+     *                  OCR 文字来自 ML Kit 的 boundingBox
+     */
+    private fun freezeAndShow(bmp: Bitmap, pickables: List<Pair<String, android.graphics.Rect?>>) {
+        if (paused.get()) return
+        if (!paused.compareAndSet(false, true)) return
+        val items = pickables
+            .mapNotNull { (v, r) -> r?.let { BarcodePickOverlay.Pickable(v, it) } }
+            .distinctBy { it.value }
+        if (items.isEmpty()) {
+            // 只有值没有位置框（理论上不应发生）：不定格，继续实时扫
+            paused.set(false)
+            return
+        }
+        ivSnapshot.setImageBitmap(bmp)
+        ivSnapshot.visibility = android.view.View.VISIBLE
+        pickOverlay.setSourceSize(bmp.width, bmp.height)
+        pickOverlay.setItems(items)
+        pickOverlay.setPicked(pickedBoxes)
+        beep()
+        updatePickBar()
+    }
+
+    /** 点画面上某个框：选中/取消。字段补扫填单值框 → 单选（点新替旧）。 */
+    private fun togglePick(code: String) {
+        if (pickedBoxes.contains(code)) {
+            pickedBoxes.remove(code)
+        } else {
+            if (wantField.isNotEmpty()) pickedBoxes.clear()   // 单选：换选即替换
+            pickedBoxes.add(code)
+        }
+        beep()
+        pickOverlay.setPicked(pickedBoxes)
+        updatePickBar()
+    }
+
+    /** 只把用户点选的内容返回给调用方（绝不一把全填）。 */
+    private fun confirmPicks() {
+        if (pickedBoxes.isEmpty()) {
+            Toast.makeText(this, "还没选任何内容：点画面上的框选择", Toast.LENGTH_SHORT).show()
+            return
+        }
+        beep()
+        setResult(
+            RESULT_OK,
+            Intent().putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(pickedBoxes)),
+        )
+        finish()
+    }
+
     private fun resumeLiveScan() {
         ivSnapshot.visibility = android.view.View.GONE
         ivSnapshot.setImageBitmap(null)
         pickOverlay.setItems(emptyList())
+        pickedBoxes.clear()
         pickOverlay.setPicked(pickedBoxes)
         updatePickBar()
         paused.set(false)
     }
 
-    /** 已选的码（多箱拆：连续扫，一箱一条，最后一起拆）。 */
+    /** 已选内容栏：字段补扫显示单值；批量/拆码显示数量与内容。 */
     private fun updatePickBar() {
-        tvPickInfo.text = "已选 ${pickedBoxes.size} 个集成码" +
-            if (pickedBoxes.isEmpty()) "" else "：" + pickedBoxes.joinToString("、") { it.take(18) }
+        tvPickInfo.text = when {
+            pickedBoxes.isEmpty() ->
+                "识别到内容已定格：点画面上的框选择要填的，再点下方按钮"
+            wantField.isNotEmpty() && pickedBoxes.size == 1 ->
+                "已选：${pickedBoxes.first().take(24)}（点其他框可替换）"
+            wantField.isNotEmpty() ->
+                "已选 ${pickedBoxes.size} 项（字段补扫单选，请只留一个）"
+            else ->
+                "已选 ${pickedBoxes.size} 项：" + pickedBoxes.joinToString("、") { it.take(18) }
+        }
     }
 
 
@@ -606,7 +711,7 @@ class LiveScanActivity : AppCompatActivity() {
             val collectedCount = initialCodes.size + newCodes.size
             val countHint = if (expectedCount > 0) "\n已收集 $collectedCount/$expectedCount 个" else ""
             AlertDialog.Builder(this)
-                .setTitle("📦 扫码结果")
+                .setTitle("\uD83D\uDCE6 扫码结果")
                 .setMessage("本次识别 ${newCodes.size} 个条码：\n${newCodes.joinToString("\n")}$countHint\n\n确认加入序列号吗？")
                 .setCancelable(false)
                 .setPositiveButton("确定") { _, _ ->
