@@ -33,8 +33,6 @@ import java.io.File
  *
  * 流程：相册选标签图 → 自动识别（物料=SAP号 / LPN=CA开头 / 日期 / 型号 / 全部 SN）
  * → 人工确认/增删 SN → 保存（每 SN 展开为一条记录，共享物料/箱号/日期）。
- *
- * 规则见 BoxParser（2026-08-11 真实标签 DL-5120P 校准）。
  */
 class SingleBoxInboundActivity : AppCompatActivity() {
 
@@ -53,12 +51,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     /**
      * 哪些 SN 来自「OCR 兜底」—— 即条码完全没扫出东西、只能靠 OCR 认出来的时候。
      *
-     * 用户说明过实情："全靠 OCR 的场景也比较少，只有少数标签损坏比较严重的、
-     * 条码扫不出来的，才会被迫 OCR 识别 SN。"
-     *
      * 这类值可靠性明显偏低（OCR 连 O/0 都分不清），所以列表里标出「⚠️OCR推定」
-     * 提醒必须人工核对，不要和条码扫出的可信值混着看。
-     * 用户点进去改过之后就把标记去掉 —— 说明他已经核对过了。
+     * 提醒必须人工核对。用户点进去改过之后就把标记去掉 —— 说明他已经核对过了。
      */
     private val snFromOcr = mutableSetOf<String>()
     private val codeCandidates = mutableListOf<String>()
@@ -116,12 +110,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     /**
      * 取图入口：统一走 camera.ImageIn。
      *
-     * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数 ——
-     * 之前单条采集、整箱采集、集成码拆分、设置测试各写了一份，参数容易走偏。
+     * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数。
      */
-    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**：
-    // registerForActivityResult 要求在当前状态仍为 CREATED 时注册，
-    // 延迟到点击按钮时才初始化会抛异常，表现为"相机入口点不进去"。
+    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**。
     private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -165,8 +156,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         })
 
         // 字段补扫按钮：弹实时扫码相机 → 确认框 → 填入（不拍照后识别）
-        // 第三个元素是"目标字段语义"：让扫码页能按该字段的格式给候选排序
-        // （托盘号 TP+8位数字排前、物料 10/12 位数字排前、生产日期 8 位数字排前……），
+        // 第三个元素是"目标字段语义"：让扫码页能按该字段的格式给候选排序，
         // 单候选时直接填不弹框。原来只传了标题文字，扫码页无从判断该把哪个码排前面。
         val scanMap = mapOf(
             R.id.btnScanTrayCode to Triple(etTrayCode, "托盘号", "tray"),
@@ -184,6 +174,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     Intent(this, LiveScanActivity::class.java)
                         .putExtra(LiveScanActivity.EXTRA_TITLE, label)
                         .putExtra(LiveScanActivity.EXTRA_WANT_FIELD, want)
+                        // 补扫一律走「定格 + 点选填入」：画面顶住、识别内容画框，
+                        // 只填点选的，绝不一把全填（2026-09-14 用户要求）
+                        .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true)
                 )
             }
         }
@@ -195,6 +188,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     .putExtra(LiveScanActivity.EXTRA_BULK_MODE, true)
                     .putExtra(LiveScanActivity.EXTRA_EXPECTED_COUNT, snList.size)
                     .putStringArrayListExtra(LiveScanActivity.EXTRA_INITIAL_CODES, ArrayList(snList))
+                    // SN 批量补扫同样定格点选，支持多选（2026-09-14 用户要求）
+                    .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true)
             )
         }
 
@@ -240,14 +235,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     snList.clear()
                     snFromOcr.clear()
                     snList.addAll(box.serialNumbers)
-                    // 标出哪些 SN 是"OCR 兜底推定"的（只有条码完全扫不出时才会走到这条路径）
                     snFromOcr.addAll(box.ocrFallbackSns)
                     rebuildSnList()
                     codeCandidates.clear()
                     codeCandidateSources.clear()
-                    // 【关键修复】OCR 文本原来被完全丢弃：只把 result.barcodes 放进候选，
-                    // 导致界面上"只有条码可点、OCR 认到什么完全看不到"。
-                    // 这里把 OCR 文本按行拆开也作为候选，让用户能看见并点选。
                     for (b in result.barcodes) {
                         val v = b.trim()
                         if (v.isNotEmpty() && v !in codeCandidates) {
@@ -347,9 +338,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 serialNumber = sn,
                 materialCode = material,
                 // 数量 = **本箱的序列号个数**（用户要求）。
-                //
                 // 原来写死 1，结果一箱 9 个 SN 导出的「数量」还是 1，
-                // WMS 一比对就报"数量与 SN 不一致"并拒绝导入，只能手工逐个改。
+                // WMS 一比对就报"数量与 SN 不一致"并拒绝导入。
                 // 用户原话："一箱里面有多少个序列号，它后面的数量就是多少。"
                 quantity = snList.size,
                 productionDate = date,
@@ -389,28 +379,22 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         tvBoxStatus.text = if (n == 0) "序列号 0 个" else "📦 序列号 $n 个，保存后每 SN 一行"
     }
 
-    /** 重建 SN 行列表（LinearLayout 动态加行，避免 RecyclerView 在 ScrollView 内显示不全） */
+    /** 重建 SN 行列表（LinearLayout 动态加行） */
     private fun rebuildSnList() {
         llSnList.removeAllViews()
         for ((index, sn) in snList.withIndex()) {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llSnList, false)
             val tvSn = row.findViewById<TextView>(R.id.tvSnItem)
             // 易混淆字符（O/0、I/l/1）标红加粗 —— OCR 分不清这些形状，人眼扫过去
-            // 同样分不清（如 "CS1RVO09B4" 里字母 O 和数字 0 紧挨着），
-            // 标出来才能让人专注于核对这些位。
-            // 只有 OCR 兜底得到的 SN 才标红 + 打来源标记：条码是扫码枪读的权威值，
-            // 不可能认错字符，标红反而变噪音（用户明确要求）。
+            // 同样分不清（如 "CS1RVO09B4" 里字母 O 和数字 0 紧挨着）。
+            // 只有 OCR 兜底得到的 SN 才标红 + 打来源标记。
             tvSn.text = android.text.TextUtils.concat(
                 "${index + 1}. ",
                 if (sn in snFromOcr) AmbiguousChar.highlight(sn) else sn,
-                // 条码扫不出来的标签才会走到 OCR 兜底，这类值必须人工核对 ——
-                // 标出来，别跟条码扫出的可信值混着看。
                 if (sn in snFromOcr) ocrTag() else "",
             )
-            // 点这一行就能改（看到红色提示后可直接修正 OCR 认错的字符）
             tvSn.setOnClickListener { editSn(index) }
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener {
-                // 用下标删除 —— 原来按值删（remove(sn)），列表里出现重复 SN 时会删错条目
                 if (index in snList.indices) snList.removeAt(index)
                 rebuildSnList()
                 updateStatus()
@@ -434,8 +418,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     /**
      * 人工修正某个序列号。
      *
-     * OCR 对形状相同的字符（O/0、I/l/1）几乎无法分辨，自动纠正又不可靠
-     * （没有条码这类权威来源时，猜一个替代字符比不猜更糟），
+     * OCR 对形状相同的字符（O/0、I/l/1）几乎无法分辨，自动纠正又不可靠，
      * 所以把判断交给用户：红色标注指出可疑位，点一下就能改。
      */
     private fun editSn(index: Int) {
@@ -494,9 +477,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
 
     /**
      * 互补互查：识别结果里只要有一侧，就补出另一侧并写入对照表。
-     *  - 有物料编码 → 反查 69 码（OCR 常常只能读到物料）
-     *  - 有 69 码   → 正查物料编码（外箱往往只有 69 条码）
-     * 查到即互相 learn，下一次直接命中。
      */
     private fun crossFillMaterialEan(material: String, ean69: String) {
         val m = material.trim()
@@ -535,8 +515,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
             val src = codeCandidateSources[code]
-            // 候选区不标红易混字符（用户明确："只有序列号、箱号这种地方才需要标"）——
-            // 这里只是原始识别明细，混着纯数字与中文，标红纯属噪音。只标来源。
             tv.text = if (src == null) code
             else android.text.TextUtils.concat("[$src] ", code)
             tv.setTextColor(

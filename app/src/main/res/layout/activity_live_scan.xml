@@ -67,7 +67,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 连续扫多箱：累积已选，最后一起拆 -->
+    <!-- 底部操作栏：画面定格后在此确认已选内容（填入 / 清空 / 重扫） -->
     <LinearLayout
         android:id="@+id/llPickBar"
         android:layout_width="match_parent"
@@ -97,7 +97,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:backgroundTint="@color/ls_primary"
-                android:text="✓ 一起拆"
+                android:text="填入所选"
                 android:textColor="#FFFFFF" />
 
             <Button
@@ -107,6 +107,15 @@
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_btn_scan"
                 android:text="清空"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnRescan"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_btn_scan"
+                android:text="重扫"
                 android:textColor="#FFFFFF" />
         </LinearLayout>
     </LinearLayout>

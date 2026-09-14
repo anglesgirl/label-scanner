@@ -145,6 +145,8 @@ class SingleInboundActivity : AppCompatActivity() {
                     .putExtra(LiveScanActivity.EXTRA_BULK_MODE, true)
                     .putExtra(LiveScanActivity.EXTRA_EXPECTED_COUNT, snList.size)
                     .putStringArrayListExtra(LiveScanActivity.EXTRA_INITIAL_CODES, ArrayList(snList))
+                    // 补扫一律走「定格 + 点选填入」，可多选（2026-09-14 用户要求）
+                    .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true)
             )
         }
         findViewById<Button>(R.id.btnSave).setOnClickListener { confirmSave() }
@@ -183,9 +185,6 @@ class SingleInboundActivity : AppCompatActivity() {
         // 字段补扫按钮：弹实时扫码相机 → 确认框 → 填入（不拍照后识别）
         // 第三个元素是「目标字段语义」，传给扫码页用于**按该字段的格式给候选排序**
         // （托盘号 TP+8位数字 排前、物料 10~12 位数字排前、日期 8 位数字排前…）。
-        // 改这个的起因：用户反馈"这些按钮大多数时候不需要，但需要的时候又很麻烦" ——
-        // 原先只传显示文字（"托盘号"），扫码页不知道要哪类值，排序只认"像不像集成码"，
-        // 而且单码还要多弹一次"全部使用"确认。现在：**按字段排序 + 单候选直接填**。
         val scanMap = mapOf(
             R.id.btnScanMaterial to Triple(etMaterial, "物料编码", "material"),
             R.id.btnScanTrayCode to Triple(etTrayCode, "托盘号", "tray"),
@@ -201,6 +200,9 @@ class SingleInboundActivity : AppCompatActivity() {
                     Intent(this, LiveScanActivity::class.java)
                         .putExtra(LiveScanActivity.EXTRA_TITLE, label)
                         .putExtra(LiveScanActivity.EXTRA_WANT_FIELD, wantField)
+                        // 补扫一律走「定格 + 点选填入」：画面顶住、识别内容画框，
+                        // 只填点选的，绝不一把全填（2026-09-14 用户要求）
+                        .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true)
                 )
             }
         }
@@ -236,36 +238,19 @@ class SingleInboundActivity : AppCompatActivity() {
 
         codeCandidateSources.clear()
 
-        // 【关键修复】OCR 文本原来被完全丢弃：只把 result.barcodes 放进候选，
-
-        // 导致界面上"只有条码可点、OCR 认到什么完全看不到"。
-
-        // 这里把 OCR 文本按行拆开也作为候选，让用户能看见并点选。
-
         for (b in result.barcodes) {
-
             val v = b.trim()
-
             if (v.isNotEmpty() && v !in codeCandidates) {
-
                 codeCandidates.add(v)
-
                 codeCandidateSources[v] = "条码"
-
             }
-
         }
 
         result.ocrText.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
-
             if (line !in codeCandidates) {
-
                 codeCandidates.add(line)
-
                 codeCandidateSources[line] = "OCR"
-
             }
-
         }
         rebuildCodeCandidates()
 
@@ -304,8 +289,7 @@ class SingleInboundActivity : AppCompatActivity() {
     /**
      * 切换显示：物料编码 ⟷ 69 码。
      *
-     * 两者一一对应，切换时顺带用对照表把另一侧补出来 —— 这就是"互补互查"：
-     * 无论是 OCR 认到物料、还是扫码枪扫到 69 码，都能切过去看到对应的另一个值。
+     * 两者一一对应，切换时顺带用对照表把另一侧补出来 —— 这就是"互补互查"。
      */
     private fun toggleMaterialEanView() {
         val cur = etMaterial.text.toString().trim()
@@ -313,8 +297,6 @@ class SingleInboundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnToggle69).text = if (showingEan69) "物料" else "69"
 
         val other: String = if (showingEan69) {
-            // 切到 69 视图：框里是 69 码就用它，否则用暂存的 69 码；
-            // 都没有就用对照表按物料反查 69 码。
             val ean = if (cur.length == 13 && cur.startsWith("69")) cur else recognizedEan69
             if (ean.isNotBlank()) {
                 recognizedEan69 = ean
@@ -323,7 +305,6 @@ class SingleInboundActivity : AppCompatActivity() {
                 lookup69().lookupByMaterial(cur)?.also { recognizedEan69 = it } ?: cur
             }
         } else {
-            // 切回物料视图：按 69 码反查物料
             val ean = if (cur.length == 13 && cur.startsWith("69")) cur else recognizedEan69
             if (ean.isNotBlank()) {
                 recognizedEan69 = ean
@@ -398,10 +379,8 @@ class SingleInboundActivity : AppCompatActivity() {
                 "${index + 1}. ",
                 if (snFromOcr) AmbiguousChar.highlight(sn) else sn,
             )
-            // 点这一行就可修改 —— 人工修正是这类识别误差唯一可靠的闭环
             tvSn.setOnClickListener { editSn(index) }
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener {
-                // 按下标删：原来按值删（remove(sn)），列表里有重复 SN 时会删错条目
                 if (index in snList.indices) snList.removeAt(index)
                 rebuildSnList()
             }
@@ -414,8 +393,7 @@ class SingleInboundActivity : AppCompatActivity() {
      * 人工修正某个序列号。
      *
      * OCR 对形状相同的字符（O/0、I/l/1）几乎无法分辨；没有条码这类权威来源时
-     * 自动纠正不可靠（猜一个替代字符比不猜更糟），所以把判断交给用户：
-     * 红色标注指出可疑位，点一下就能改。
+     * 自动纠正不可靠，所以把判断交给用户：红色标注指出可疑位，点一下就能改。
      */
     private fun editSn(index: Int) {
         val old = snList.getOrNull(index) ?: return
@@ -449,16 +427,9 @@ class SingleInboundActivity : AppCompatActivity() {
         for (code in codeCandidates) {
             val row = LayoutInflater.from(this).inflate(R.layout.item_sn_row, llCodeCandidates, false)
             val tv = row.findViewById<TextView>(R.id.tvSnItem)
-            // 标出这个候选值的来源（条码 / OCR）—— 否则用户无法判断哪个是扫码枪读出来的、
-            // 哪个是 OCR 认出来的。两者可信度差别很大，必须一眼可分。
-            // （片段颜色由 ForegroundColorSpan 决定，会盖过下面 setTextColor 的整行设色，
-            //   所以来源前缀仍是主题色，只有可疑字符变红。）
             val src = codeCandidateSources[code]
-            // 候选区这里不标红易混字符：这是原始识别明细，混着纯数字、中文等字段，
-            // 用户明确说"只有序列号、箱号这种地方才需要标"。这里只标来源。
             tv.text = if (src == null) code
             else android.text.TextUtils.concat("[$src] ", code)
-            // OCR 来源用弱化色，条码来源用主色 —— 视觉上进一步拉开差距
             tv.setTextColor(
                 if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)
             )
@@ -483,7 +454,6 @@ class SingleInboundActivity : AppCompatActivity() {
                     2 -> { etDate.setText(code); Toast.makeText(this, "日期已设为 $code", Toast.LENGTH_SHORT).show() }
                     3 -> {
                         recognizedEan69 = code
-                        // 能反查到物料就直接补上，省得用户再切一次视图
                         val m = lookup69().lookup(code)
                         if (m != null) etMaterial.setText(m)
                         else { showingEan69 = true; etMaterial.setText(code) }
@@ -566,8 +536,7 @@ class SingleInboundActivity : AppCompatActivity() {
     }
 
     /**
-     * 托盘号门禁：托盘号为空前，禁用所有扫描/识别/保存动作，
-     * 强制"先录托盘号 → 再扫描入库"的标准流程。供应商为选填，不受限。
+     * 托盘号门禁：托盘号为空前，禁用所有扫描/识别/保存动作。
      */
     private fun updateTrayGate() {
         val hasTray = etTrayCode.text.toString().trim().isNotEmpty()
