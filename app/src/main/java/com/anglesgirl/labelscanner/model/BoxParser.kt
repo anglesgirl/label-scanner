@@ -159,6 +159,16 @@ object BoxParser {
                 material.isEmpty() && (upper.startsWith("SAP") || upper.startsWith("SAP.")) -> {
                     Regex("(\\d{10,12})").find(l)?.groupValues?.get(1)?.let { material = it }
                 }
+                // 一行并排两个字段（OCR 合成一行，如 `3011211002   2025-09-17`）时
+                // 整行匹配不上 → 按空白拆成段，逐段找 10~12 位 SAP 号。
+                material.isEmpty() -> {
+                    for (part in l.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotEmpty() }) {
+                        if (SAP_NUM.matcher(part).matches()) {
+                            material = part
+                            break
+                        }
+                    }
+                }
             }
         }
 
@@ -185,7 +195,12 @@ object BoxParser {
                 DATE_ANY.find(l)?.groupValues?.get(1)
                     ?.let { raw -> normalizeDate(raw)?.let { n -> date = n } }
             }
-            normalizeDate(l)?.let { bareDates.add(it) }
+            // 裸日期行：先整行归一；整行不是日期时再行内提取 —— 一行并排两字段
+            // （如 `3011211002   2025-09-17`）时日期只是其中一段，行内取出来即可。
+            // 只收合法的日期，不会引入新值。
+            val nd = normalizeDate(l)
+                ?: DATE_ANY.find(l)?.groupValues?.get(1)?.let { raw -> normalizeDate(raw) }
+            if (nd != null) bareDates.add(nd)
         }
         if (date.isEmpty()) {
             date = bareDates.firstOrNull { it != today }

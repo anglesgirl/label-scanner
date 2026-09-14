@@ -39,11 +39,12 @@ object LabelParser {
                 val m = digits.substring(4, 6).toInt()
                 val d = digits.substring(6, 8).toInt()
                 if (m in 1..12 && d in 1..31) return "date" to digits
-            } else if (digits.length == 6 && DATE_SEP.matcher(vNorm).matches()) {
-                // 月日无前导0：2026 6 22 → 20260622
+            } else if (digits.length in 6..7 && DATE_SEP.matcher(vNorm).matches()) {
+                // 月日无前导0：2026 6 2（去符号 6 位）→ 20260602；
+                //             2026 6 22（去符号 7 位）→ 20260622
                 val y = digits.substring(0, 4)
                 val m = digits.substring(4, 5).toInt()
-                val d = digits.substring(5, 6).toInt()
+                val d = digits.substring(5).toInt()
                 if (m in 1..12 && d in 1..31) return "date" to String.format("%s%02d%02d", y, m, d)
             }
         }
@@ -200,13 +201,43 @@ object LabelParser {
             }
         }
 
-        // 纯值行：按值特征补缺
-        when (classify(line)?.first) {
-            "date" -> if (result.productionDate.isEmpty()) result.productionDate = normalizeDate(line)
-            "material10", "material12" -> if (result.materialCode.isEmpty()) {
-                result.materialCode = normalizeMaterial(line)
+        // 纯值行：按值特征补缺。
+        // 注意日期用 classify 返回的**规范化值**（如 2026 6 22 → 20260622），
+        // 不能再用 normalizeDate(line) 重算 —— 它只认 8 位纯数字，会把
+        // 月日无前导 0 的日期还原成原样。
+        when (val cls = classify(line)) {
+            null -> applyOcrSplitLine(result, line)
+            else -> when (cls.first) {
+                "date" -> if (result.productionDate.isEmpty()) result.productionDate = cls.second
+                "material10", "material12" -> if (result.materialCode.isEmpty()) {
+                    result.materialCode = normalizeMaterial(line)
+                }
+                "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = line
             }
-            "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = line
+        }
+    }
+
+    /**
+     * 一行里并排两个字段（OCR 把左右两段合成一行）时的兜底拆分。
+     *
+     * 现象（用户实测）：标签同一行印着两个值、中间留白，OCR 把它们合成一行文本，
+     * 如 `3011211002   2025-09-17`（物料 + 日期）。整行无法归类（锚定正则
+     * `^...$` 匹配不上），原逻辑整行丢弃 —— 两个字段全丢。
+     *
+     * 处理：按空白拆成段，逐段交给 classify 识别补缺；只收能识别的段，
+     * 拆不出来的段直接丢弃，不引入任何新值。
+     */
+    private fun applyOcrSplitLine(result: LabelResult, line: String) {
+        for (part in line.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotEmpty() }) {
+            val cls = classify(part) ?: continue
+            when (cls.first) {
+                "date" -> if (result.productionDate.isEmpty()) result.productionDate = cls.second
+                "material10", "material12" -> if (result.materialCode.isEmpty()) {
+                    result.materialCode = normalizeMaterial(part)
+                }
+                "ean" -> if (result.ean69.isEmpty()) result.ean69 = part
+                "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = part
+            }
         }
     }
 

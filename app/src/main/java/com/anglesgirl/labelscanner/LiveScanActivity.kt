@@ -266,10 +266,20 @@ class LiveScanActivity : AppCompatActivity() {
             .addOnSuccessListener { text ->
                 ocrBusy.set(false)
                 if (paused.get()) return@addOnSuccessListener
-                // 逐行取：标签上的印字通常一行一个字段值
+                // 逐行取：标签上的印字通常一行一个字段值。
+                // 但 OCR 会把同一行里并排的两个字段合成一行（如 `TP36217944   2025-09-17`），
+                // 整行打分必然落空 —— 所以除了整行，还把按空白拆出的各段也一并作为候选：
+                // 拆出的段更能命中目标字段的格式（托盘号 TP+8 位数字），整行则留给
+                // "字段本身含空格"的情况（如日期 `2026 6 22`）。只增候选、不删数据，
+                // 排序仍由 fieldScore 决定，不匹配的段自然排到最后。
                 val lines = text.textBlocks
                     .flatMap { it.lines }
-                    .map { it.text.trim() }
+                    .flatMap { line ->
+                        val t = line.text.trim()
+                        if (t.isEmpty()) emptyList()
+                        else listOf(t) + t.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                    }
+                    .map { it.trim() }
                     .filter { it.length in 4..40 }
                     .distinct()
                 if (lines.isEmpty()) return@addOnSuccessListener
