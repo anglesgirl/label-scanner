@@ -60,6 +60,12 @@ class LiveScanActivity : AppCompatActivity() {
         const val EXTRA_WANT_INTEGRATED = "extra_want_integrated"
 
         /**
+         * 连续扫模式（拆码页扫多箱用）：扫到集成码**自动记录并继续扫**，
+         * 用户连扫多箱后点「完成」一次性带回全部，不用每箱退出重进相机。
+         */
+        const val EXTRA_CONTINUOUS = "extra_continuous"
+
+        /**
          * 目标字段语义（"tray" / "material" / "date" / "model" / ""）。
          *
          * 为什么需要：补扫按钮原先只传 `EXTRA_TITLE`（"托盘号"这种**显示文字**），
@@ -110,6 +116,8 @@ class LiveScanActivity : AppCompatActivity() {
     private var bulkMode = false
     /** 挑码模式：列出扫到的码供用户点选。 */
     private var pickMode = false
+    /** 连续扫模式（拆码页多箱）：扫到集成码自动记录、继续扫，点「完成」一次性带回。 */
+    private var continuousMode = false
 
     // 挑码模式：预览浮层 + 底部「已选/填入」栏
     private lateinit var pickOverlay: BarcodePickOverlay
@@ -154,10 +162,18 @@ class LiveScanActivity : AppCompatActivity() {
         pickMode = intent.getBooleanExtra(EXTRA_PICK_MODE, false)
         // 本页是否为扫集成码：识别到多个码时优先取 2D / 含逗号的那个
         wantIntegrated = intent.getBooleanExtra(EXTRA_WANT_INTEGRATED, false)
+        continuousMode = intent.getBooleanExtra(EXTRA_CONTINUOUS, false)
         expectedCount = intent.getIntExtra(EXTRA_EXPECTED_COUNT, 0)
         initialCodes += intent.getStringArrayListExtra(EXTRA_INITIAL_CODES).orEmpty()
-        tvHint.text = if (title.isEmpty()) "对准条码，自动识别" else "对准${title}条码，自动识别"
-        findViewById<Button>(R.id.btnCloseScan).setOnClickListener { finish() }
+        tvHint.text = when {
+            continuousMode -> "对准集成码自动记录，扫完一箱接着扫下一箱"
+            title.isEmpty() -> "对准条码，自动识别"
+            else -> "对准${title}条码，自动识别"
+        }
+        // 连续扫：右上角按钮变成「完成」，已扫 N 箱会显示在按钮上；没扫到直接退出即取消
+        findViewById<Button>(R.id.btnCloseScan).setOnClickListener {
+            if (continuousMode) finishContinuous() else finish()
+        }
 
         if (pickMode) {
             pickOverlay = findViewById(R.id.pickOverlay)
@@ -443,6 +459,23 @@ class LiveScanActivity : AppCompatActivity() {
         // 集成码（含逗号的整串多 SN）不该自动整个填进托盘/物料/日期/型号框，
         // 让它进单选列表由用户挑。
         val hasIntegrated = ordered.any { it.value.contains(',') || it.value.contains('\uFF0C') }
+        // 连续扫模式（拆码页多箱）：只收集成码，同屏的其它 1D 码不弹框打扰；
+        // 扫到新集成码 → 自动记录、beep、继续实时扫，等用户点「完成」一次性带回。
+        if (continuousMode) {
+            if (hasIntegrated) {
+                // 只累积集成码（含逗号的多 SN），同屏的其它 1D 码不入账
+                val fresh = ordered
+                    .filter { it.value.contains(',') || it.value.contains('\uFF0C') }
+                    .map { it.value }
+                    .filter { it !in seenCodes }
+                if (fresh.isNotEmpty()) {
+                    seenCodes.addAll(fresh)
+                    beep()
+                    runOnUiThread { updateContinuousHint() }
+                }
+            }
+            return
+        }
         if (hasIntegrated && wantField.isEmpty()) {
             singleOnlyStreak = 0
             if (!paused.compareAndSet(false, true)) return
@@ -550,11 +583,10 @@ class LiveScanActivity : AppCompatActivity() {
             imageProxy.close()
             return
         }
-        // 帧抽样：困难模式（密集 2D 码）走 3x 强通道、单次耗时长 → 每 2 帧；
-        // 普通模式（单码字段：托盘号/物料/日期/型号）用**原始分辨率**解码，很快 →
-        // **每帧都跑**（原为每 3 帧），用户一举起来就能出结果。
-        val interval = if (wantIntegrated) 2 else 1
-        if (zxingFrameCounter++ % interval != 0 || !zxingBusy.compareAndSet(false, true)) {
+        // 帧调度：**每帧都尝试**（busy 时自然跳过当前帧）。原来集成码困难模式每 2 帧
+        // 才跑一次、又是 3x 放大慢解码，用户体感"扫很久"；配合渐进解码（1x→2x→3x）
+        // 常见情况毫秒级命中，等于把帧率翻倍又让单帧变快。
+        if (zxingFrameCounter++ % 1 != 0 || !zxingBusy.compareAndSet(false, true)) {
             imageProxy.close()
             return
         }
@@ -571,14 +603,15 @@ class LiveScanActivity : AppCompatActivity() {
                 // 普通模式用 1x —— 分析帧已是 1920×1080，一维条码像素充足；放大 3x
                 // 到 5760×3240 会让单次解码 1~3 秒（实测"要举很久"就是这个原因），
                 // 而且托盘标签的塑料膜反光会被一起放大、反而更难解。
-                // 困难模式仍用 3x 强通道啃密集小码。
+                // 集成码模式用**渐进解码**（1x→2x→3x 逐级，命中即返回）：
+                // 用户对准后码在画面里通常占足够像素，1x 毫秒级解出；只有码很小
+                // 才逐级放大兜底，不再一刀切 3x 慢通道（2026-09-14 用户反馈拆码扫码慢）。
                 // 补扫（pickMode）用**带位置**解码：定格后要把每个码框出来供点选，
-                // 只有值没有位置框就没法标记。原始分辨率解 1D 码字段足够
-                // （用户已确认普通模式用原始分辨率解码）。
-                val found = if (pickMode) {
-                    ZxingDecoder.decodeWithPositions(bmp)
-                } else {
-                    ZxingDecoder.decode(bmp, if (wantIntegrated) 3f else 1f).map { it to null }
+                // 只有值没有位置框就没法标记。原始分辨率解 1D 码字段足够。
+                val found = when {
+                    pickMode -> ZxingDecoder.decodeWithPositions(bmp)
+                    wantIntegrated -> ZxingDecoder.decodeProgressive(bmp).map { it to null }
+                    else -> ZxingDecoder.decode(bmp, 1f).map { it to null }
                 }
                 if (found.isNotEmpty()) {
                     if (Diag.enabled) {
@@ -603,6 +636,12 @@ class LiveScanActivity : AppCompatActivity() {
                     // 用户原则："有条码的优先识别条码；没有条码的，就用 OCR 补。"
                     // 型号字段天然没有条码（用户明确指出），所以它的阈值取得更短。
                     // 有条码时**一次都不跑 OCR** —— 既保住条码的准确率，也不拖慢正常扫码。
+                    // 集成码模式例外：集成码是 2D 码（DataMatrix/PDF417），OCR 读不出，
+                    // 跑了只会拿文本行凑数当候选，纯属噪音，直接跳过。
+                    if (wantIntegrated) {
+                        zxingBusy.set(false)
+                        return@execute
+                    }
                     noCodeStreak += 1
                     if (noCodeStreak >= ocrAfterRounds()) {
                         noCodeStreak = 0
@@ -722,6 +761,28 @@ class LiveScanActivity : AppCompatActivity() {
                 .setOnDismissListener { paused.set(false) }
                 .show()
         }
+    }
+
+    /** 连续扫模式：把已记录的集成码一次性带回（点右上「完成」触发）。 */
+    private fun finishContinuous() {
+        if (seenCodes.isEmpty()) {
+            finish()   // 一箱都没扫到：等同取消
+            return
+        }
+        beep()
+        setResult(
+            RESULT_OK,
+            Intent().putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(seenCodes)),
+        )
+        finish()
+    }
+
+    /** 连续扫模式：顶部提示与「完成」按钮实时显示已扫箱数。 */
+    private fun updateContinuousHint() {
+        val n = seenCodes.size
+        findViewById<TextView>(R.id.tvScanHint).text =
+            "已扫 $n 箱，继续扫下一箱；点右上「完成」结束"
+        findViewById<Button>(R.id.btnCloseScan).text = "✓ 完成($n)"
     }
 
     /** 扫到条码提示音 + 振动 */
