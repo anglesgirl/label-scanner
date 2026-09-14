@@ -78,16 +78,21 @@ object ZxingDecoder {
     fun decode(original: Bitmap, scale: Float = SCALE): List<String> {
         if (original.width < 10 || original.height < 10) return emptyList()
         return try {
-            var w = (original.width * scale).toInt()
-            var h = (original.height * scale).toInt()
-            // 大图保护：放大后最长边超过上限则等比收(防 3x 大图 OOM)
-            val maxDim = maxOf(w, h)
-            if (maxDim > MAX_DIM) {
-                val ratio = MAX_DIM.toFloat() / maxDim
-                w = (w * ratio).toInt().coerceAtLeast(1)
-                h = (h * ratio).toInt().coerceAtLeast(1)
+            var w = original.width
+            var h = original.height
+            var scaled = original
+            if (scale > 1f) {
+                w = (original.width * scale).toInt()
+                h = (original.height * scale).toInt()
+                // 大图保护：放大后最长边超过上限则等比收(防 3x 大图 OOM)
+                val maxDim = maxOf(w, h)
+                if (maxDim > MAX_DIM) {
+                    val ratio = MAX_DIM.toFloat() / maxDim
+                    w = (w * ratio).toInt().coerceAtLeast(1)
+                    h = (h * ratio).toInt().coerceAtLeast(1)
+                }
+                scaled = Bitmap.createScaledBitmap(original, w, h, true)
             }
-            val scaled = Bitmap.createScaledBitmap(original, w, h, true)
 
             val reader = BarcodeReader(
                 BarcodeReader.Options(
@@ -112,5 +117,26 @@ object ZxingDecoder {
             Log.w(TAG, "zxing-cpp decode failed: ${e.message}")
             emptyList()
         }
+    }
+
+    /**
+     * 渐进解码：**1x → 2x → 3x 逐级尝试，任一尺度解出即返回**。
+     *
+     * 为什么（2026-09-14 用户反馈"拆码扫码扫很久"）：
+     * 实时扫码的分析帧已是 1920×1080 —— 用户对准后，码在画面里通常占足够像素，
+     * **1x 就能解出（几十毫秒）**；只有码很小 / 离得远时才需要放大。
+     * 原来集成码模式一刀切直接 3x，把 5760×3240 的图喂给解码器，单次 1~3 秒，
+     * 用户体感就是"举着扫很久"。渐进解码让**常见场景快、困难场景兜底**：
+     * 1x 命中 → 毫秒级；1x 解不出再 2x（约 0.2~0.5 秒），仍不行才上 3x 强通道。
+     *
+     * 最坏情况（三档全失败）比直接 3x 多两次快尝试，代价很小；而常见情况快一个数量级。
+     */
+    fun decodeProgressive(original: Bitmap): List<String> {
+        if (original.width < 10 || original.height < 10) return emptyList()
+        for (scale in listOf(1f, 2f, 3f)) {
+            val r = decode(original, scale)
+            if (r.isNotEmpty()) return r
+        }
+        return emptyList()
     }
 }

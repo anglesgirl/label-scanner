@@ -52,7 +52,7 @@
                 android:layout_height="50dp"
                 android:layout_weight="1"
                 android:backgroundTint="@color/ls_primary"
-                android:text="🔍 扫一箱"
+                android:text="🔍 连续扫箱"
                 android:textColor="#FFFFFF"
                 android:textSize="15sp"
                 android:textStyle="bold"

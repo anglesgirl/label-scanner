@@ -136,6 +136,11 @@ class SplitCodeActivity : AppCompatActivity() {
 
     /**
      * 扫一箱：扫到的集成码**自动填进一箱**（自动填是主力，不增加操作）。
+     *
+     * 2026-09-14 升级为**连续扫**（用户反馈"拆码扫码扫很久"）：
+     * 原来每扫一箱都要退出相机、再点一次「扫一箱」重新进 —— 相机反复冷启动，
+     * 叠加 3x 慢解码，体感极差。现在扫到一箱自动记录、继续实时扫下一箱，
+     * 连扫多箱后点「完成」一次性带回，宿主按顺序逐箱填入。
      */
     private fun scanNewBox() {
         scanTargetRow = -1
@@ -143,7 +148,9 @@ class SplitCodeActivity : AppCompatActivity() {
             Intent(this, LiveScanActivity::class.java)
                 .putExtra(LiveScanActivity.EXTRA_TITLE, "扫一箱集成码")
                 // 声明要集成码：扫描页因此只走 zxing-cpp 强通道，不让 ML Kit 参与。
-                .putExtra(LiveScanActivity.EXTRA_WANT_INTEGRATED, true),
+                .putExtra(LiveScanActivity.EXTRA_WANT_INTEGRATED, true)
+                // 连续扫：自动记录多箱，点完成一次性带回（不再每箱退出重进相机）
+                .putExtra(LiveScanActivity.EXTRA_CONTINUOUS, true),
         )
     }
 
