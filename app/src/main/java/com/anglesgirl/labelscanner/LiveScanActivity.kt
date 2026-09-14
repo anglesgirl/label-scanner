@@ -402,8 +402,11 @@ class LiveScanActivity : AppCompatActivity() {
 
         // 自动填是主力（用户明确要求省力）—— 扫到集成码就直接带回上层填箱，
         // 不再多一次"全部使用"确认点击；填错了由拆分页的候选区修正。
+        // ⚠️ 仅限批量/通用场景（wantField 为空）：字段补扫要的是单一值，
+        // 集成码（含逗号的整串多 SN）不该自动整个填进托盘/物料/日期/型号框，
+        // 让它进单选列表由用户挑。
         val hasIntegrated = ordered.any { it.value.contains(',') || it.value.contains('\uFF0C') }
-        if (hasIntegrated) {
+        if (hasIntegrated && wantField.isEmpty()) {
             singleOnlyStreak = 0
             if (!paused.compareAndSet(false, true)) return
             runOnUiThread {
@@ -423,25 +426,43 @@ class LiveScanActivity : AppCompatActivity() {
         if (!paused.compareAndSet(false, true)) return
         runOnUiThread {
             beep()
-            val lines = ordered.mapIndexed { i, c ->
+            // 多候选确认：**单选列表**，默认选中排序最靠前的（最像目标字段的），
+            // 点「确定」只返回选中的那一个。
+            //
+            // 为什么改（用户反馈）：原来只有「全部使用 / 重新扫」，点"全部使用"就把
+            // 所有候选（含 OCR 垃圾行、无关码）整个带回上层 —— 字段补扫时宿主
+            // forEach 逐个 setText 到同一个框，后面的覆盖前面的，最终留下排序最差的
+            // 那个；SN 批量时垃圾全进列表。现在能只取想要的那一个。
+            val items = ordered.mapIndexed { i, c ->
                 val tag = when {
                     c.value.contains(',') || c.value.contains('，') -> "集成码"
                     c.is2D -> "二维码"
                     else -> "条码"
                 }
                 "${i + 1}. [$tag] ${c.value.take(70)}"
-            }.joinToString("\n")
-            AlertDialog.Builder(this)
-                .setTitle("\uD83D\uDCE6 共识别到 ${codes.size} 个码")
-                .setMessage("全部收下（不丢数据）：\n\n$lines")
+            }.toTypedArray()
+            var checked = 0
+            val builder = AlertDialog.Builder(this)
+                .setTitle("\uD83D\uDCE6 识别到 ${codes.size} 个候选，点选要用的")
+                .setSingleChoiceItems(items, 0) { _, which -> checked = which }
                 .setCancelable(false)
-                .setPositiveButton("全部使用") { _, _ ->
+                .setPositiveButton("确定") { _, _ ->
+                    setResult(RESULT_OK, Intent()
+                        .putStringArrayListExtra(EXTRA_RESULT_CODES, arrayListOf(ordered[checked].value)))
+                    finish()
+                }
+                .setNegativeButton("重新扫") { _, _ -> singleOnlyStreak = 0; paused.set(false) }
+            // 字段补扫（wantField 非空）要的是单一值，只返回选中的那个，不提供
+            // 「全部使用」—— 全填会把一个框覆盖成错值。批量场景（SN 补扫等）
+            // 才保留「全部使用」，一次带回全部候选。
+            if (wantField.isEmpty()) {
+                builder.setNeutralButton("全部使用") { _, _ ->
                     setResult(RESULT_OK, Intent()
                         .putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(ordered.map { it.value })))
                     finish()
                 }
-                .setNegativeButton("重新扫") { _, _ -> singleOnlyStreak = 0; paused.set(false) }
-                .show()
+            }
+            builder.show()
         }
     }
 
