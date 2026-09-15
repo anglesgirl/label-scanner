@@ -8,3 +8,4 @@ local.properties
 .externalNativeBuild
 .cxx
 label-scanner-debug/
+.kotlin/
