@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.hardware.usb.UsbDevice
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
@@ -22,6 +23,8 @@ import com.anglesgirl.labelscanner.util.TrayPrefs
 import com.jiangdg.usbcamera.UVCCameraHelper
 import com.serenegiant.usb.widget.UVCCameraTextureView
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 内窥镜扫码（USB UVC 摄像头）。
@@ -135,7 +138,12 @@ class UsbCameraScanActivity : AppCompatActivity() {
         cameraView.postDelayed({ startPreviewWhenReady(attempt + 1) }, 100)
     }
 
-    /** 抓当前帧 → 走现有识别管线 */
+    /** 抓当前帧 → 走现有识别管线。
+     * 全程后台执行：captureStillImage 内部是「同步等渲染线程」的实现，
+     * 预览未就绪时会在主线程无限阻塞（点按钮卡死）。这里优先用
+     * TextureView.getBitmap()（秒回、不依赖渲染线程内部状态），
+     * 兜底 captureStillImage 也放在独立线程并加 3 秒超时。
+     */
     private fun captureAndRecognize() {
         if (!helper.isCameraOpened()) {
             Toast.makeText(this, "摄像头未连接，请先插入内窥镜", Toast.LENGTH_SHORT).show()
@@ -145,33 +153,48 @@ class UsbCameraScanActivity : AppCompatActivity() {
             Toast.makeText(this, "识别中，请稍候…", Toast.LENGTH_SHORT).show()
             return
         }
-        val w = helper.getPreviewWidth().takeIf { it > 0 } ?: 640
-        val h = helper.getPreviewHeight().takeIf { it > 0 } ?: 480
-        val bmp = runCatching { cameraView.captureStillImage(w, h) }.getOrNull()
-            ?: runCatching { cameraView.captureStillImage(640, 480) }.getOrNull()
-        if (bmp == null) {
-            Toast.makeText(this, "取帧失败，请稍候再试", Toast.LENGTH_SHORT).show()
-            return
-        }
         recognizing = true
-        tvStatus.text = "识别中（${bmp.width}x${bmp.height}）…"
-        StaticRecognizer.recognize(
-            bmp,
-            lookup69 = { ean -> lookup69().lookup(ean) },
-            onResult = { result ->
+        tvStatus.text = "识别中…"
+        Thread {
+            val bmp = runCatching { cameraView.bitmap }.getOrNull()
+                ?: runCatching {
+                    val f = Executors.newSingleThreadExecutor().submit<Bitmap?> {
+                        runCatching { cameraView.captureStillImage(640, 480) }.getOrNull()
+                    }
+                    try {
+                        f.get(3, TimeUnit.SECONDS)
+                    } catch (e: Exception) {
+                        f.cancel(true)
+                        null
+                    }
+                }.getOrNull()
+            if (bmp == null) {
                 runOnUiThread {
                     recognizing = false
-                    showResultDialog(result)
+                    tvStatus.text = "取帧失败：预览未就绪，请重插摄像头"
+                    Toast.makeText(this, "取帧失败，请稍候再试", Toast.LENGTH_SHORT).show()
                 }
-            },
-            onError = { msg ->
-                runOnUiThread {
-                    recognizing = false
-                    tvStatus.text = "识别失败：$msg"
-                    Toast.makeText(this, "识别失败：$msg", Toast.LENGTH_SHORT).show()
-                }
+                return@Thread
             }
-        )
+            runOnUiThread { tvStatus.text = "识别中（${bmp.width}x${bmp.height}）…" }
+            StaticRecognizer.recognize(
+                bmp,
+                lookup69 = { ean -> lookup69().lookup(ean) },
+                onResult = { result ->
+                    runOnUiThread {
+                        recognizing = false
+                        showResultDialog(result)
+                    }
+                },
+                onError = { msg ->
+                    runOnUiThread {
+                        recognizing = false
+                        tvStatus.text = "识别失败：$msg"
+                        Toast.makeText(this, "识别失败：$msg", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+        }.start()
     }
 
     /** 结果弹窗：字段一览 + 保存/复制 SN */
