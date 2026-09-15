@@ -440,6 +440,8 @@ class SingleInboundActivity : AppCompatActivity() {
         }
     }
 
+    /** 条码用途选择：手动加入前统一走 CandidateNormalizer（整理 + 校验 + 修改提示，
+     *  2026-09-15：OCR 隔开/前缀粘连的值不该原样贴进字段）。 */
     private fun showCodeActionDialog(code: String) {
         AlertDialog.Builder(this)
             .setTitle("条码: $code")
@@ -449,24 +451,50 @@ class SingleInboundActivity : AppCompatActivity() {
                 "➕ 加入序列号列表", "❌ 取消"
             )) { _, which ->
                 when (which) {
-                    0 -> { etMaterial.setText(code); Toast.makeText(this, "物料已设为 $code", Toast.LENGTH_SHORT).show() }
-                    1 -> { etTrayCode.setText(code); Toast.makeText(this, "托盘号已设为 $code", Toast.LENGTH_SHORT).show() }
-                    2 -> { etDate.setText(code); Toast.makeText(this, "日期已设为 $code", Toast.LENGTH_SHORT).show() }
-                    3 -> {
-                        recognizedEan69 = code
-                        val m = lookup69().lookup(code)
-                        if (m != null) etMaterial.setText(m)
-                        else { showingEan69 = true; etMaterial.setText(code) }
-                        Toast.makeText(this, "69 码已设为 $code", Toast.LENGTH_SHORT).show()
+                    0 -> CandidateNormalizer.applyWithCheck(this, code, "material") { v ->
+                        etMaterial.setText(v); Toast.makeText(this, "物料已设为 $v", Toast.LENGTH_SHORT).show()
                     }
-                    4 -> { etModel.setText(code); Toast.makeText(this, "型号已设为 $code", Toast.LENGTH_SHORT).show() }
+                    1 -> CandidateNormalizer.applyWithCheck(this, code, "tray") { v ->
+                        etTrayCode.setText(v); Toast.makeText(this, "托盘号已设为 $v", Toast.LENGTH_SHORT).show()
+                    }
+                    2 -> CandidateNormalizer.applyWithCheck(this, code, "date") { v ->
+                        etDate.setText(v); Toast.makeText(this, "日期已设为 $v", Toast.LENGTH_SHORT).show()
+                    }
+                    3 -> CandidateNormalizer.applyWithCheck(this, code, "ean69") { v ->
+                        recognizedEan69 = v
+                        val m = lookup69().lookup(v)
+                        if (m != null) etMaterial.setText(m)
+                        else { showingEan69 = true; etMaterial.setText(v) }
+                        Toast.makeText(this, "69 码已设为 $v", Toast.LENGTH_SHORT).show()
+                    }
+                    4 -> CandidateNormalizer.applyWithCheck(this, code, "model") { v ->
+                        etModel.setText(v); Toast.makeText(this, "型号已设为 $v", Toast.LENGTH_SHORT).show()
+                    }
                     5 -> {
-                        if (code !in snList) { snList.add(code); rebuildSnList(); Toast.makeText(this, "已加入序列号", Toast.LENGTH_SHORT).show() }
-                        else Toast.makeText(this, "序列号已存在", Toast.LENGTH_SHORT).show()
+                        val v = CandidateNormalizer.normalize(code, "sn")
+                        val err = CandidateNormalizer.validate(v, "sn")
+                        if (err != null) {
+                            CandidateNormalizer.applyWithCheck(this, code, "sn") { fixed ->
+                                addSn(fixed)
+                            }
+                        } else {
+                            addSn(v)
+                        }
                     }
                 }
             }
             .show()
+    }
+
+    /** 加入 SN 列表（去重 + 提示）。 */
+    private fun addSn(v: String) {
+        if (v !in snList) {
+            snList.add(v)
+            rebuildSnList()
+            Toast.makeText(this, "已加入序列号: $v", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "序列号已存在", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun confirmSave() {

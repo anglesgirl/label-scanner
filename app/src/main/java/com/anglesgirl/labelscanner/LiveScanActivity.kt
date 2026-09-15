@@ -562,6 +562,15 @@ class LiveScanActivity : AppCompatActivity() {
     private val reportCooldownMs = 500L
 
     /**
+     * 补扫定格稳定检测（2026-09-15 用户反馈"小放大镜扫码太快，人没反应过来就弹"）：
+     * 同一组码**持续出现约 1.5 秒**才定格画框。画面微移/换码会重新计时 ——
+     * 给用户留出对准和稳住镜头的时间，而不是一识别到就冻结画面。
+     */
+    private var pickStableKey: String? = null
+    private var pickStableSince = 0L
+    private val pickStableMs = 1500L
+
+    /**
      * 连续多少帧只看到单条码（没看到集成码）。
      * zxing 强通道每 6 帧才跑一次，若不等待就会在第一帧误判「没有集成码」
      * 而反复弹框 —— 用户实测到的「一直提示、实际只有单个条码」正是此因。
@@ -633,8 +642,21 @@ class LiveScanActivity : AppCompatActivity() {
                         ))
                     }
                     if (pickMode) {
-                        // 定格 + 画框标记，用户点选后再填（只填点选的，不一把全填）
-                        runOnUiThread { freezeAndShow(bmp, found) }
+                        // 稳定检测：同一组码持续约 1.5s 才定格（"扫码太快人没对准就弹"）。
+                        // 码集合变化（画面移动/换了目标）→ 重新计时；定格后由
+                        // freezeAndShow 置 paused，后续帧不再进来。
+                        val key = found.map { it.first }.sorted().joinToString("|")
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (key == pickStableKey) {
+                            if (now - pickStableSince >= pickStableMs) {
+                                pickStableKey = null
+                                pickStableSince = 0
+                                runOnUiThread { freezeAndShow(bmp, found) }
+                            }
+                        } else {
+                            pickStableKey = key
+                            pickStableSince = now
+                        }
                     } else {
                         val typed = found.map { (v, _) ->
                             val integ = v.contains(',') || v.contains('\uFF0C')
@@ -655,6 +677,8 @@ class LiveScanActivity : AppCompatActivity() {
                 } else {
                     // 当前帧无码 → 多帧累计清零（下一帧重新开始数）
                     lastFrameKey = null
+                    pickStableKey = null
+                    pickStableSince = 0
                     // ⭐ 无条码 → 累计轮数，达到阈值启用 OCR 兜底。
                     // 用户原则："有条码的优先识别条码；没有条码的，就用 OCR 补。"
                     // 型号字段天然没有条码（用户明确指出），所以它的阈值取得更短。

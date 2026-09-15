@@ -527,7 +527,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         }
     }
 
-    /** 条码用途选择：修正识别错误的入口 */
+    /** 条码用途选择：修正识别错误的入口。
+     *  手动加入前统一走 CandidateNormalizer：自动整理（去空格/前缀）+ 合规校验，
+     *  不合规弹修改框（2026-09-15：OCR 隔开的值 `sn123456789 10`、日期 `2026-49-15`
+     *  不该原样贴进去）。 */
     private fun showCodeActionDialog(code: String) {
         AlertDialog.Builder(this)
             .setTitle("条码: $code")
@@ -541,21 +544,40 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 )
             ) { _, which ->
                 when (which) {
-                    0 -> { etBox.setText(code); Toast.makeText(this, "箱号已设为 $code", Toast.LENGTH_SHORT).show() }
-                    1 -> { etMaterial.setText(code); Toast.makeText(this, "物料已设为 $code", Toast.LENGTH_SHORT).show() }
-                    2 -> { etDate.setText(code); Toast.makeText(this, "日期已设为 $code", Toast.LENGTH_SHORT).show() }
+                    0 -> CandidateNormalizer.applyWithCheck(this, code, "box") { v ->
+                        etBox.setText(v); Toast.makeText(this, "箱号已设为 $v", Toast.LENGTH_SHORT).show()
+                    }
+                    1 -> CandidateNormalizer.applyWithCheck(this, code, "material") { v ->
+                        etMaterial.setText(v); Toast.makeText(this, "物料已设为 $v", Toast.LENGTH_SHORT).show()
+                    }
+                    2 -> CandidateNormalizer.applyWithCheck(this, code, "date") { v ->
+                        etDate.setText(v); Toast.makeText(this, "日期已设为 $v", Toast.LENGTH_SHORT).show()
+                    }
                     3 -> {
-                        if (code !in snList) {
-                            snList.add(code)
-                            rebuildSnList()
-                            Toast.makeText(this, "已加入序列号", Toast.LENGTH_SHORT).show()
+                        val v = CandidateNormalizer.normalize(code, "sn")
+                        val err = CandidateNormalizer.validate(v, "sn")
+                        if (err != null) {
+                            CandidateNormalizer.applyWithCheck(this, code, "sn") { fixed ->
+                                addSn(fixed)
+                            }
                         } else {
-                            Toast.makeText(this, "序列号已存在", Toast.LENGTH_SHORT).show()
+                            addSn(v)
                         }
                     }
                 }
             }
             .show()
+    }
+
+    /** 加入 SN 列表（去重 + 提示）。 */
+    private fun addSn(v: String) {
+        if (v !in snList) {
+            snList.add(v)
+            rebuildSnList()
+            Toast.makeText(this, "已加入序列号: $v", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "序列号已存在", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** 取主题色（跟随深浅模式）。 */
