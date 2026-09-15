@@ -10,6 +10,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.data.RecordStore
@@ -61,7 +65,10 @@ class UsbCameraScanActivity : AppCompatActivity() {
         override fun onConnectDev(device: UsbDevice?, isCameraOpened: Boolean) {
             if (!isCameraOpened) {
                 helper.createUVCCamera()
-                helper.startPreview(cameraView)
+                // TextureView 的 SurfaceTexture 是异步创建（onSurfaceTextureAvailable
+                // 回调），此时可能还没就绪，直接 startPreview 会拿到 null 崩溃。
+                // 轮询等待就绪后再开预览。
+                startPreviewWhenReady(0)
             }
             runOnUiThread {
                 tvStatus.text = "已连接：${device?.deviceName ?: "USB"}"
@@ -76,7 +83,14 @@ class UsbCameraScanActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge：与其他页面保持一致，否则标题被状态栏盖住
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_usb_camera)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(top = bars.top, bottom = bars.bottom)
+            insets
+        }
 
         cameraView = findViewById(R.id.usbCameraView)
         tvStatus = findViewById(R.id.tvUsbStatus)
@@ -105,6 +119,20 @@ class UsbCameraScanActivity : AppCompatActivity() {
         runCatching { helper.unregisterUSB() }
         runCatching { helper.release() }
         super.onDestroy()
+    }
+
+    /** 等 TextureView 的 SurfaceTexture 就绪后开预览（最多等 5 秒） */
+    private fun startPreviewWhenReady(attempt: Int) {
+        if (isFinishing || isDestroyed) return
+        if (cameraView.isAvailable) {
+            helper.startPreview(cameraView)
+            return
+        }
+        if (attempt >= 50) {
+            runOnUiThread { tvStatus.text = "预览初始化超时，请重插摄像头" }
+            return
+        }
+        cameraView.postDelayed({ startPreviewWhenReady(attempt + 1) }, 100)
     }
 
     /** 抓当前帧 → 走现有识别管线 */
