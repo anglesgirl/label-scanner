@@ -113,7 +113,7 @@ public class RendererHolder implements Runnable {
 				mClients.append(id, handler);
 				if (onFrameAvailableListener != null)
 					mOnFrameAvailables.append(id, onFrameAvailableListener);
-				handler.setEglContext(mMasterEgl.getContext(), mTexId, surface, true);
+				handler.setEglContext(mMasterEgl.getIContext(), mTexId, surface, true);
 				requestDraw = false;
 				if (DEBUG) Log.v(TAG, "success to add surface:id=" + id);
 			} else {
@@ -121,6 +121,15 @@ public class RendererHolder implements Runnable {
 			}
 			mSync.notifyAll();
 		}
+	}
+
+	/** common 4.1.1 的 addSurface(int, Object, boolean)（AndroidUSBCamera 多路 Surface 用） */
+	public void addSurface(final int id, final Object surface, final boolean isRecordable) {
+		addSurface(id, surface, isRecordable, null);
+	}
+
+	public void addSurface(final int id, final Object surface, final boolean isRecordable, final IUVCServiceOnFrameAvailable onFrameAvailableListener) {
+		addSurface(id, (Surface)surface, isRecordable, onFrameAvailableListener);
 	}
 
 	public void removeSurface(final int id) {
@@ -249,7 +258,7 @@ public class RendererHolder implements Runnable {
 		mMasterEgl = new EGLBase(EGL14.EGL_NO_CONTEXT, false, false);
     	mDummySurface = mMasterEgl.createOffscreen(2, 2);
 		mDummySurface.makeCurrent();
-		mTexId = GLDrawer2D.initTex();
+		mTexId = new GLDrawer2D().initTex();
 		mMasterTexture = new SurfaceTexture(mTexId);
 		mSurface = new Surface(mMasterTexture);
 		mMasterTexture.setOnFrameAvailableListener(mOnFrameAvailableListener);
@@ -290,7 +299,7 @@ public class RendererHolder implements Runnable {
 		mSurface = null;
 		mMasterTexture.release();
 		mMasterTexture = null;
-		GLDrawer2D.deleteTex(mTexId);
+		new GLDrawer2D().deleteTex(mTexId);
 		mDummySurface.release();
 		mDummySurface = null;
 		mMasterEgl.release();

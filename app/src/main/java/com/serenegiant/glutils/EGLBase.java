@@ -47,7 +47,31 @@ public class EGLBase {	// API >= 17
 	private EGLDisplay mEglDisplay = EGL14.EGL_NO_DISPLAY;
 	private EGLContext mDefaultContext = EGL14.EGL_NO_CONTEXT;
 
-	public static class EglSurface {
+	/**
+	 * GL 上下文包装（AndroidUSBCamera 2.3.4 的 UVCCameraTextureView 渲染线程
+	 * 按 common 4.1.1 API 调用，需要 IContext/IEglSurface 接口形态）
+	 */
+	public interface IContext {
+		EGLContext getContext();
+	}
+
+	/** EGL surface 接口（渲染线程 invokeinterface 调用） */
+	public interface IEglSurface {
+		void makeCurrent();
+		void swap();
+		IContext getContext();
+		void release();
+	}
+
+	/** IContext 实现：包一层 mEglContext */
+	private final class ContextImpl implements IContext {
+		@Override
+		public EGLContext getContext() {
+			return EGLBase.this.mEglContext;
+		}
+	}
+
+	public static class EglSurface implements IEglSurface {
 		private final EGLBase mEgl;
 		private EGLSurface mEglSurface = EGL14.EGL_NO_SURFACE;
 
@@ -75,8 +99,8 @@ public class EGLBase {	// API >= 17
 			mEgl.swap(mEglSurface);
 		}
 
-		public EGLContext getContext() {
-			return mEgl.getContext();
+		public IContext getContext() {
+			return mEgl.getIContext();
 		}
 
 		public void release() {
@@ -85,6 +109,11 @@ public class EGLBase {	// API >= 17
 			mEgl.destroyWindowSurface(mEglSurface);
 	        mEglSurface = EGL14.EGL_NO_SURFACE;
 		}
+	}
+
+	/** common 4.1.1 的静态工厂：AndroidUSBCamera 渲染线程 createFrom(IContext,ZZ) */
+	public static EGLBase createFrom(final IContext shared_context, final boolean with_depth_buffer, final boolean isRecordable) {
+		return new EGLBase(shared_context != null ? shared_context.getContext() : null, with_depth_buffer, isRecordable);
 	}
 
 	public EGLBase(final EGLContext shared_context, final boolean with_depth_buffer, final boolean isRecordable) {
@@ -103,7 +132,7 @@ public class EGLBase {	// API >= 17
         mEglContext = EGL14.EGL_NO_CONTEXT;
     }
 
-	public EglSurface createFromSurface(final Object surface) {
+	public IEglSurface createFromSurface(final Object surface) {
 		if (DEBUG) Log.v(TAG, "createFromSurface:");
 		final EglSurface eglSurface = new EglSurface(this, surface);
 		eglSurface.makeCurrent();
@@ -119,6 +148,11 @@ public class EGLBase {	// API >= 17
 
 	public EGLContext getContext() {
 		return mEglContext;
+	}
+
+	/** IContext 包装（缓存实例） */
+	public IContext getIContext() {
+		return new ContextImpl();
 	}
 
 	private void init(EGLContext shared_context, final boolean with_depth_buffer, final boolean isRecordable) {

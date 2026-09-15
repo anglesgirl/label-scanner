@@ -60,7 +60,7 @@ public final class RenderHandler extends Handler {
 		return thread.getHandler();
 	}
 
-	public final void setEglContext(final EGLContext shared_context, final int tex_id, final Object surface, final boolean isRecordable) {
+	public final void setEglContext(final EGLBase.IContext shared_context, final int tex_id, final Object surface, final boolean isRecordable) {
 		if (DEBUG) Log.i(TAG, "RenderHandler:setEglContext:");
 		if (!(surface instanceof Surface) && !(surface instanceof SurfaceTexture) && !(surface instanceof SurfaceHolder))
 			throw new RuntimeException("unsupported window type:" + surface);
@@ -133,9 +133,9 @@ public final class RenderHandler extends Handler {
 	}
 
 	private static final class ContextParams {
-    	final EGLContext shared_context;
+    	final EGLBase.IContext shared_context;
     	final Object surface;
-    	public ContextParams(final EGLContext shared_context, final Object surface) {
+    	public ContextParams(final EGLBase.IContext shared_context, final Object surface) {
     		this.shared_context = shared_context;
     		this.surface = surface;
     	}
@@ -150,7 +150,7 @@ public final class RenderHandler extends Handler {
     	private final Object mSync = new Object();
     	private RenderHandler mHandler;
     	private EGLBase mEgl;
-    	private EGLBase.EglSurface mTargetSurface;
+    	private EGLBase.IEglSurface mTargetSurface;
     	private Surface mSurface;
     	private GLDrawer2D mDrawer;
 
@@ -174,14 +174,14 @@ public final class RenderHandler extends Handler {
     	 * @param shard_context
     	 * @param surface
     	 */
-    	public final void handleSetEglContext(final EGLContext shard_context, final Object surface, final boolean isRecordable) {
+    	public final void handleSetEglContext(final EGLBase.IContext shard_context, final Object surface, final boolean isRecordable) {
     		if (DEBUG) Log.i(TAG_THREAD, "setEglContext:");
     		release();
     		synchronized (mSync) {
     			mSurface = surface instanceof Surface ? (Surface)surface
     				: (surface instanceof SurfaceTexture ? new Surface((SurfaceTexture)surface) : null);
     		}
-    		mEgl = new EGLBase(shard_context, false, isRecordable);
+    		mEgl = new EGLBase(shard_context != null ? shard_context.getContext() : null, false, isRecordable);
    			mTargetSurface = mEgl.createFromSurface(surface);
     		mDrawer = new GLDrawer2D();
     	}

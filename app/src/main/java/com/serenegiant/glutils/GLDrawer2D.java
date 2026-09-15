@@ -78,6 +78,14 @@ public class GLDrawer2D {
 	 * this should be called in GL context
 	 */
 	public GLDrawer2D() {
+		this(true);
+	}
+
+	/**
+	 * Constructor with OES 开关（common 4.1.1 API，AndroidUSBCamera 渲染线程
+	 * new GLDrawer2D(true)）。本项目预览路径固定使用外部 OES 纹理。
+	 */
+	public GLDrawer2D(final boolean isOES) {
 		pVertex = ByteBuffer.allocateDirect(VERTEX_SZ * FLOAT_SZ)
 				.order(ByteOrder.nativeOrder()).asFloatBuffer();
 		pVertex.put(VERTICES);
@@ -129,11 +137,16 @@ public class GLDrawer2D {
         GLES20.glUseProgram(0);
 	}
 
+	/** common 4.1.1 的 draw(int, float[], int)（AndroidUSBCamera 渲染线程调用） */
+	public void draw(final int tex_id, final float[] tex_matrix, final int texNum) {
+		draw(tex_id, tex_matrix);
+	}
+
 	/**
 	 * create external texture
 	 * @return texture ID
 	 */
-	public static int initTex() {
+	public int initTex() {
 		if (DEBUG) Log.v(TAG, "initTex:");
 		final int[] tex = new int[1];
 		GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
@@ -153,7 +166,7 @@ public class GLDrawer2D {
 	/**
 	 * delete specific texture
 	 */
-	public static void deleteTex(final int hTex) {
+	public void deleteTex(final int hTex) {
 		if (DEBUG) Log.v(TAG, "deleteTex:");
 		final int[] tex = new int[] {hTex};
 		GLES20.glDeleteTextures(1, tex, 0);
