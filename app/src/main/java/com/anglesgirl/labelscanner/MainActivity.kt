@@ -60,7 +60,15 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SplitCodeActivity::class.java))
         }
         findViewById<Button>(R.id.btnUsbCamera).setOnClickListener {
-            startActivity(Intent(this, UsbCameraScanActivity::class.java))
+            // 内窥镜 = 普通摄像头源：复用正常扫码页（实时识别 → 定格点选 →
+            // 保存），不再走旧的手动「识别画面」页
+            startActivity(
+                Intent(this, LiveScanActivity::class.java)
+                    .putExtra(LiveScanActivity.EXTRA_USB_CAMERA, true)
+                    .putExtra(LiveScanActivity.EXTRA_USB_STANDALONE, true)
+                    .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true)
+                    .putExtra(LiveScanActivity.EXTRA_TITLE, "USB 内窥镜")
+            )
         }
         findViewById<Button>(R.id.btnGotoCenter).setOnClickListener {
             startActivity(Intent(this, RecordListActivity::class.java))

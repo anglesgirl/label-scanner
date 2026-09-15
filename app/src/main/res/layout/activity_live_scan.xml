@@ -10,6 +10,14 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- USB UVC 摄像头预览层（内窥镜等外接摄像头）：USB 模式显示，
+         手机摄像头模式隐藏。与 PreviewView 叠放，互斥可见。 -->
+    <com.serenegiant.usb.widget.UVCCameraTextureView
+        android:id="@+id/usbCameraView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <!-- 顶部提示条 -->
     <LinearLayout
         android:id="@+id/scanTopBar"

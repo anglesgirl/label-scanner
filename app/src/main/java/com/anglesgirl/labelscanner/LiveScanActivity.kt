@@ -79,9 +79,39 @@ class LiveScanActivity : AppCompatActivity() {
         const val EXTRA_WANT_FIELD = "extra_want_field"
         const val EXTRA_EXPECTED_COUNT = "extra_expected_count"
         const val EXTRA_INITIAL_CODES = "extra_initial_codes"
+
+        /** true = 使用 USB UVC 外接摄像头（内窥镜）作为取景源，交互与手机摄像头完全一致。 */
+        const val EXTRA_USB_CAMERA = "extra_usb_camera"
+
+        /**
+         * true = USB 独立模式（主页「内窥镜」入口）：扫到的内容定格点选后
+         * 直接走完整识别（三要素解析）→ 结果弹窗保存，没有宿主字段。
+         */
+        const val EXTRA_USB_STANDALONE = "extra_usb_standalone"
     }
 
     private lateinit var previewView: PreviewView
+    private lateinit var tvScanHint: TextView
+
+    // ===== USB UVC 摄像头模式（内窥镜当普通摄像头用） =====
+    private var usbMode = false
+    /** 独立模式：定格点选后走完整识别保存（主页「内窥镜」入口）。 */
+    private var usbStandalone = false
+    private lateinit var usbCameraView: com.serenegiant.usb.widget.UVCCameraTextureView
+    private val usbHelper = com.jiangdg.usbcamera.UVCCameraHelper.getInstance()
+    /** USB 帧轮询：预览就绪后定时抓帧喂给同一套识别管线。 */
+    private val usbPollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val usbPollRunnable = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed) return
+            if (usbMode && usbCameraView.isAvailable && !paused.get()) {
+                val bmp = runCatching { usbCameraView.bitmap }.getOrNull()
+                if (bmp != null) analyzeBitmap(bmp)
+            }
+            usbPollHandler.postDelayed(this, 150L)
+        }
+    }
+    private var usbConnected = false
 
     /**
      * 本次扫码的目标字段（"tray"/"material"/"date"/"model"），空 = 通用模式。
@@ -154,7 +184,8 @@ class LiveScanActivity : AppCompatActivity() {
         }
 
         previewView = findViewById(R.id.pvScan)
-        val tvHint = findViewById<TextView>(R.id.tvScanHint)
+        tvScanHint = findViewById(R.id.tvScanHint)
+        val tvHint = tvScanHint
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
         // 目标字段语义（补扫时传入）：只用于给候选排序，不做筛选、不丢数据。
         wantField = intent.getStringExtra(EXTRA_WANT_FIELD).orEmpty()
@@ -165,7 +196,13 @@ class LiveScanActivity : AppCompatActivity() {
         continuousMode = intent.getBooleanExtra(EXTRA_CONTINUOUS, false)
         expectedCount = intent.getIntExtra(EXTRA_EXPECTED_COUNT, 0)
         initialCodes += intent.getStringArrayListExtra(EXTRA_INITIAL_CODES).orEmpty()
+        usbMode = intent.getBooleanExtra(EXTRA_USB_CAMERA, false)
+        usbStandalone = intent.getBooleanExtra(EXTRA_USB_STANDALONE, false)
+        // 独立模式必须走定格点选（扫到→定格→点框→保存），强制开启
+        if (usbStandalone) pickMode = true
         tvHint.text = when {
+            usbMode && usbStandalone -> "插入内窥镜 → 对准标签，自动识别 → 点框选择 → 保存"
+            usbMode -> "USB 摄像头模式：对准条码，自动识别"
             continuousMode -> "对准集成码自动记录，扫完一箱接着扫下一箱"
             title.isEmpty() -> "对准条码，自动识别"
             else -> "对准${title}条码，自动识别"
@@ -203,6 +240,7 @@ class LiveScanActivity : AppCompatActivity() {
             //  - 字段补扫 → 「填入所选」
             //  - SN 批量补扫 → 「✓ 加入序列号」
             btnPickDone.text = when {
+                usbStandalone -> "✅ 保存到记录"
                 wantIntegrated -> "✓ 一起拆"
                 wantField.isNotEmpty() -> "填入所选"
                 else -> "✓ 加入序列号"
@@ -215,6 +253,13 @@ class LiveScanActivity : AppCompatActivity() {
     }
 
     private fun startCamera() {
+        if (usbMode) {
+            usbCameraView = findViewById(R.id.usbCameraView)
+            usbCameraView.visibility = android.view.View.VISIBLE
+            previewView.visibility = android.view.View.GONE
+            startUsbCamera()
+            return
+        }
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
@@ -248,6 +293,65 @@ class LiveScanActivity : AppCompatActivity() {
                 Toast.makeText(this, "相机启动失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    // ================= USB UVC 摄像头初始化与生命周期 =================
+
+    /** 初始化 USB 摄像头（内窥镜）：MJPEG 640x480 兼容性最好，连接后轮询抓帧。 */
+    private fun startUsbCamera() {
+        usbHelper.setDefaultPreviewSize(640, 480)
+        usbHelper.setDefaultFrameFormat(com.jiangdg.usbcamera.UVCCameraHelper.FRAME_FORMAT_MJPEG)
+        usbHelper.initUSBMonitor(this, usbCameraView, usbConnListener)
+        usbHelper.registerUSB()
+        usbPollHandler.post(usbPollRunnable)
+    }
+
+    private val usbConnListener = object : com.jiangdg.usbcamera.UVCCameraHelper.OnMyDevConnectListener {
+        override fun onAttachDev(device: android.hardware.usb.UsbDevice?) {
+            runOnUiThread {
+                tvScanHint.text = "发现 USB 摄像头，请求权限…"
+            }
+            // 库的 requestPermission(index) 按设备序号取列表；只有一个 UVC 设备时
+            // index=1 会越界，按实际数量选择
+            val deviceCount = runCatching { usbHelper.getUSBMonitor()?.deviceCount ?: 0 }.getOrDefault(0)
+            usbHelper.requestPermission(if (deviceCount > 1) 1 else 0)
+        }
+
+        override fun onDettachDev(device: android.hardware.usb.UsbDevice?) {
+            usbHelper.closeCamera()
+            usbConnected = false
+            runOnUiThread { tvScanHint.text = "USB 摄像头已拔出" }
+        }
+
+        override fun onConnectDev(device: android.hardware.usb.UsbDevice?, isCameraOpened: Boolean) {
+            if (!isCameraOpened) {
+                usbHelper.createUVCCamera()
+                // TextureView 的 SurfaceTexture 是异步创建，直接 startPreview 会拿 null
+                startPreviewWhenReady(0)
+            }
+            usbConnected = true
+            runOnUiThread { tvScanHint.text = "已连接 USB 摄像头：对准条码，自动识别" }
+        }
+
+        override fun onDisConnectDev(device: android.hardware.usb.UsbDevice?) {
+            usbHelper.closeCamera()
+            usbConnected = false
+            runOnUiThread { tvScanHint.text = "USB 摄像头已断开" }
+        }
+    }
+
+    /** 等 TextureView 的 SurfaceTexture 就绪后开预览（最多等 5 秒）。 */
+    private fun startPreviewWhenReady(attempt: Int) {
+        if (isFinishing || isDestroyed) return
+        if (usbCameraView.isAvailable) {
+            runCatching { usbHelper.startPreview(usbCameraView) }
+            return
+        }
+        if (attempt >= 50) {
+            runOnUiThread { tvScanHint.text = "预览初始化超时，请重插摄像头" }
+            return
+        }
+        usbCameraView.postDelayed({ startPreviewWhenReady(attempt + 1) }, 100)
     }
 
 
@@ -613,20 +717,23 @@ class LiveScanActivity : AppCompatActivity() {
             imageProxy.close()
             return
         }
-        // 帧调度：**每帧都尝试**（busy 时自然跳过当前帧）。原来集成码困难模式每 2 帧
-        // 才跑一次、又是 3x 放大慢解码，用户体感"扫很久"；配合渐进解码（1x→2x→3x）
-        // 常见情况毫秒级命中，等于把帧率翻倍又让单帧变快。
-        if (zxingFrameCounter++ % 1 != 0 || !zxingBusy.compareAndSet(false, true)) {
-            imageProxy.close()
-            return
-        }
         // 必须先取到 bitmap 再 close，否则拿不到像素
         val bmp = runCatching { imageProxy.toBitmap() }.getOrNull()
         imageProxy.close()
-        if (bmp == null) {
-            zxingBusy.set(false)
-            return
-        }
+        if (bmp != null) analyzeBitmap(bmp)
+    }
+
+    /**
+     * 帧分析核心（CameraX 与 USB 摄像头共用同一套）：
+     * 帧调度 → zxing 解码 → 多帧确认 → 定格点选 / 结果带回。
+     * USB 轮询每 150ms 喂一帧，busy 时自然跳过。
+     */
+    private fun analyzeBitmap(bmp: Bitmap) {
+        if (paused.get()) return
+        // 帧调度：**每帧都尝试**（busy 时自然跳过当前帧）。原来集成码困难模式每 2 帧
+        // 才跑一次、又是 3x 放大慢解码，用户体感"扫很久"；配合渐进解码（1x→2x→3x）
+        // 常见情况毫秒级命中，等于把帧率翻倍又让单帧变快。
+        if (!zxingBusy.compareAndSet(false, true)) return
         zxingPool.execute {
             try {
                 // 放大倍数按模式区分（见 ZxingDecoder.decode 的注释）：
@@ -638,6 +745,7 @@ class LiveScanActivity : AppCompatActivity() {
                 // 才逐级放大兜底，不再一刀切 3x 慢通道（2026-09-14 用户反馈拆码扫码慢）。
                 // 补扫（pickMode）用**带位置**解码：定格后要把每个码框出来供点选，
                 // 只有值没有位置框就没法标记。原始分辨率解 1D 码字段足够。
+                // USB 内窥镜分辨率低（640x480）：1D 码直接 1x，2D 码走渐进放大兜底。
                 val found = when {
                     pickMode -> ZxingDecoder.decodeWithPositions(bmp)
                     wantIntegrated -> ZxingDecoder.decodeProgressive(bmp).map { it to null }
@@ -800,11 +908,127 @@ class LiveScanActivity : AppCompatActivity() {
             return
         }
         beep()
+        // USB 独立模式（主页「内窥镜」入口）：没有宿主字段，点选确认后
+        // 直接对定格帧跑完整识别（三要素解析）→ 结果弹窗保存/复制/重拍。
+        if (usbStandalone) {
+            saveStandaloneResult()
+            return
+        }
         setResult(
             RESULT_OK,
             Intent().putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(pickedBoxes)),
         )
         finish()
+    }
+
+    /**
+     * USB 独立模式保存：对当前定格帧跑完整识别（条码 + OCR + 69 反查），
+     * 复用入库那套三要素解析，弹结果框 → 保存到记录（同 UsbCameraScanActivity）。
+     */
+    private fun saveStandaloneResult() {
+        val bmp = runCatching { ivSnapshot.drawable?.let { d ->
+            if (d is android.graphics.drawable.BitmapDrawable) d.bitmap else null
+        } }.getOrNull() ?: runCatching { usbCameraView.bitmap }.getOrNull()
+        if (bmp == null) {
+            Toast.makeText(this, "取帧失败，请重新扫码", Toast.LENGTH_SHORT).show()
+            return
+        }
+        tvScanHint.text = "识别中（${bmp.width}x${bmp.height}）…"
+        com.anglesgirl.labelscanner.camera.StaticRecognizer.recognize(
+            bmp,
+            lookup69 = { ean -> com.anglesgirl.labelscanner.data.Barcode69Lookup(this).lookup(ean) },
+            onResult = { r -> runOnUiThread { showUsbResultDialog(r) } },
+            onError = { msg ->
+                runOnUiThread {
+                    tvScanHint.text = "识别失败：$msg"
+                    Toast.makeText(this, "识别失败：$msg", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    /** USB 独立模式结果弹窗：字段一览 + 保存/复制 SN/重拍（同内窥镜页）。 */
+    private fun showUsbResultDialog(r: com.anglesgirl.labelscanner.model.LabelResult) {
+        val sns = buildList {
+            addAll(r.barcodes.filter { it.isNotBlank() })
+            if (r.serialNumber.isNotBlank()) add(r.serialNumber)
+        }.distinct()
+        val sb = StringBuilder()
+        sb.append("物料：").append(r.materialCode.ifBlank { "—" }).append('\n')
+        sb.append("箱号：").append(r.boxCode.ifBlank { "—" }).append('\n')
+        sb.append("日期：").append(r.productionDate.ifBlank { "—" }).append('\n')
+        sb.append("型号：").append(r.model.ifBlank { "—" }).append('\n')
+        sb.append("69码：").append(r.ean69.ifBlank { "—" })
+        if (r.materialFromEan69) sb.append("（69 反查）")
+        sb.append('\n')
+        sb.append("序列号：")
+        if (sns.isEmpty()) sb.append("—")
+        else sb.append(sns.joinToString("\n        "))
+        sb.append("\n\n托盘：").append(com.anglesgirl.labelscanner.util.TrayPrefs.get(this).ifBlank { "未设置" })
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("识别结果")
+            .setMessage(sb.toString())
+            .setNegativeButton("复制 SN", null)
+            .setNeutralButton("重拍", null)
+            .setPositiveButton("✅ 保存到记录", null)
+            .setCancelable(true)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (saveUsbResult(r, sns)) dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                if (sns.isEmpty()) {
+                    Toast.makeText(this, "没有识别到序列号，无法复制", Toast.LENGTH_SHORT).show()
+                } else {
+                    val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("sn", sns.joinToString("\n")))
+                    Toast.makeText(this, "已复制 ${sns.size} 个序列号", Toast.LENGTH_SHORT).show()
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                dialog.dismiss()
+                resumeLiveScan()
+            }
+        }
+        dialog.show()
+    }
+
+    /** USB 独立模式保存：每个 SN 展开一条记录（同内窥镜页 saveResult）。 */
+    private fun saveUsbResult(r: com.anglesgirl.labelscanner.model.LabelResult, sns: List<String>): Boolean {
+        val tray = com.anglesgirl.labelscanner.util.TrayPrefs.get(this)
+        if (tray.isEmpty()) {
+            Toast.makeText(this, "托盘号未设置：请先在单台/单箱入库页扫描托盘码", Toast.LENGTH_LONG).show()
+            return false
+        }
+        if (sns.isEmpty()) {
+            Toast.makeText(this, "没有识别到序列号，无法保存", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (r.materialCode.isBlank()) {
+            Toast.makeText(this, "没有识别到物料编码，无法保存（可改用手动输入）", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val records = sns.map { sn ->
+            com.anglesgirl.labelscanner.model.LabelResult(
+                barcodes = listOf(sn),
+                serialNumber = sn,
+                materialCode = r.materialCode,
+                quantity = sns.size,
+                productionDate = r.productionDate,
+                model = r.model,
+                boxCode = r.boxCode,
+                trayCode = tray,
+                ean69 = r.ean69,
+                materialFromEan69 = r.materialFromEan69,
+            )
+        }
+        com.anglesgirl.labelscanner.data.RecordStore.append(this, records)
+        if (r.ean69.isNotBlank()) runCatching { com.anglesgirl.labelscanner.data.Barcode69Lookup(this).learn(r.ean69, r.materialCode) }
+        tvScanHint.text = "✅ 已保存 ${records.size} 条"
+        Toast.makeText(this, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
+        return true
     }
 
     private fun resumeLiveScan() {
@@ -895,7 +1119,25 @@ class LiveScanActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (usbMode) runCatching { usbCameraView.onResume() }
+    }
+
+    override fun onPause() {
+        if (usbMode) {
+            usbPollHandler.removeCallbacks(usbPollRunnable)
+            runCatching { usbCameraView.onPause() }
+        }
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        if (usbMode) {
+            usbPollHandler.removeCallbacks(usbPollRunnable)
+            runCatching { usbHelper.unregisterUSB() }
+            runCatching { usbHelper.release() }
+        }
         super.onDestroy()
     }
 }
