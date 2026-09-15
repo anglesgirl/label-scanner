@@ -288,9 +288,13 @@ class LiveScanActivity : AppCompatActivity() {
 
                 // 补扫定格点选：OCR 文字也要能框出来点选（型号等无码字段靠它），
                 // 每个识别行 = 一个画面可点区域，只标该区域里最像目标字段的值。
+                // ⚠️ 与条码一致：**延迟 1.5s 才定格**（2026-09-15 用户反馈
+                // "字段补扫还是特别快、最下面（型号）没变化" —— 型号/日期这类
+                // 无条码字段走 OCR 兜底，原来一识别到就弹，人没对准）。延迟期间
+                // 若 zxing 解出条码（条码优先）则取消本次 OCR 弹框。
                 if (pickMode) {
                     val picks = buildOcrPicks(text)
-                    if (picks.isNotEmpty()) runOnUiThread { freezeAndShow(bmp, picks) }
+                    if (picks.isNotEmpty()) scheduleOcrPick(picks, bmp)
                     return@addOnSuccessListener
                 }
 
@@ -570,6 +574,12 @@ class LiveScanActivity : AppCompatActivity() {
     private var pickStableSince = 0L
     private val pickStableMs = 1500L
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    /** OCR 兜底的延迟定格：暂存候选 + 画面帧，1.5s 后弹（与条码稳定检测对齐）。 */
+    private var pendingOcrPicks: List<Pair<String, android.graphics.Rect?>>? = null
+    private var pendingOcrBmp: Bitmap? = null
+    private var pendingOcrTask: Runnable? = null
+
     /**
      * 连续多少帧只看到单条码（没看到集成码）。
      * zxing 强通道每 6 帧才跑一次，若不等待就会在第一帧误判「没有集成码」
@@ -642,6 +652,8 @@ class LiveScanActivity : AppCompatActivity() {
                         ))
                     }
                     if (pickMode) {
+                        // 条码优先：zxing 解出码时取消 OCR 延迟弹框（防两条路都弹）
+                        cancelPendingOcr()
                         // 稳定检测：同一组码持续约 1.5s 才定格（"扫码太快人没对准就弹"）。
                         // 码集合变化（画面移动/换了目标）→ 重新计时；定格后由
                         // freezeAndShow 置 paused，后续帧不再进来。
@@ -703,6 +715,33 @@ class LiveScanActivity : AppCompatActivity() {
         }
     }
 
+    /** OCR 兜底延迟定格：1.5s 后弹（与条码稳定检测一致），期间可被条码取消。 */
+    private fun scheduleOcrPick(picks: List<Pair<String, android.graphics.Rect?>>, bmp: Bitmap) {
+        pendingOcrTask?.let { mainHandler.removeCallbacks(it) }
+        pendingOcrPicks = picks
+        pendingOcrBmp = bmp
+        val task = Runnable {
+            val p = pendingOcrPicks
+            val b = pendingOcrBmp
+            pendingOcrPicks = null
+            pendingOcrBmp = null
+            pendingOcrTask = null
+            if (p != null && b != null && !paused.get()) {
+                freezeAndShow(b, p)
+            }
+        }
+        pendingOcrTask = task
+        mainHandler.postDelayed(task, pickStableMs)
+    }
+
+    /** 取消 OCR 延迟弹框（zxing 解出条码时调用，条码优先）。 */
+    private fun cancelPendingOcr() {
+        pendingOcrTask?.let { mainHandler.removeCallbacks(it) }
+        pendingOcrTask = null
+        pendingOcrPicks = null
+        pendingOcrBmp = null
+    }
+
     /**
      * 定格 + 标记：把这一帧固定显示，识别到的内容画框，用户在这张静止画面上点选。
      *
@@ -761,6 +800,7 @@ class LiveScanActivity : AppCompatActivity() {
     }
 
     private fun resumeLiveScan() {
+        cancelPendingOcr()
         ivSnapshot.visibility = android.view.View.GONE
         ivSnapshot.setImageBitmap(null)
         pickOverlay.setItems(emptyList())
