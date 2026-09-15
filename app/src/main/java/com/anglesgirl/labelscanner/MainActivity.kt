@@ -8,7 +8,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import android.widget.Button
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.anglesgirl.labelscanner.util.CrashHandler
 
 /**
  * 主界面 = 导航页：单条入库 / 单箱入库 / 托盘中心 / 设置。
@@ -19,6 +21,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 全局崩溃捕获：写日志文件，下次启动弹窗展示（方便排查无 logcat 环境的崩溃）
+        CrashHandler.install(applicationContext)
         // Edge-to-edge：与其他页面保持一致，否则首页顶部会被状态栏盖住
         // （首页布局只有 20dp 内边距，不足以避开系统栏）。
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -27,6 +31,23 @@ class MainActivity : AppCompatActivity() {
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.updatePadding(top = bars.top, bottom = bars.bottom)
             insets
+        }
+
+        // 上次崩溃日志：弹窗展示，可一键复制发回排查
+        CrashHandler.read(this)?.let { log ->
+            AlertDialog.Builder(this)
+                .setTitle("⚠️ 上次运行崩溃")
+                .setMessage(log.take(4000))
+                .setPositiveButton("复制日志") { _, _ ->
+                    val cm = getSystemService(android.content.ClipboardManager::class.java)
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("crash", log))
+                    Toast.makeText(this, "崩溃日志已复制", Toast.LENGTH_SHORT).show()
+                    CrashHandler.clear(this)
+                }
+                .setNegativeButton("清除") { _, _ -> CrashHandler.clear(this) }
+                .setNeutralButton("关闭", null)
+                .setCancelable(false)
+                .show()
         }
 
         findViewById<Button>(R.id.btnModeSingle).setOnClickListener {

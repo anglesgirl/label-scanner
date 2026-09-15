@@ -183,7 +183,13 @@ public final class USBMonitor {
 				// ACTION_USB_DEVICE_ATTACHED never comes on some devices so it should not be added here
 				filter.addAction(ACTION_USB_DEVICE_ATTACHED);
 				filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
-				context.registerReceiver(mUsbReceiver, filter);
+				// Android 14+（targetSdk 34+）注册系统广播必须显式声明 exported，
+				// 否则抛 SecurityException（2026-09-15 用户实测崩溃）
+				if (Build.VERSION.SDK_INT >= 33) {
+					context.registerReceiver(mUsbReceiver, filter, Context.RECEIVER_EXPORTED);
+				} else {
+					context.registerReceiver(mUsbReceiver, filter);
+				}
 			}
 			// start connection check
 			mDeviceCounts = 0;
