@@ -79,6 +79,33 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, Ean69ManageActivity::class.java))
         }
         findViewById<Button>(R.id.btnTestRecognize).setOnClickListener { imageIn.pickGallery() }
+
+        // 摄像头来源：手机摄像头 / USB 摄像头（内窥镜）
+        val btnCamera = findViewById<Button>(R.id.btnCameraSource)
+        fun refreshCameraLabel() {
+            btnCamera.text = if (com.anglesgirl.labelscanner.util.CameraPrefs.isUsb(this))
+                "📷 USB 摄像头（内窥镜）" else "📷 手机摄像头"
+        }
+        refreshCameraLabel()
+        btnCamera.setOnClickListener {
+            val current = com.anglesgirl.labelscanner.util.CameraPrefs.source(this)
+            val options = arrayOf("📱 手机摄像头", "🔌 USB 摄像头（内窥镜）")
+            var checked = if (current == com.anglesgirl.labelscanner.util.CameraPrefs.SOURCE_USB) 1 else 0
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("摄像头来源")
+                .setSingleChoiceItems(options, checked) { _, which -> checked = which }
+                .setPositiveButton("确定") { _, _ ->
+                    com.anglesgirl.labelscanner.util.CameraPrefs.set(
+                        this,
+                        if (checked == 1) com.anglesgirl.labelscanner.util.CameraPrefs.SOURCE_USB
+                        else com.anglesgirl.labelscanner.util.CameraPrefs.SOURCE_PHONE
+                    )
+                    refreshCameraLabel()
+                    Toast.makeText(this, "已切换摄像头，下次扫码生效", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
     }
 
     /**

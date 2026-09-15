@@ -80,14 +80,9 @@ class LiveScanActivity : AppCompatActivity() {
         const val EXTRA_EXPECTED_COUNT = "extra_expected_count"
         const val EXTRA_INITIAL_CODES = "extra_initial_codes"
 
-        /** true = 使用 USB UVC 外接摄像头（内窥镜）作为取景源，交互与手机摄像头完全一致。 */
+        /** true = 使用 USB UVC 外接摄像头（内窥镜）作为取景源，交互与手机摄像头完全一致。
+         *  由设置页「摄像头来源」决定（旧参数 EXTRA_USB_CAMERA 兼容保留）。 */
         const val EXTRA_USB_CAMERA = "extra_usb_camera"
-
-        /**
-         * true = USB 独立模式（主页「内窥镜」入口）：扫到的内容定格点选后
-         * 直接走完整识别（三要素解析）→ 结果弹窗保存，没有宿主字段。
-         */
-        const val EXTRA_USB_STANDALONE = "extra_usb_standalone"
     }
 
     private lateinit var previewView: PreviewView
@@ -95,8 +90,6 @@ class LiveScanActivity : AppCompatActivity() {
 
     // ===== USB UVC 摄像头模式（内窥镜当普通摄像头用） =====
     private var usbMode = false
-    /** 独立模式：定格点选后走完整识别保存（主页「内窥镜」入口）。 */
-    private var usbStandalone = false
     private lateinit var usbCameraView: com.serenegiant.usb.widget.UVCCameraTextureView
     private val usbHelper = com.jiangdg.usbcamera.UVCCameraHelper.getInstance()
     /** USB 帧轮询：预览就绪后定时抓帧喂给同一套识别管线。 */
@@ -196,12 +189,9 @@ class LiveScanActivity : AppCompatActivity() {
         continuousMode = intent.getBooleanExtra(EXTRA_CONTINUOUS, false)
         expectedCount = intent.getIntExtra(EXTRA_EXPECTED_COUNT, 0)
         initialCodes += intent.getStringArrayListExtra(EXTRA_INITIAL_CODES).orEmpty()
-        usbMode = intent.getBooleanExtra(EXTRA_USB_CAMERA, false)
-        usbStandalone = intent.getBooleanExtra(EXTRA_USB_STANDALONE, false)
-        // 独立模式必须走定格点选（扫到→定格→点框→保存），强制开启
-        if (usbStandalone) pickMode = true
+        usbMode = intent.getBooleanExtra(EXTRA_USB_CAMERA, false) ||
+            com.anglesgirl.labelscanner.util.CameraPrefs.isUsb(this)
         tvHint.text = when {
-            usbMode && usbStandalone -> "插入内窥镜 → 对准标签，自动识别 → 点框选择 → 保存"
             usbMode -> "USB 摄像头模式：对准条码，自动识别"
             continuousMode -> "对准集成码自动记录，扫完一箱接着扫下一箱"
             title.isEmpty() -> "对准条码，自动识别"
@@ -240,7 +230,6 @@ class LiveScanActivity : AppCompatActivity() {
             //  - 字段补扫 → 「填入所选」
             //  - SN 批量补扫 → 「✓ 加入序列号」
             btnPickDone.text = when {
-                usbStandalone -> "✅ 保存到记录"
                 wantIntegrated -> "✓ 一起拆"
                 wantField.isNotEmpty() -> "填入所选"
                 else -> "✓ 加入序列号"
@@ -908,127 +897,11 @@ class LiveScanActivity : AppCompatActivity() {
             return
         }
         beep()
-        // USB 独立模式（主页「内窥镜」入口）：没有宿主字段，点选确认后
-        // 直接对定格帧跑完整识别（三要素解析）→ 结果弹窗保存/复制/重拍。
-        if (usbStandalone) {
-            saveStandaloneResult()
-            return
-        }
         setResult(
             RESULT_OK,
             Intent().putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(pickedBoxes)),
         )
         finish()
-    }
-
-    /**
-     * USB 独立模式保存：对当前定格帧跑完整识别（条码 + OCR + 69 反查），
-     * 复用入库那套三要素解析，弹结果框 → 保存到记录（同 UsbCameraScanActivity）。
-     */
-    private fun saveStandaloneResult() {
-        val bmp = runCatching { ivSnapshot.drawable?.let { d ->
-            if (d is android.graphics.drawable.BitmapDrawable) d.bitmap else null
-        } }.getOrNull() ?: runCatching { usbCameraView.bitmap }.getOrNull()
-        if (bmp == null) {
-            Toast.makeText(this, "取帧失败，请重新扫码", Toast.LENGTH_SHORT).show()
-            return
-        }
-        tvScanHint.text = "识别中（${bmp.width}x${bmp.height}）…"
-        com.anglesgirl.labelscanner.camera.StaticRecognizer.recognize(
-            bmp,
-            lookup69 = { ean -> com.anglesgirl.labelscanner.data.Barcode69Lookup(this).lookup(ean) },
-            onResult = { r -> runOnUiThread { showUsbResultDialog(r) } },
-            onError = { msg ->
-                runOnUiThread {
-                    tvScanHint.text = "识别失败：$msg"
-                    Toast.makeText(this, "识别失败：$msg", Toast.LENGTH_SHORT).show()
-                }
-            }
-        )
-    }
-
-    /** USB 独立模式结果弹窗：字段一览 + 保存/复制 SN/重拍（同内窥镜页）。 */
-    private fun showUsbResultDialog(r: com.anglesgirl.labelscanner.model.LabelResult) {
-        val sns = buildList {
-            addAll(r.barcodes.filter { it.isNotBlank() })
-            if (r.serialNumber.isNotBlank()) add(r.serialNumber)
-        }.distinct()
-        val sb = StringBuilder()
-        sb.append("物料：").append(r.materialCode.ifBlank { "—" }).append('\n')
-        sb.append("箱号：").append(r.boxCode.ifBlank { "—" }).append('\n')
-        sb.append("日期：").append(r.productionDate.ifBlank { "—" }).append('\n')
-        sb.append("型号：").append(r.model.ifBlank { "—" }).append('\n')
-        sb.append("69码：").append(r.ean69.ifBlank { "—" })
-        if (r.materialFromEan69) sb.append("（69 反查）")
-        sb.append('\n')
-        sb.append("序列号：")
-        if (sns.isEmpty()) sb.append("—")
-        else sb.append(sns.joinToString("\n        "))
-        sb.append("\n\n托盘：").append(com.anglesgirl.labelscanner.util.TrayPrefs.get(this).ifBlank { "未设置" })
-
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("识别结果")
-            .setMessage(sb.toString())
-            .setNegativeButton("复制 SN", null)
-            .setNeutralButton("重拍", null)
-            .setPositiveButton("✅ 保存到记录", null)
-            .setCancelable(true)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                if (saveUsbResult(r, sns)) dialog.dismiss()
-            }
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
-                if (sns.isEmpty()) {
-                    Toast.makeText(this, "没有识别到序列号，无法复制", Toast.LENGTH_SHORT).show()
-                } else {
-                    val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("sn", sns.joinToString("\n")))
-                    Toast.makeText(this, "已复制 ${sns.size} 个序列号", Toast.LENGTH_SHORT).show()
-                }
-            }
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                dialog.dismiss()
-                resumeLiveScan()
-            }
-        }
-        dialog.show()
-    }
-
-    /** USB 独立模式保存：每个 SN 展开一条记录（同内窥镜页 saveResult）。 */
-    private fun saveUsbResult(r: com.anglesgirl.labelscanner.model.LabelResult, sns: List<String>): Boolean {
-        val tray = com.anglesgirl.labelscanner.util.TrayPrefs.get(this)
-        if (tray.isEmpty()) {
-            Toast.makeText(this, "托盘号未设置：请先在单台/单箱入库页扫描托盘码", Toast.LENGTH_LONG).show()
-            return false
-        }
-        if (sns.isEmpty()) {
-            Toast.makeText(this, "没有识别到序列号，无法保存", Toast.LENGTH_SHORT).show()
-            return false
-        }
-        if (r.materialCode.isBlank()) {
-            Toast.makeText(this, "没有识别到物料编码，无法保存（可改用手动输入）", Toast.LENGTH_SHORT).show()
-            return false
-        }
-        val records = sns.map { sn ->
-            com.anglesgirl.labelscanner.model.LabelResult(
-                barcodes = listOf(sn),
-                serialNumber = sn,
-                materialCode = r.materialCode,
-                quantity = sns.size,
-                productionDate = r.productionDate,
-                model = r.model,
-                boxCode = r.boxCode,
-                trayCode = tray,
-                ean69 = r.ean69,
-                materialFromEan69 = r.materialFromEan69,
-            )
-        }
-        com.anglesgirl.labelscanner.data.RecordStore.append(this, records)
-        if (r.ean69.isNotBlank()) runCatching { com.anglesgirl.labelscanner.data.Barcode69Lookup(this).learn(r.ean69, r.materialCode) }
-        tvScanHint.text = "✅ 已保存 ${records.size} 条"
-        Toast.makeText(this, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
-        return true
     }
 
     private fun resumeLiveScan() {
