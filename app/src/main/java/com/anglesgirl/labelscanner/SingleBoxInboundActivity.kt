@@ -332,7 +332,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             return
         }
 
-        val records = snList.map { sn ->
+        // 重码防护：同 SN 只保留一条（2026-09-15 用户反馈保存有重码会崩溃）
+        val uniq = snList.distinct()
+        val dropped = snList.size - uniq.size
+        val records = uniq.map { sn ->
             LabelResult(
                 barcodes = listOf(sn),
                 serialNumber = sn,
@@ -341,7 +344,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 // 原来写死 1，结果一箱 9 个 SN 导出的「数量」还是 1，
                 // WMS 一比对就报"数量与 SN 不一致"并拒绝导入。
                 // 用户原话："一箱里面有多少个序列号，它后面的数量就是多少。"
-                quantity = snList.size,
+                quantity = uniq.size,
                 productionDate = date,
                 model = model,
                 boxCode = box,
@@ -352,7 +355,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         }
         RecordStore.append(this, records)
         if (recognizedEan69.isNotBlank()) lookup69().learn(recognizedEan69, material)
-        tvBoxStatus.text = "✅ 已保存 ${records.size} 条（物料 $material / 箱号 $box）"
+        tvBoxStatus.text = "✅ 已保存 ${records.size} 条（物料 $material / 箱号 $box）" +
+            if (dropped > 0) "\n（自动去重 $dropped 个重复序列号）" else ""
         Toast.makeText(this, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
         resetBox()
     }

@@ -567,10 +567,10 @@ class LiveScanActivity : AppCompatActivity() {
 
     /**
      * 补扫定格稳定检测（2026-09-15 用户反馈"小放大镜扫码太快，人没反应过来就弹"）：
-     * 同一组码**持续出现约 1.5 秒**才定格画框。画面微移/换码会重新计时 ——
+     * **首次识别到码即开始计时**，持续约 1.5 秒才定格画框；手晃（码短暂
+     * 变化/丢失）不重置计时，只有长时间无码（>2.5s）才重新计时 ——
      * 给用户留出对准和稳住镜头的时间，而不是一识别到就冻结画面。
      */
-    private var pickStableKey: String? = null
     private var pickStableSince = 0L
     private val pickStableMs = 1500L
 
@@ -654,20 +654,21 @@ class LiveScanActivity : AppCompatActivity() {
                     if (pickMode) {
                         // 条码优先：zxing 解出码时取消 OCR 延迟弹框（防两条路都弹）
                         cancelPendingOcr()
-                        // 稳定检测：同一组码持续约 1.5s 才定格（"扫码太快人没对准就弹"）。
-                        // 码集合变化（画面移动/换了目标）→ 重新计时；定格后由
-                        // freezeAndShow 置 paused，后续帧不再进来。
-                        val key = found.map { it.first }.sorted().joinToString("|")
+                        // 稳定检测（2026-09-15 用户要求）：**首次识别到条码即开始计时**，
+                        // 之后手晃（码集合短暂变化 / 瞬时丢码）**不重置计时**，
+                        // 持续约 1.5s 后定格（定格用当前帧，画面微移不影响）。
+                        // 只有长时间（>1.5s+1s）完全无码才视为移开镜头，重新计时。
                         val now = android.os.SystemClock.elapsedRealtime()
-                        if (key == pickStableKey) {
+                        if (found.isNotEmpty()) {
+                            if (pickStableSince == 0L) pickStableSince = now
                             if (now - pickStableSince >= pickStableMs) {
-                                pickStableKey = null
-                                pickStableSince = 0
+                                pickStableSince = 0L
                                 runOnUiThread { freezeAndShow(bmp, found) }
                             }
                         } else {
-                            pickStableKey = key
-                            pickStableSince = now
+                            if (pickStableSince != 0L && now - pickStableSince >= pickStableMs + 1000L) {
+                                pickStableSince = 0L
+                            }
                         }
                     } else {
                         val typed = found.map { (v, _) ->
@@ -687,10 +688,17 @@ class LiveScanActivity : AppCompatActivity() {
                         }
                     }
                 } else {
-                    // 当前帧无码 → 多帧累计清零（下一帧重新开始数）
+                    // 当前帧无码
                     lastFrameKey = null
-                    pickStableKey = null
-                    pickStableSince = 0
+                    if (pickMode) {
+                        // 手晃瞬时丢码**不停止计时**；连续 ~2.5s 完全无码
+                        // 才视为移开镜头，重置（下次识别重新计时）
+                        if (pickStableSince != 0L &&
+                            android.os.SystemClock.elapsedRealtime() - pickStableSince >= pickStableMs + 1000L
+                        ) pickStableSince = 0L
+                    } else {
+                        pickStableSince = 0L
+                    }
                     // ⭐ 无条码 → 累计轮数，达到阈值启用 OCR 兜底。
                     // 用户原则："有条码的优先识别条码；没有条码的，就用 OCR 补。"
                     // 型号字段天然没有条码（用户明确指出），所以它的阈值取得更短。
@@ -801,6 +809,7 @@ class LiveScanActivity : AppCompatActivity() {
 
     private fun resumeLiveScan() {
         cancelPendingOcr()
+        pickStableSince = 0L   // 重扫后重新计时
         ivSnapshot.visibility = android.view.View.GONE
         ivSnapshot.setImageBitmap(null)
         pickOverlay.setItems(emptyList())

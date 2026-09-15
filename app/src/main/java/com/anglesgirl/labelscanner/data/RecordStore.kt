@@ -37,15 +37,19 @@ object RecordStore {
     fun save(context: Context, records: List<LabelResult>) {
         ensureImported(context)
         val database = LocalDatabase.get(context).writableDatabase
+        // 重码防护（2026-09-15 用户反馈"保存时有重码会崩溃"）：
+        // serial_number 有 UNIQUE 索引，全量 insertOrThrow 遇重复 SN 会抛
+        // SQLiteConstraintException。同 SN 只保留一条（按 trim 后比较）。
+        val deduped = records.distinctBy { it.serialNumber.trim() }
         database.beginTransaction()
         try {
             database.delete("records", null, null)
-            records.forEach { insert(database, it) }
+            deduped.forEach { insert(database, it) }
             database.setTransactionSuccessful()
         } finally {
             database.endTransaction()
         }
-        writeExternal(context, records)
+        writeExternal(context, deduped)
     }
 
     fun append(context: Context, newRecords: List<LabelResult>) {
@@ -53,10 +57,13 @@ object RecordStore {
         val database = LocalDatabase.get(context).writableDatabase
         database.beginTransaction()
         try {
-            newRecords.forEach { record ->
+            // 批内重码防护：同 SN（trim 后）只保留第一条，避免 update 兜不住
+            // （如 "SN123 " 与 "SN123" 判为不同码 → insertOrThrow 冲突崩溃）
+            newRecords.distinctBy { it.serialNumber.trim() }.forEach { record ->
                 val values = values(record)
                 val serial = record.serialNumber.trim()
-                val updated = if (serial.isBlank()) 0 else database.update(
+                if (serial.isBlank()) return@forEach
+                val updated = database.update(
                     "records", values, "serial_number = ?", arrayOf(serial)
                 )
                 if (updated == 0) database.insertOrThrow("records", null, values)
@@ -90,7 +97,7 @@ object RecordStore {
 
     private fun values(r: LabelResult) = ContentValues().apply {
         put("barcodes", r.barcodes.joinToString("\n")); put("ocr_text", r.ocrText)
-        put("supplier", r.supplier); put("serial_number", r.serialNumber)
+        put("supplier", r.supplier); put("serial_number", r.serialNumber.trim())
         put("material_code", r.materialCode); put("quantity", r.quantity)
         put("production_date", r.productionDate); put("ean69", r.ean69)
         put("material_from_ean69", if (r.materialFromEan69) 1 else 0)

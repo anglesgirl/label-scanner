@@ -54,7 +54,7 @@
                 android:backgroundTint="@color/ls_primary"
                 android:text="🔍 连续扫箱"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:insetTop="0dp"
                 android:insetBottom="0dp" />

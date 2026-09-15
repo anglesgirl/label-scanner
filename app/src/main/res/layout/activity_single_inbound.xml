@@ -42,7 +42,7 @@
                 android:backgroundTint="@color/ls_primary"
                 android:text="📷 拍照"
                 android:textColor="#FFFFFF"
-                android:textSize="14sp" />
+                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
 
             <Button
                 android:id="@+id/btnScanDoc"
@@ -53,7 +53,7 @@
                 android:backgroundTint="@color/ls_primary"
                 android:text="📄 文档扫描"
                 android:textColor="#FFFFFF"
-                android:textSize="14sp" />
+                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
 
             <Button
                 android:id="@+id/btnPickGallery"
@@ -64,7 +64,7 @@
                 android:backgroundTint="@color/ls_primary"
                 android:text="🖼️ 相册"
                 android:textColor="#FFFFFF"
-                android:textSize="14sp" />
+                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
         </LinearLayout>
 
         <!-- 已识别的条码（点击可选择用途修正） -->
@@ -124,7 +124,7 @@
             <Button
                 android:id="@+id/btnScanTrayCode"
                 android:layout_width="wrap_content"
-                android:layout_height="42dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
@@ -174,7 +174,7 @@
             <Button
                 android:id="@+id/btnToggle69"
                 android:layout_width="wrap_content"
-                android:layout_height="42dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_accent"
                 android:text="69"
@@ -186,7 +186,7 @@
             <Button
                 android:id="@+id/btnScanMaterial"
                 android:layout_width="wrap_content"
-                android:layout_height="42dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
@@ -200,7 +200,7 @@
             <Button
                 android:id="@+id/btnLookup69"
                 android:layout_width="wrap_content"
-                android:layout_height="42dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_warn"
                 android:text="🔁 查"
@@ -240,7 +240,7 @@
             <Button
                 android:id="@+id/btnScanDate"
                 android:layout_width="wrap_content"
-                android:layout_height="42dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
@@ -279,7 +279,7 @@
             <Button
                 android:id="@+id/btnScanModel"
                 android:layout_width="wrap_content"
-                android:layout_height="42dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_btn_scan"
                 android:text="🔍 扫"
@@ -357,7 +357,7 @@
             <Button
                 android:id="@+id/btnScanAddSn"
                 android:layout_width="wrap_content"
-                android:layout_height="42dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_primary"
                 android:text="🔍 扫"
@@ -370,7 +370,7 @@
             <Button
                 android:id="@+id/btnAddSn"
                 android:layout_width="wrap_content"
-                android:layout_height="42dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_ok"
                 android:text="＋加"
@@ -398,7 +398,7 @@
             android:text="✅ 保存入库（每 SN 一行）"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
-            android:textStyle="bold" />
+            android:textStyle="bold" android:insetTop="0dp" android:insetBottom="0dp" />
 
         <Button
             android:id="@+id/btnReset"
@@ -408,7 +408,7 @@
             android:backgroundTint="@color/ls_card"
             android:text="🔄 清空，下一条"
             android:textColor="@color/ls_text_dim"
-            android:textSize="14sp" />
+            android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
 
         <TextView
             android:id="@+id/tvStatus"

@@ -517,12 +517,14 @@ class SingleInboundActivity : AppCompatActivity() {
         val color = etColor.text.toString().trim()
         val toner = etToner.text.toString().trim()
 
-        val records = snList.map { sn ->
+        // 重码防护：同 SN 只保留一条（2026-09-15 用户反馈保存有重码会崩溃）
+        val uniq = snList.distinct()
+        val records = uniq.map { sn ->
             LabelResult(
                 materialCode = material, productionDate = date, serialNumber = sn,
                 // 数量 = 本次序列号个数（与单箱页同一套规则）：
                 // WMS 会校验"数量与 SN 是否一致"，不一致就直接拒绝导入。
-                quantity = snList.size,
+                quantity = uniq.size,
                 ean69 = ean, model = model, color = color, tonerModel = toner,
                 trayCode = tray, barcodes = codeCandidates.toList()
             )
@@ -532,7 +534,8 @@ class SingleInboundActivity : AppCompatActivity() {
         com.anglesgirl.labelscanner.data.RecordStore.save(this, store)
         records.forEach { lookup69().learn(it.ean69, it.materialCode) }
         updateTrayCount()
-        tvStatus.text = "✅ 已保存 ${records.size} 条（物料 $material，托盘 $tray）"
+        tvStatus.text = "✅ 已保存 ${records.size} 条（物料 $material，托盘 $tray）" +
+            if (snList.size > uniq.size) "（自动去重 ${snList.size - uniq.size} 个重复序列号）" else ""
         Toast.makeText(this, "已保存 ${records.size} 条", Toast.LENGTH_SHORT).show()
         resetAll()
     }
