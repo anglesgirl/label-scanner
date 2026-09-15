@@ -47,7 +47,10 @@ class UsbCameraScanActivity : AppCompatActivity() {
     private val connListener = object : UVCCameraHelper.OnMyDevConnectListener {
         override fun onAttachDev(device: UsbDevice?) {
             runOnUiThread { tvStatus.text = "发现摄像头，请求 USB 权限…" }
-            helper.requestPermission(1)
+            // 库的 requestPermission(index) 按设备序号取列表；只有一个 UVC 设备时
+            // index=1 会越界（IndexOutOfBoundsException），按实际数量选择
+            val deviceCount = runCatching { helper.getUSBMonitor()?.deviceCount ?: 0 }.getOrDefault(0)
+            helper.requestPermission(if (deviceCount > 1) 1 else 0)
         }
 
         override fun onDettachDev(device: UsbDevice?) {
