@@ -24,6 +24,7 @@ package com.serenegiant.glutils;
 */
 
 import android.annotation.TargetApi;
+import android.graphics.SurfaceTexture;
 import android.opengl.EGL14;
 import android.opengl.EGLConfig;
 import android.opengl.EGLContext;
@@ -79,10 +80,16 @@ public class EGLBase {	// API >= 17
 			if (DEBUG) Log.v(TAG, "EglSurface:");
 			if (!(surface instanceof SurfaceView)
 				&& !(surface instanceof Surface)
-				&& !(surface instanceof SurfaceHolder))
+				&& !(surface instanceof SurfaceHolder)
+				&& !(surface instanceof SurfaceTexture))
 				throw new IllegalArgumentException("unsupported surface");
 			mEgl = egl;
-			mEglSurface = mEgl.createWindowSurface(surface);
+			// SurfaceTexture 不是 EGL window：AndroidUSBCamera 渲染线程直接
+			// 传 SurfaceTexture，这里包一层 Surface（common 4.1.1 同款处理）
+			mEglSurface = mEgl.createWindowSurface(
+				surface instanceof SurfaceHolder ? ((SurfaceHolder)surface).getSurface()
+				: (surface instanceof SurfaceTexture ? new Surface((SurfaceTexture)surface)
+					: surface));
 		}
 
 		EglSurface(final EGLBase egl, final int width, final int height) {
