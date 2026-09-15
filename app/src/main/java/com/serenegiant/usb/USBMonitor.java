@@ -736,12 +736,25 @@ public final class USBMonitor {
 		if (useNewAPI && BuildCheck.isAndroid5()) {
 			sb.append("#");
 			if (TextUtils.isEmpty(serial)) {
-				sb.append(device.getSerialNumber());	sb.append("#");	// API >= 21
+				try {
+					sb.append(device.getSerialNumber());	sb.append("#");	// API >= 21
+				} catch (final SecurityException e) {
+					// 未授权访问 USB 设备时 getSerialNumber 抛 SecurityException（Android 14+ 尤甚）
+					if (DEBUG) Log.w(TAG, "getDeviceKeyName:can not read serial number", e);
+				}
 			}
-			sb.append(device.getManufacturerName());	sb.append("#");	// API >= 21
+			try {
+				sb.append(device.getManufacturerName());	sb.append("#");	// API >= 21
+			} catch (final SecurityException e) {
+				if (DEBUG) Log.w(TAG, "getDeviceKeyName:can not read manufacturer name", e);
+			}
 			sb.append(device.getConfigurationCount());	sb.append("#");	// API >= 21
 			if (BuildCheck.isMarshmallow()) {
-				sb.append(device.getVersion());			sb.append("#");	// API >= 23
+				try {
+					sb.append(device.getVersion());			sb.append("#");	// API >= 23
+				} catch (final SecurityException e) {
+					if (DEBUG) Log.w(TAG, "getDeviceKeyName:can not read version", e);
+				}
 			}
 		}
 //		if (DEBUG) Log.v(TAG, "getDeviceKeyName:" + sb.toString());
@@ -965,12 +978,24 @@ public final class USBMonitor {
 
 		if (device != null) {
 			if (BuildCheck.isLollipop()) {
-				info.manufacturer = device.getManufacturerName();
+				try {
+					info.manufacturer = device.getManufacturerName();
+				} catch (final SecurityException e) {
+					if (DEBUG) Log.w(TAG, "updateDeviceInfo:can not read manufacturer", e);
+				}
 				info.product = device.getProductName();
-				info.serial = device.getSerialNumber();
+				try {
+					info.serial = device.getSerialNumber();
+				} catch (final SecurityException e) {
+					if (DEBUG) Log.w(TAG, "updateDeviceInfo:can not read serial", e);
+				}
 			}
 			if (BuildCheck.isMarshmallow()) {
-				info.usb_version = device.getVersion();
+				try {
+					info.usb_version = device.getVersion();
+				} catch (final SecurityException e) {
+					if (DEBUG) Log.w(TAG, "updateDeviceInfo:can not read version", e);
+				}
 			}
 			if ((manager != null) && manager.hasPermission(device)) {
 				final UsbDeviceConnection connection = manager.openDevice(device);
