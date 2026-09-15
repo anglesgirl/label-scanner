@@ -38,6 +38,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSplitCode).setOnClickListener {
             startActivity(Intent(this, SplitCodeActivity::class.java))
         }
+        findViewById<Button>(R.id.btnUsbCamera).setOnClickListener {
+            startActivity(Intent(this, UsbCameraScanActivity::class.java))
+        }
         findViewById<Button>(R.id.btnGotoCenter).setOnClickListener {
             startActivity(Intent(this, RecordListActivity::class.java))
         }

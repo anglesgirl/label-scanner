@@ -57,6 +57,17 @@
         android:textStyle="bold" />
 
     <Button
+        android:id="@+id/btnUsbCamera"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="14dp"
+        android:backgroundTint="#4A5AC9"
+        android:text="🔍 内窥镜扫码\nUSB 摄像头 / 怼着标签识别 / 保存到托盘"
+        android:textSize="14sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
+
+    <Button
         android:id="@+id/btnGotoCenter"
         android:layout_width="match_parent"
         android:layout_height="72dp"

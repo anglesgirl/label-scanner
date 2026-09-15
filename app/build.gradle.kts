@@ -77,4 +77,9 @@ dependencies {
 
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.kotlinx.coroutines.android)
+    // USB UVC 摄像头（内窥镜）：开源取流，帧喂给 zxing-cpp / ML Kit（2026-09-15）
+    // 排除 com.serenegiant:common（pom 声明但 JitPack 无此坐标，aar 内未实际引用其类）
+    implementation(libs.android.usb.camera) {
+        exclude(group = "com.serenegiant", module = "common")
+    }
 }
