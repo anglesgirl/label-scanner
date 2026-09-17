@@ -32,6 +32,35 @@
         android:textColor="#FFFFFF"
         android:textSize="16sp" />
 
+    <Button
+        android:id="@+id/btnTorch"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="96dp"
+        android:layout_marginEnd="16dp"
+        android:backgroundTint="#546E7A"
+        android:insetBottom="0dp"
+        android:insetTop="0dp"
+        android:minWidth="88dp"
+        android:text="💡 灯光"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <SeekBar
+        android:id="@+id/sbTorchBrightness"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="150dp"
+        android:layout_marginEnd="16dp"
+        android:background="@color/ls_scrim"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:visibility="gone" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

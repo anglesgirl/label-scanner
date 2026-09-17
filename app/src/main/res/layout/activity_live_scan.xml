@@ -40,6 +40,19 @@
             android:textSize="15sp" />
 
         <Button
+            android:id="@+id/btnTorch"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:backgroundTint="#546E7A"
+            android:insetBottom="0dp"
+            android:insetTop="0dp"
+            android:minWidth="72dp"
+            android:text="💡 灯光"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+        <Button
             android:id="@+id/btnCloseScan"
             android:layout_width="wrap_content"
             android:layout_height="44dp"
@@ -51,6 +64,20 @@
             android:insetTop="0dp"
             android:insetBottom="0dp" />
     </LinearLayout>
+
+    <!-- 补光灯亮度条：开灯后显示，0~100 调曝光补偿让画面更亮 -->
+    <SeekBar
+        android:id="@+id/sbTorchBrightness"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="58dp"
+        android:layout_marginEnd="16dp"
+        android:background="@color/ls_scrim"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:visibility="gone" />
 
     <!-- 扫描框指示 -->
     <View

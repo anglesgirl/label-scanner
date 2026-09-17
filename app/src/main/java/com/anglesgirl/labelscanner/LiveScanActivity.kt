@@ -88,6 +88,9 @@ class LiveScanActivity : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var tvScanHint: TextView
 
+    /** 补光灯（灯光开关 + 亮度调节），USB 外接摄像头无闪光灯时禁用。 */
+    private var torchControl: com.anglesgirl.labelscanner.util.TorchControl? = null
+
     // ===== USB UVC 摄像头模式（内窥镜当普通摄像头用） =====
     private var usbMode = false
     private lateinit var usbCameraView: com.serenegiant.usb.widget.UVCCameraTextureView
@@ -238,6 +241,14 @@ class LiveScanActivity : AppCompatActivity() {
             updatePickBar()
         }
 
+        // 补光灯：手机摄像头可用(有闪光灯时显示)，USB 外接摄像头禁用
+        torchControl = com.anglesgirl.labelscanner.util.TorchControl(
+            this,
+            findViewById<android.view.View>(R.id.btnTorch),
+            findViewById<android.widget.SeekBar>(R.id.sbTorchBrightness),
+        )
+        if (usbMode) torchControl?.disableForUsbCamera()
+
         startCamera()
     }
 
@@ -277,7 +288,8 @@ class LiveScanActivity : AppCompatActivity() {
                     analyzeFrame(imageProxy)
                 }
                 provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                val cam = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                torchControl?.attach(cam)
             } catch (e: Exception) {
                 Toast.makeText(this, "相机启动失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
@@ -1006,6 +1018,8 @@ class LiveScanActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        torchControl?.onDestroy()
+        torchControl = null
         if (usbMode) {
             usbPollHandler.removeCallbacks(usbPollRunnable)
             runCatching { usbHelper.unregisterUSB() }

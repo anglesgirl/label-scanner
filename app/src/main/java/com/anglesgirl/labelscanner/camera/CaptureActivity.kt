@@ -43,6 +43,7 @@ class CaptureActivity : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
+    private var torchControl: com.anglesgirl.labelscanner.util.TorchControl? = null
     private var alignmentAnalyzer: CaptureAlignmentAnalyzer? = null
     private var captureStarted = false
 
@@ -68,6 +69,12 @@ class CaptureActivity : AppCompatActivity() {
         alignmentFrame = findViewById(R.id.captureAlignmentFrame)
         findViewById<Button>(R.id.btnCaptureCancel).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnCapture).setOnClickListener { captureAfterFocus() }
+        // 补光灯：手机摄像头可用(有闪光灯时显示)
+        torchControl = com.anglesgirl.labelscanner.util.TorchControl(
+            this,
+            findViewById<android.view.View>(R.id.btnTorch),
+            findViewById<android.widget.SeekBar>(R.id.sbTorchBrightness),
+        )
         requestCamera.launch(android.Manifest.permission.CAMERA)
     }
 
@@ -120,6 +127,7 @@ class CaptureActivity : AppCompatActivity() {
                 camera = provider.bindToLifecycle(
                     this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture, analysis
                 )
+                torchControl?.attach(camera)
                 tvStatus.text = "将标签放入框内，保持稳定即可自动拍照"
             } catch (e: Exception) {
                 fail("相机启动失败: ${e.message}")
@@ -261,6 +269,8 @@ class CaptureActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        torchControl?.onDestroy()
+        torchControl = null
         alignmentAnalyzer?.close()
         alignmentAnalyzer = null
         cameraProvider?.unbindAll()
