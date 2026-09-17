@@ -10,7 +10,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import android.graphics.Bitmap
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
@@ -44,7 +44,7 @@ class BarcodeAnalyzer(
 
     // 中文 OCR
     private val recognizer: TextRecognizer = TextRecognition.getClient(
-        ChineseTextRecognizerOptions.Builder().build()
+        TextRecognizerOptions.DEFAULT_OPTIONS
     )
 
     /** 已锁定的识别结果（first-wins 累积） */

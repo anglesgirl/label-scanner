@@ -52,9 +52,6 @@ class SingleInboundActivity : AppCompatActivity() {
     /** 当前有效的 69 码值（69 视图下取框内容，否则取暂存值）。 */
     private val currentEan69: String
         get() = if (showingEan69) etMaterial.text.toString().trim() else recognizedEan69
-    private lateinit var etModel: EditText
-    private lateinit var etColor: EditText
-    private lateinit var etToner: EditText
     private lateinit var llSnList: LinearLayout
     private lateinit var llCodeCandidates: LinearLayout
     private lateinit var tvStatus: TextView
@@ -124,9 +121,6 @@ class SingleInboundActivity : AppCompatActivity() {
         etDate = findViewById(R.id.etDate)
         etSn = findViewById(R.id.etSn)
         findViewById<Button>(R.id.btnToggle69).setOnClickListener { toggleMaterialEanView() }
-        etModel = findViewById(R.id.etModel)
-        etColor = findViewById(R.id.etColor)
-        etToner = findViewById(R.id.etToner)
         llSnList = findViewById(R.id.llSnList)
         llCodeCandidates = findViewById(R.id.llCodeCandidates)
         tvStatus = findViewById(R.id.tvStatus)
@@ -189,7 +183,6 @@ class SingleInboundActivity : AppCompatActivity() {
             R.id.btnScanMaterial to Triple(etMaterial, "物料编码", "material"),
             R.id.btnScanTrayCode to Triple(etTrayCode, "托盘号", "tray"),
             R.id.btnScanDate to Triple(etDate, "生产日期", "date"),
-            R.id.btnScanModel to Triple(etModel, "型号", "model"),
         )
         for ((btnId, triple) in scanMap) {
             val (field, label, wantField) = triple
@@ -226,10 +219,6 @@ class SingleInboundActivity : AppCompatActivity() {
         etDate.setText(result.productionDate)
         recognizedEan69 = result.ean69
         if (showingEan69 && result.ean69.isNotBlank()) etMaterial.setText(result.ean69)
-        etModel.setText(result.model)
-        etColor.setText(result.color)
-        etToner.setText(result.tonerModel)
-
         snList.clear()
         if (result.serialNumber.isNotBlank()) snList.add(result.serialNumber)
         rebuildSnList()
@@ -447,7 +436,7 @@ class SingleInboundActivity : AppCompatActivity() {
             .setTitle("条码: $code")
             .setItems(arrayOf(
                 "🏷️ 设为物料编码", "📦 设为托盘号", "📅 设为生产日期",
-                "🔢 设为 69 商品码", "🏷️ 设为型号",
+                "🔢 设为 69 商品码",
                 "➕ 加入序列号列表", "❌ 取消"
             )) { _, which ->
                 when (which) {
@@ -467,10 +456,7 @@ class SingleInboundActivity : AppCompatActivity() {
                         else { showingEan69 = true; etMaterial.setText(v) }
                         Toast.makeText(this, "69 码已设为 $v", Toast.LENGTH_SHORT).show()
                     }
-                    4 -> CandidateNormalizer.applyWithCheck(this, code, "model") { v ->
-                        etModel.setText(v); Toast.makeText(this, "型号已设为 $v", Toast.LENGTH_SHORT).show()
-                    }
-                    5 -> {
+                    4 -> {
                         val v = CandidateNormalizer.normalize(code, "sn")
                         val err = CandidateNormalizer.validate(v, "sn")
                         if (err != null) {
@@ -513,9 +499,6 @@ class SingleInboundActivity : AppCompatActivity() {
         if (tray.isEmpty()) { Toast.makeText(this, "托盘号必填（扫描或输入托盘码）", Toast.LENGTH_SHORT).show(); return }
         val date = etDate.text.toString().trim()
         val ean = currentEan69
-        val model = etModel.text.toString().trim()
-        val color = etColor.text.toString().trim()
-        val toner = etToner.text.toString().trim()
 
         // 重码防护：同 SN 只保留一条（2026-09-15 用户反馈保存有重码会崩溃）
         val uniq = snList.distinct()
@@ -525,7 +508,7 @@ class SingleInboundActivity : AppCompatActivity() {
                 // 数量 = 本次序列号个数（与单箱页同一套规则）：
                 // WMS 会校验"数量与 SN 是否一致"，不一致就直接拒绝导入。
                 quantity = uniq.size,
-                ean69 = ean, model = model, color = color, tonerModel = toner,
+                ean69 = ean,
                 trayCode = tray, barcodes = codeCandidates.toList()
             )
         }
@@ -543,7 +526,7 @@ class SingleInboundActivity : AppCompatActivity() {
     private fun resetAll() {
         // 托盘号保留（整批沿用），其余清空
         etMaterial.setText(""); etDate.setText("")
-        etSn.setText(""); recognizedEan69 = ""; etModel.setText(""); etColor.setText(""); etToner.setText("")
+        etSn.setText(""); recognizedEan69 = ""
         snList.clear(); codeCandidates.clear()
         rebuildSnList(); rebuildCodeCandidates()
         tvStatus.text = ""
@@ -575,7 +558,7 @@ class SingleInboundActivity : AppCompatActivity() {
         val gated = listOf(
             R.id.btnTakePhoto, R.id.btnScanDoc, R.id.btnPickGallery,
             R.id.btnScanMaterial, R.id.btnToggle69,
-            R.id.btnLookup69, R.id.btnScanDate, R.id.btnScanModel,
+            R.id.btnLookup69, R.id.btnScanDate,
             R.id.btnScanAddSn, R.id.btnSave,
         )
         for (id in gated) findViewById<Button>(id).isEnabled = !locked

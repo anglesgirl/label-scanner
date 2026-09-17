@@ -41,15 +41,6 @@
         <TextView style="@style/FieldLabel" android:text="69 商品码（段6）" />
         <EditText android:id="@+id/etEan69" style="@style/FieldInput" />
 
-        <TextView style="@style/FieldLabel" android:text="产品型号（附加）" />
-        <EditText android:id="@+id/etModel" style="@style/FieldInput" />
-
-        <TextView style="@style/FieldLabel" android:text="产品颜色（附加）" />
-        <EditText android:id="@+id/etColor" style="@style/FieldInput" />
-
-        <TextView style="@style/FieldLabel" android:text="硒鼓型号（附加）" />
-        <EditText android:id="@+id/etToner" style="@style/FieldInput" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

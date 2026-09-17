@@ -39,7 +39,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private lateinit var etMaterial: EditText
     private lateinit var etBox: EditText
     private lateinit var etDate: EditText
-    private lateinit var etModel: EditText
     private lateinit var etManualSn: EditText
     private lateinit var etTrayCode: EditText
     private lateinit var llSnList: LinearLayout
@@ -131,7 +130,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnToggle69).setOnClickListener { toggleMaterialEanView() }
         etBox = findViewById(R.id.etBox)
         etDate = findViewById(R.id.etDate)
-        etModel = findViewById(R.id.etModel)
         etManualSn = findViewById(R.id.etManualSn)
         etTrayCode = findViewById(R.id.etTrayCode)
         llSnList = findViewById(R.id.llSnList)
@@ -163,7 +161,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             R.id.btnScanMaterial to Triple(etMaterial, "物料编码", "material"),
             R.id.btnScanBox to Triple(etBox, "箱号", "box"),
             R.id.btnScanDate to Triple(etDate, "生产日期", "date"),
-            R.id.btnScanModel to Triple(etModel, "型号", "model"),
         )
         for ((btnId, t) in scanMap) {
             val (field, label, want) = t
@@ -231,7 +228,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                         if (boxFromOcr) AmbiguousChar.highlight(box.boxCode) else box.boxCode
                     )
                     etDate.setText(box.productionDate)
-                    etModel.setText(box.model)
                     snList.clear()
                     snFromOcr.clear()
                     snList.addAll(box.serialNumbers)
@@ -312,7 +308,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         val material = etMaterial.text.toString().trim()
         val box = etBox.text.toString().trim()
         val date = etDate.text.toString().trim()
-        val model = etModel.text.toString().trim()
         val tray = etTrayCode.text.toString().trim()
 
         if (snList.isEmpty()) {
@@ -346,7 +341,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 // 用户原话："一箱里面有多少个序列号，它后面的数量就是多少。"
                 quantity = uniq.size,
                 productionDate = date,
-                model = model,
                 boxCode = box,
                 trayCode = tray,
                 ean69 = recognizedEan69,
@@ -366,7 +360,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         etMaterial.setText("")
         etBox.setText("")
         etDate.setText("")
-        etModel.setText("")
         etManualSn.setText("")
         snList.clear()
         snFromOcr.clear()

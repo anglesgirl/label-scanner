@@ -26,9 +26,6 @@ class EditRecordActivity : AppCompatActivity() {
     private lateinit var etQty: EditText
     private lateinit var etDate: EditText
     private lateinit var etEan69: EditText
-    private lateinit var etModel: EditText
-    private lateinit var etColor: EditText
-    private lateinit var etToner: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,9 +51,6 @@ class EditRecordActivity : AppCompatActivity() {
         etQty = findViewById(R.id.etQty)
         etDate = findViewById(R.id.etDate)
         etEan69 = findViewById(R.id.etEan69)
-        etModel = findViewById(R.id.etModel)
-        etColor = findViewById(R.id.etColor)
-        etToner = findViewById(R.id.etToner)
 
         val records = RecordStore.load(this)
         if (index >= records.size) {
@@ -74,9 +68,6 @@ class EditRecordActivity : AppCompatActivity() {
         etQty.setText(r.quantity.toString())
         etDate.setText(r.productionDate)
         etEan69.setText(r.ean69)
-        etModel.setText(r.model)
-        etColor.setText(r.color)
-        etToner.setText(r.tonerModel)
 
         findViewById<Button>(R.id.btnEditSave).setOnClickListener { save() }
         findViewById<Button>(R.id.btnEditCancel).setOnClickListener { finish() }
@@ -102,9 +93,6 @@ class EditRecordActivity : AppCompatActivity() {
             quantity = etQty.text.toString().trim().toIntOrNull() ?: old.quantity,
             productionDate = etDate.text.toString().trim(),
             ean69 = etEan69.text.toString().trim(),
-            model = etModel.text.toString().trim(),
-            color = etColor.text.toString().trim(),
-            tonerModel = etToner.text.toString().trim(),
         )
         if (updated.serialNumber.isEmpty()) {
             Toast.makeText(this, "序列号不能为空", Toast.LENGTH_SHORT).show()

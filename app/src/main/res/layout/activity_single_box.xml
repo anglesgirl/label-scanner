@@ -266,46 +266,6 @@
                 android:insetBottom="0dp" />
         </LinearLayout>
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="型号"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:textColor="@color/ls_text_dim" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <EditText
-                android:id="@+id/etModel"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="参考信息，可不填"
-                android:textSize="15sp"
-                android:textColor="@color/ls_text"
-                android:textColorHint="@color/ls_hint"
-                android:inputType="text" />
-
-            <Button
-                android:id="@+id/btnScanModel"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="@color/ls_btn_scan"
-                android:text="🔍 扫"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:minWidth="64dp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp" />
-        </LinearLayout>
-
         <!-- 序列号列表 -->
         <TextView
             android:layout_width="match_parent"

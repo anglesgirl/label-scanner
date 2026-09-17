@@ -30,7 +30,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -126,7 +126,7 @@ class LiveScanActivity : AppCompatActivity() {
      * 既保住"条码优先"的准确率，也不让 OCR 拖慢正常扫码（OCR 单次约百毫秒级）。
      */
     private val ocrRecognizer: TextRecognizer by lazy {
-        TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
     private val ocrBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     /** 连续无条码的 zxing 周期数，达到阈值才启用 OCR。 */
