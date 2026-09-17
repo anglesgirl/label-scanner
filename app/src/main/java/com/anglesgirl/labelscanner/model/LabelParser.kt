@@ -56,6 +56,16 @@ object LabelParser {
         if (MAT10.matcher(v).matches()) return "material10" to v
         if (MAT12.matcher(v).matches()) return "material12" to v
 
+        // 箱号：CA/PA 开头、≥14 位的字母数字混合码。
+        // （2026-09-17 用户实测第一张整箱标签校准：CA70450P10052278 是箱号
+        //  （C/NO 行），SCAG2529704B3 系列才是序列号；第二/三张 PA 开头长码
+        //  同样确认是箱号。此前这类码全被当 "sn"，导致箱号抢进序列号框、
+        //  真 SN 反而全丢 —— 用户反馈"箱号被当序列号"。）
+        if (v.length >= 14 &&
+            (v.startsWith("CA", ignoreCase = true) || v.startsWith("PA", ignoreCase = true)) &&
+            v.any { it.isLetter() }
+        ) return "box" to v
+
         // SN：字母数字混合
         if (SN_MIX.matcher(v).matches() && v.any { it.isLetter() }) return "sn" to v
 
@@ -84,6 +94,7 @@ object LabelParser {
         for (code in barcodes) {
             when (classify(code)?.first) {
                 "ean" -> if (result.ean69.isEmpty()) result.ean69 = code
+                "box" -> if (result.boxCode.isEmpty()) result.boxCode = code
                 "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = code
                 "material10", "material12" -> if (result.materialCode.isEmpty()) {
                     result.materialCode = normalizeMaterial(code)
@@ -231,6 +242,7 @@ object LabelParser {
                 "material10", "material12" -> if (result.materialCode.isEmpty()) {
                     result.materialCode = normalizeMaterial(line)
                 }
+                "box" -> if (result.boxCode.isEmpty()) result.boxCode = line
                 "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = line
             }
         }
@@ -255,6 +267,7 @@ object LabelParser {
                     result.materialCode = normalizeMaterial(part)
                 }
                 "ean" -> if (result.ean69.isEmpty()) result.ean69 = part
+                "box" -> if (result.boxCode.isEmpty()) result.boxCode = part
                 "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = part
             }
         }
