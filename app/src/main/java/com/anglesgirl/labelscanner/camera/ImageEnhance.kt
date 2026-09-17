@@ -16,32 +16,54 @@ import android.graphics.Paint
  * 两条增强：
  * - enhanceBright：提亮 + 高对比度（同文档模式 1.25x 对比，再加一点提亮）
  * - binarize：灰度高对比（近似二值化，暗光/浅字条码的模块边界最清晰）
+ *
+ * ⚠️ ColorMatrix 没有 postTranslate/setTranslate 公开方法，偏移必须直接写进
+ * 矩阵数组（第 5 列）构造 —— 之前两版构建失败就是这个原因。
  */
 object ImageEnhance {
 
-    /** 提亮 + 高对比度：像素 = clamp(p*c + 128*(1-c) + 128*b)，c=对比度 b=提亮。 */
+    /**
+     * 提亮 + 高对比度：像素 = clamp(p*c + offset)，c=对比度、offset=128*(1-c)+128*b。
+     * 矩阵：对角 c、第 5 列 offset（RGB 相同），Alpha 不变。
+     */
     fun enhanceBright(src: Bitmap): Bitmap {
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val c = 1.25f
         val b = 0.14f
         val offset = 128f * (1f - c) + 128f * b
-        val cm = ColorMatrix().apply {
-            setScale(c, c, c, 1f)
-            setTranslate(offset, offset, offset)
-        }
+        val cm = ColorMatrix(
+            floatArrayOf(
+                c, 0f, 0f, 0f, offset,
+                0f, c, 0f, 0f, offset,
+                0f, 0f, c, 0f, offset,
+                0f, 0f, 0f, 1f, 0f,
+            )
+        )
         val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(cm) }
         Canvas(out).drawBitmap(src, 0f, 0f, paint)
         return out
     }
 
-    /** 灰度高对比（近似二值化）：去色 + 强对比 + 负偏移，暗的压黑、亮的拉白。 */
+    /**
+     * 灰度高对比（近似二值化）：BT.709 亮度灰度 × 强对比 + 负偏移，
+     * 暗的压黑、亮的拉白。矩阵一次性算好（灰度系数 × 对比度写在 3x3，
+     * 偏移写在第 5 列）。
+     */
     fun binarize(src: Bitmap): Bitmap {
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
-        val cm = ColorMatrix().apply {
-            setSaturation(0f)
-            setScale(2.4f, 2.4f, 2.4f, 1f)
-            setTranslate(-156f, -156f, -156f)
-        }
+        val c = 2.4f
+        val t = -156f
+        val r = 0.213f * c
+        val g = 0.715f * c
+        val b = 0.072f * c
+        val cm = ColorMatrix(
+            floatArrayOf(
+                r, g, b, 0f, t,
+                r, g, b, 0f, t,
+                r, g, b, 0f, t,
+                0f, 0f, 0f, 1f, 0f,
+            )
+        )
         val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(cm) }
         Canvas(out).drawBitmap(src, 0f, 0f, paint)
         return out
