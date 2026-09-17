@@ -27,7 +27,7 @@ object ImageEnhance {
         val offset = 128f * (1f - c) + 128f * b
         val cm = ColorMatrix().apply {
             setScale(c, c, c, 1f)
-            postTranslate(offset, offset, offset, 0f)
+            setTranslate(offset, offset, offset)
         }
         val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(cm) }
         Canvas(out).drawBitmap(src, 0f, 0f, paint)
@@ -40,7 +40,7 @@ object ImageEnhance {
         val cm = ColorMatrix().apply {
             setSaturation(0f)
             setScale(2.4f, 2.4f, 2.4f, 1f)
-            postTranslate(-156f, -156f, -156f, 0f)
+            setTranslate(-156f, -156f, -156f)
         }
         val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(cm) }
         Canvas(out).drawBitmap(src, 0f, 0f, paint)
