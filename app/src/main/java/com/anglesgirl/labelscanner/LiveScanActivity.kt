@@ -384,7 +384,7 @@ class LiveScanActivity : AppCompatActivity() {
      * 最像的排最前），不是只留一个 —— 其余照样进宿主的候选区供人工修正。
      * 典型用途：托盘码被塑料膜反光糊掉时，读标签上印的 TP36217944。
      */
-    private fun runOcrFallback(bmp: Bitmap) {
+    private fun runOcrFallback(bmp: Bitmap, rotationDegrees: Int = 0) {
         if (!ocrBusy.compareAndSet(false, true)) return
         ocrRecognizer.process(InputImage.fromBitmap(bmp, 0))
             .addOnSuccessListener { text ->
@@ -399,7 +399,7 @@ class LiveScanActivity : AppCompatActivity() {
                 // 若 zxing 解出条码（条码优先）则取消本次 OCR 弹框。
                 if (pickMode) {
                     val picks = buildOcrPicks(text)
-                    if (picks.isNotEmpty()) scheduleOcrPick(picks, bmp)
+                    if (picks.isNotEmpty()) scheduleOcrPick(picks, bmp, rotationDegrees)
                     return@addOnSuccessListener
                 }
 
@@ -720,8 +720,11 @@ class LiveScanActivity : AppCompatActivity() {
         }
         // 必须先取到 bitmap 再 close，否则拿不到像素
         val bmp = runCatching { imageProxy.toBitmap() }.getOrNull()
+        // 分析帧是传感器原始方向；预览会自动转正。定格点选要和人眼看到的一致，
+        // 必须按 rotationDegrees 旋转画面并同步变换坐标（2026-09-17 用户反馈"定格画面转了"）
+        val rot = imageProxy.imageInfo.rotationDegrees
         imageProxy.close()
-        if (bmp != null) analyzeBitmap(bmp)
+        if (bmp != null) analyzeBitmap(bmp, rot)
     }
 
     /**
@@ -729,7 +732,7 @@ class LiveScanActivity : AppCompatActivity() {
      * 帧调度 → zxing 解码 → 多帧确认 → 定格点选 / 结果带回。
      * USB 轮询每 150ms 喂一帧，busy 时自然跳过。
      */
-    private fun analyzeBitmap(bmp: Bitmap) {
+    private fun analyzeBitmap(bmp: Bitmap, rotationDegrees: Int = 0) {
         if (paused.get()) return
         // 帧调度：**每帧都尝试**（busy 时自然跳过当前帧）。原来集成码困难模式每 2 帧
         // 才跑一次、又是 3x 放大慢解码，用户体感"扫很久"；配合渐进解码（1x→2x→3x）
@@ -772,7 +775,7 @@ class LiveScanActivity : AppCompatActivity() {
                             if (pickStableSince == 0L) pickStableSince = now
                             if (now - pickStableSince >= pickStableMs) {
                                 pickStableSince = 0L
-                                runOnUiThread { freezeAndShow(bmp, found) }
+                                runOnUiThread { freezeAndShow(bmp, found, rotationDegrees) }
                             }
                         } else {
                             if (pickStableSince != 0L && now - pickStableSince >= pickStableMs + 1000L) {
@@ -821,7 +824,7 @@ class LiveScanActivity : AppCompatActivity() {
                     noCodeStreak += 1
                     if (noCodeStreak >= ocrAfterRounds()) {
                         noCodeStreak = 0
-                        runOcrFallback(bmp)
+                        runOcrFallback(bmp, rotationDegrees)
                     }
                 }
             } catch (t: Throwable) {
@@ -833,7 +836,7 @@ class LiveScanActivity : AppCompatActivity() {
     }
 
     /** OCR 兜底延迟定格：1.5s 后弹（与条码稳定检测一致），期间可被条码取消。 */
-    private fun scheduleOcrPick(picks: List<Pair<String, android.graphics.Rect?>>, bmp: Bitmap) {
+    private fun scheduleOcrPick(picks: List<Pair<String, android.graphics.Rect?>>, bmp: Bitmap, rotationDegrees: Int = 0) {
         pendingOcrTask?.let { mainHandler.removeCallbacks(it) }
         pendingOcrPicks = picks
         pendingOcrBmp = bmp
@@ -844,7 +847,7 @@ class LiveScanActivity : AppCompatActivity() {
             pendingOcrBmp = null
             pendingOcrTask = null
             if (p != null && b != null && !paused.get()) {
-                freezeAndShow(b, p)
+                freezeAndShow(b, p, rotationDegrees)
             }
         }
         pendingOcrTask = task
@@ -865,29 +868,61 @@ class LiveScanActivity : AppCompatActivity() {
      * 为什么必须定格：实时预览里码在移动，手指点下去时码已移开，必然点错
      * （布局里 ivSnapshot 的注释也是这个原因）。
      *
-     * @param bmp 当前帧（zxing 分析帧 / OCR 用同一帧，坐标一致）
+     * @param bmp 当前帧（zxing 分析帧 / OCR 用同一帧，坐标一致；**传感器原始方向**）
      * @param pickables (值, 图像坐标外接框) —— 条码来自 decodeWithPositions，
      *                  OCR 文字来自 ML Kit 的 boundingBox
+     * @param rotationDegrees 传感器→竖屏显示需要的旋转角（90/180/270）。
+     *                        预览自动转正，定格图必须同样转正，否则画面方向与
+     *                        人眼看到的预览不一致（"定格画面转了"）。
+     *                        旋转后所有点选框坐标同步变换。
      */
-    private fun freezeAndShow(bmp: Bitmap, pickables: List<Pair<String, android.graphics.Rect?>>) {
+    private fun freezeAndShow(
+        bmp: Bitmap,
+        pickables: List<Pair<String, android.graphics.Rect?>>,
+        rotationDegrees: Int = 0,
+    ) {
         if (paused.get()) return
         if (!paused.compareAndSet(false, true)) return
+        val rot = rotationDegrees % 360
+        val displayBmp = if (rot == 0) bmp else rotateBitmap(bmp, rot)
         val items = pickables
-            .mapNotNull { (v, r) -> r?.let { BarcodePickOverlay.Pickable(v, it) } }
+            .mapNotNull { (v, r) ->
+                r?.let {
+                    BarcodePickOverlay.Pickable(v, if (rot == 0) it else rotateRect(it, rot, bmp.width, bmp.height))
+                }
+            }
             .distinctBy { it.value }
         if (items.isEmpty()) {
             // 只有值没有位置框（理论上不应发生）：不定格，继续实时扫
             paused.set(false)
             return
         }
-        ivSnapshot.setImageBitmap(bmp)
+        ivSnapshot.setImageBitmap(displayBmp)
         ivSnapshot.visibility = android.view.View.VISIBLE
-        pickOverlay.setSourceSize(bmp.width, bmp.height)
+        pickOverlay.setSourceSize(displayBmp.width, displayBmp.height)
         pickOverlay.setItems(items)
         pickOverlay.setPicked(pickedBoxes)
         beep()
         updatePickBar()
     }
+
+    /** 按传感器旋转角转正画面（预览方向）。 */
+    private fun rotateBitmap(src: Bitmap, degrees: Int): Bitmap {
+        val m = android.graphics.Matrix()
+        m.postRotate(degrees.toFloat())
+        val out = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+        if (out !== src) src.recycle()
+        return out
+    }
+
+    /** 点选框坐标随画面旋转同步变换（新坐标系）。 */
+    private fun rotateRect(r: android.graphics.Rect, degrees: Int, w: Int, h: Int): android.graphics.Rect =
+        when (degrees) {
+            90 -> android.graphics.Rect(r.top, w - r.right, r.bottom, w - r.left)
+            180 -> android.graphics.Rect(w - r.right, h - r.bottom, w - r.left, h - r.top)
+            270 -> android.graphics.Rect(h - r.bottom, r.left, h - r.top, r.right)
+            else -> r
+        }
 
     /** 点画面上某个框：选中/取消。字段补扫填单值框 → 单选（点新替旧）。 */
     private fun togglePick(code: String) {
