@@ -23,6 +23,34 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon
 
+      # 额外产出 arm64 小包（86M universal 对手机用户没必要）：
+      # 删除非 arm64 的 .so → zipalign → 用仓库固定 debug.keystore 重签
+      # （签名不变，覆盖安装数据不丢）
+      - name: Build arm64-only APK
+        run: |
+          set -e
+          cd app/build/outputs/apk/debug
+          python3 - <<'EOF'
+          import zipfile, shutil
+          src = 'app-debug.apk'
+          tmp = 'app-debug-strip.apk'
+          with zipfile.ZipFile(src) as zin, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
+              for item in zin.infolist():
+                  if item.filename.startswith('lib/') and not item.filename.startswith('lib/arm64-v8a/'):
+                      continue
+                  zout.writestr(item, zin.read(item.filename))
+          shutil.move(tmp, 'app-debug-arm64-unsigned.apk')
+          EOF
+          ZALIGN=$(ls -d ${ANDROID_SDK_ROOT}/build-tools/*/zipalign | tail -1)
+          APKSIGNER=$(ls -d ${ANDROID_SDK_ROOT}/build-tools/*/apksigner | tail -1)
+          $ZALIGN -f 4 app-debug-arm64-unsigned.apk app-debug-arm64-aligned.apk
+          $APKSIGNER sign \
+            --ks $GITHUB_WORKSPACE/debug.keystore \
+            --ks-pass pass:android --key-pass pass:android \
+            --out app-debug-arm64.apk app-debug-arm64-aligned.apk
+          rm -f app-debug-arm64-unsigned.apk app-debug-arm64-aligned.apk
+          ls -lh
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
