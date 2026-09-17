@@ -56,6 +56,15 @@ object ZxingDecoder {
      * 难解。拿到位置才能做"裁切放大重试"。
      */
     fun decodeWithPositions(original: Bitmap): List<Pair<String, android.graphics.Rect>> {
+        val direct = decodeWithPositionsOnce(original)
+        if (direct.isNotEmpty()) return direct
+        // 暗光兜底（同 decode）：提亮高对比 → 灰度高对比
+        val enhanced = decodeWithPositionsOnce(ImageEnhance.enhanceBright(original))
+        if (enhanced.isNotEmpty()) return enhanced
+        return decodeWithPositionsOnce(ImageEnhance.binarize(original))
+    }
+
+    private fun decodeWithPositionsOnce(original: Bitmap): List<Pair<String, android.graphics.Rect>> {
         if (original.width < 10 || original.height < 10) return emptyList()
         return try {
             val reader = BarcodeReader(
@@ -87,7 +96,12 @@ object ZxingDecoder {
     }
 
     /**
-     * 解码一张 Bitmap。
+     * 解码一张 Bitmap（**带暗光增强兜底**：原图 → 提亮高对比 → 灰度高对比）。
+     *
+     * 为什么需要增强兜底（2026-09-17 用户反馈"光线稍暗识别能力骤降"）：
+     * 暗光下对比度低、条码模块边界糊，原图直接解不出。先按原图快速解一次，
+     * 失败再增强重试 —— 亮光下只跑一次（零开销），暗光下多跑两次 GPU 增强解
+     * （毫秒级增强 + 解码），把"暗光扫不出"救回来。
      *
      * ⚠️ **scale 要按场景选，不是越大越好**：
      * - **静态图 / 密集小码** → 用 3x（`SCALE`）。实测 905×1280 的标签图上条码只有
@@ -101,6 +115,17 @@ object ZxingDecoder {
      * @param scale 放大倍数，1f = 原始分辨率（快），3f = 强通道（慢但能啃小码）
      */
     fun decode(original: Bitmap, scale: Float = SCALE): List<String> {
+        val direct = decodeOnce(original, scale)
+        if (direct.isNotEmpty()) return direct
+        // 暗光兜底：提亮+高对比
+        val enhanced = decodeOnce(ImageEnhance.enhanceBright(original), scale)
+        if (enhanced.isNotEmpty()) return enhanced
+        // 再兜底：灰度高对比（近似二值化）
+        return decodeOnce(ImageEnhance.binarize(original), scale)
+    }
+
+    /** 单次解码（无增强），scale 同上。 */
+    private fun decodeOnce(original: Bitmap, scale: Float): List<String> {
         if (original.width < 10 || original.height < 10) return emptyList()
         return try {
             var w = original.width
@@ -160,7 +185,18 @@ object ZxingDecoder {
     fun decodeProgressive(original: Bitmap): List<String> {
         if (original.width < 10 || original.height < 10) return emptyList()
         for (scale in listOf(1f, 2f, 3f)) {
-            val r = decode(original, scale)
+            val r = decodeOnce(original, scale)
+            if (r.isNotEmpty()) return r
+        }
+        // 暗光兜底：增强后 1x→2x 即可（不再上 3x 增强，避免最坏 9 次解码卡死）
+        val enhanced = ImageEnhance.enhanceBright(original)
+        for (scale in listOf(1f, 2f)) {
+            val r = decodeOnce(enhanced, scale)
+            if (r.isNotEmpty()) return r
+        }
+        val binary = ImageEnhance.binarize(original)
+        for (scale in listOf(1f, 2f)) {
+            val r = decodeOnce(binary, scale)
             if (r.isNotEmpty()) return r
         }
         return emptyList()
