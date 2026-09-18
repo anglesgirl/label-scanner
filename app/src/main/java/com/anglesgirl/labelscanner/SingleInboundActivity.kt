@@ -87,7 +87,28 @@ class SingleInboundActivity : AppCompatActivity() {
             val codes = data?.getStringArrayListExtra(LiveScanActivity.EXTRA_RESULT_CODES)
                 ?: data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)?.let { arrayListOf(it) }
                 ?: arrayListOf()
-            codes.forEach(::onScannedCode)
+            codes.forEach { raw ->
+                if (scanAppendToSn) {
+                    // 「添加序列号」批量：逗号/分号/空白分隔的整串，拆成多个独立 SN。
+                    // 用户 2026-09-18 实测：标签纸上多个序列号被解成一个"带逗号的集成码"，
+                    // 整串当一个 SN 是错误的 —— 每个逗号分隔段都应作为独立序列号入库。
+                    val parts = raw.split(Regex("[,，;；\s]+"))
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                    if (parts.size > 1) {
+                        var added = 0
+                        parts.forEach { p ->
+                            if (p !in snList) { snList.add(p); added++ }
+                        }
+                        rebuildSnList()
+                        tvStatus.text = "✅ 已拆分 ${parts.size} 个序列号（新增 $added 个）"
+                    } else {
+                        onScannedCode(raw)
+                    }
+                } else {
+                    onScannedCode(raw)
+                }
+            }
         }
     }
 
