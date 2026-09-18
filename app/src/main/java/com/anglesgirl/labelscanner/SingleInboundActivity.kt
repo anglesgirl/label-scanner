@@ -92,7 +92,7 @@ class SingleInboundActivity : AppCompatActivity() {
                     // 「添加序列号」批量：逗号/分号/空白分隔的整串，拆成多个独立 SN。
                     // 用户 2026-09-18 实测：标签纸上多个序列号被解成一个"带逗号的集成码"，
                     // 整串当一个 SN 是错误的 —— 每个逗号分隔段都应作为独立序列号入库。
-                    val parts = raw.split(Regex("[,，;；\s]+"))
+                    val parts = raw.split(Regex("[,，;；\\s]+"))
                         .map { it.trim() }
                         .filter { it.isNotBlank() }
                     if (parts.size > 1) {
