@@ -53,10 +53,14 @@ class MultiCodeActivity : AppCompatActivity() {
 
     private var recognizing = false
 
-    /** 取图入口：拍照 / 文档扫描 / 相册 共用一份实现。 */
-    private val imageIn by lazy {
-        ImageIn(this) { uri -> onImage(uri) }
-    }
+    /**
+     * 取图入口：拍照 / 文档扫描 / 相册 共用一份实现。
+     * ⚠️ 必须在 onCreate（CREATED 状态）里创建，**不能用 by lazy**：
+     * registerForActivityResult 要求在 STARTED 之前注册，懒加载拖到点击按钮
+     * （RESUMED）才初始化会抛 "attempting to register while current state is
+     * RESUMED"（用户 2026-09-18 实测崩溃）。
+     */
+    private lateinit var imageIn: ImageIn
 
     private val items = mutableListOf<Item>()
     private val adapter = ItemAdapter { pos, checked -> items[pos].checked = checked }
@@ -72,6 +76,9 @@ class MultiCodeActivity : AppCompatActivity() {
             v.updatePadding(top = bars.top, bottom = bars.bottom)
             insets
         }
+
+        // 取图入口必须在 Activity 构造/onCreate 阶段创建（registerForActivityResult 约束）
+        imageIn = ImageIn(this) { uri -> onImage(uri) }
 
         tvStatus = findViewById(R.id.tvStatus)
         etMaterial = findViewById(R.id.etMaterial)
