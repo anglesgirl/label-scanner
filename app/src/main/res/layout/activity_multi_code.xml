@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/ls_bg"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📄 多码清单"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="@color/ls_text" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="拍整张纸 → 全部条码逐个入库（每码一条）"
+        android:textSize="13sp"
+        android:textColor="@color/ls_text_dim" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnTakePhoto"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:backgroundTint="@color/ls_ok"
+            android:text="📷 拍照"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btnScanDoc"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:backgroundTint="@color/ls_accent"
+            android:text="📄 文档扫描"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btnPickGallery"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:backgroundTint="@color/ls_badge"
+            android:text="🖼 相册"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="选择取图方式开始：一张纸上的每个条码都会列出来"
+        android:textSize="13sp"
+        android:textColor="@color/ls_text_dim" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/etMaterial"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:hint="物料编码 *"
+            android:textColor="@color/ls_text"
+            android:textColorHint="@color/ls_hint"
+            android:background="@drawable/bg_input"
+            android:inputType="text" />
+
+        <EditText
+            android:id="@+id/etDate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:hint="生产日期 yyyymmdd"
+            android:textColor="@color/ls_text"
+            android:textColorHint="@color/ls_hint"
+            android:background="@drawable/bg_input"
+            android:inputType="text" />
+
+        <EditText
+            android:id="@+id/etEan"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="69码(可选)"
+            android:textColor="@color/ls_text"
+            android:textColorHint="@color/ls_hint"
+            android:background="@drawable/bg_input"
+            android:inputType="text" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="识别到的条码（勾选 = 保存，可编辑修正）"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="@color/ls_text" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvCodes"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="4dp"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnSelectAll"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:backgroundTint="@color/ls_neutral"
+            android:text="取消全选"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:backgroundTint="@color/ls_ok"
+            android:text="保存 0 条"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

@@ -103,6 +103,29 @@ object StaticRecognizer {
         recognize(bmp, lookup69, onResult, onError)
     }
 
+    /**
+     * 多码清单识别（一张纸多个条码批量录入）：
+     * 解出图中【全部条码】+ OCR 全文，不做字段归类，原样回传由 UI 决定怎么入库。
+     *
+     * 场景：物料标签纸（两列 24 个条码 = 24 个序列号）、成品进仓单（卡板条码 +
+     * 物料条码）。用户实测"添加序列号扫这种纸，带逗号的集成码被当成一个序列号"——
+     * 本方法就是让每个条码都能作为独立记录批量保存。
+     */
+    fun recognizeUriMulti(
+        resolver: ContentResolver,
+        uri: Uri,
+        onResult: (codes: List<String>, ocrText: String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        val raw = decodeSampledBitmap(resolver, uri)
+        if (raw == null) {
+            onError("无法读取图片")
+            return
+        }
+        val bmp = applyExifRotation(resolver, uri, raw)
+        recognizeMulti(bmp, onResult, onError)
+    }
+
     /** 识别单张 Bitmap：**条码全走 zxing-cpp**，**ML Kit 只做 OCR**（各司其职）。 */
     fun recognize(
         bitmap: Bitmap,
@@ -120,6 +143,60 @@ object StaticRecognizer {
         // 条码/二维码一律交给 zxing-cpp（ML Kit 扫码能力弱：高密度 2D 码解不出，
         // 还会用旁边的 1D 结果干扰）。ML Kit 在本流程里**只负责 OCR**。
         finishWithBarcodes(input, emptyList(), zxingFuture, lookup69, onResult, onError)
+    }
+
+    /**
+     * 多码清单识别核心：zxing 全部条码 + ML Kit OCR 全文，异步回调 (codes, ocrText)。
+     */
+    fun recognizeMulti(
+        bitmap: Bitmap,
+        onResult: (codes: List<String>, ocrText: String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        if (bitmap.width < 10 || bitmap.height < 10) {
+            onError("图片尺寸过小")
+            return
+        }
+        val input = InputImage.fromBitmap(bitmap, 0)
+        val zxingFuture = zxingPool.submit<List<String>> {
+            Log.i(TAG, "[MULTI_ZXING] start ${bitmap.width}x${bitmap.height}")
+            ZxingDecoder.decode(bitmap).also {
+                Log.i(TAG, "[MULTI_ZXING] complete count=${it.size}")
+            }
+        }
+        recognitionPool.submit {
+            val codes = try {
+                zxingFuture.get(20, TimeUnit.SECONDS)
+                    .map { it.trim() }
+                    .filter(String::isNotBlank)
+                    .distinct()
+            } catch (e: Exception) {
+                zxingFuture.cancel(true)
+                Log.w(TAG, "[MULTI_ZXING] timeout/failure: ${e.message}")
+                emptyList()
+            }
+            var ocrText = ""
+            val latch = java.util.concurrent.CountDownLatch(1)
+            getRecognizer().process(input)
+                .addOnSuccessListener { t ->
+                    t.text?.trim()?.takeIf { it.isNotEmpty() }?.let { ocrText = it }
+                }
+                .addOnFailureListener { e -> Log.w(TAG, "[MULTI_OCR] failed", e) }
+                .addOnCompleteListener { latch.countDown() }
+            latch.await(25, TimeUnit.SECONDS)
+            Log.i(TAG, "[MULTI_DONE] codes=${codes.size} ocr=${ocrText.length}")
+            runCatching {
+                Diag.event(
+                    "multi_recognized",
+                    mapOf(
+                        "img" to "${bitmap.width}x${bitmap.height}",
+                        "codes" to codes.size,
+                        "code_list" to codes.joinToString(" | ").take(280),
+                    )
+                )
+            }
+            onResult(codes, ocrText)
+        }
     }
 
     /** 在后台等待 C++ 通道并合并，避免阻塞主线程，再只跑一次 OCR。 */

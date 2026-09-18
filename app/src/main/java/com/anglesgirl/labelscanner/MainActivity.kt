@@ -56,6 +56,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnModeBox).setOnClickListener {
             startActivity(Intent(this, SingleBoxInboundActivity::class.java))
         }
+        findViewById<Button>(R.id.btnModeMulti).setOnClickListener {
+            startActivity(Intent(this, MultiCodeActivity::class.java))
+        }
         findViewById<Button>(R.id.btnSplitCode).setOnClickListener {
             startActivity(Intent(this, SplitCodeActivity::class.java))
         }
