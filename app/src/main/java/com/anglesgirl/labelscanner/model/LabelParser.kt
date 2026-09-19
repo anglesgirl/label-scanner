@@ -305,8 +305,10 @@ object LabelParser {
      * 整行/分段流程里识别，避免把 SN/物料里的数字串当日期。
      */
     fun extractDateInline(line: String): String? {
-        val hit = DATE_INLINE.find(line) ?: return null
-        val raw = hit.value
+        val m = DATE_INLINE.matcher(line)
+        if (!m.find()) return null
+        val hit = m.group()
+        val raw = hit
             .replace('O', '0').replace('o', '0')
             .replace('I', '1').replace('l', '1').replace('|', '1')
             .replace('S', '5').replace('s', '5')
