@@ -316,9 +316,9 @@ object LabelParser {
             .replace('B', '8')
         val digits = raw.replace(Regex("[^0-9]"), "")
         if (digits.length != 8) return null
-        val m = digits.substring(4, 6).toInt()
-        val d = digits.substring(6, 8).toInt()
-        if (m !in 1..12 || d !in 1..31) return null
+        val month = digits.substring(4, 6).toInt()
+        val day = digits.substring(6, 8).toInt()
+        if (month !in 1..12 || day !in 1..31) return null
         return digits
     }
 
