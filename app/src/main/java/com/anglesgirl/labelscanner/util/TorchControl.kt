@@ -18,6 +18,7 @@ import androidx.camera.core.Camera
 object TorchPrefs {
     private const val PREFS = "labelscanner_prefs"
     private const val KEY_BRIGHTNESS = "torch_brightness"
+    private const val KEY_TORCH_ON = "torch_on"
 
     fun brightness(context: Context): Int =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_BRIGHTNESS, 100)
@@ -25,6 +26,15 @@ object TorchPrefs {
     fun setBrightness(context: Context, v: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putInt(KEY_BRIGHTNESS, v.coerceIn(0, 100)).apply()
+    }
+
+    /** 上次补光灯开关状态：所有相机页共用，打开时恢复上次状态与亮度（用户 2026-09-19 要求） */
+    fun torchOn(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_TORCH_ON, false)
+
+    fun setTorchOn(context: Context, on: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_TORCH_ON, on).apply()
     }
 }
 
@@ -58,6 +68,19 @@ class TorchControl(
                 }
             })
         }
+
+        // 恢复上一次的开关状态与亮度（用户 2026-09-19 要求：用上一次的开关和亮度）。
+        // 相机就绪后才 attach，此时 enableTorch 才有效。
+        if (canTorch && TorchPrefs.torchOn(context)) {
+            runCatching { camera?.cameraControl?.enableTorch(true) }
+            torchOn = true
+            torchButton.isSelected = true
+            torchButton.setBackgroundTintList(
+                ColorStateList.valueOf(0xFF2E7D32.toInt())
+            )
+            brightnessBar?.visibility = View.VISIBLE
+            applyBrightness(brightnessBar?.progress ?: TorchPrefs.brightness(context))
+        }
     }
 
     /** USB 外接摄像头（内窥镜）没有闪光灯，禁用灯光。 */
@@ -70,6 +93,7 @@ class TorchControl(
         val c = camera ?: return
         torchOn = !torchOn
         c.cameraControl.enableTorch(torchOn)
+        TorchPrefs.setTorchOn(context, torchOn)
         torchButton.isSelected = torchOn
         torchButton.setBackgroundTintList(
             ColorStateList.valueOf(

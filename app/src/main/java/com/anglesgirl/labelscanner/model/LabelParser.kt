@@ -17,8 +17,11 @@ import java.util.regex.Pattern
 object LabelParser {
 
     private val DATE8 = Pattern.compile("^\\d{8}$")
-    private val DATE_SEP = Pattern.compile("^\\d{4}[-/. _]\\d{1,2}[-/. _]\\d{1,2}$")
+    // 分隔符覆盖：- / . _ 空格 全角横线－ 中点· 全角点． （OCR 常把 - 识别成这些）
+    private val DATE_SEP = Pattern.compile("^\\d{4}[-/. _－·．]\\d{1,2}[-/. _－·．]\\d{1,2}$")
     private val DATE_CN = Pattern.compile("^\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日$")
+    /** 行内日期提取：不要求整行是日期，从行中抠出"带分隔符的日期"子串（物料/SN 混排时也能救回日期） */
+    private val DATE_INLINE = Pattern.compile("\\d{4}[-/. _－·．]\\d{1,2}[-/. _－·．]\\d{1,2}")
     private val EAN13 = Pattern.compile("^69\\d{11}$")
     private val MAT10 = Pattern.compile("^\\d{10}$")
     private val MAT12 = Pattern.compile("^\\d{12}$")
@@ -32,7 +35,13 @@ object LabelParser {
         // 日期：8 位纯数字（yyyymmdd）、带符号（2025-05-08 / 2025.05.08 / 2025_05_08）、
         //       中文（2025年05月08日）、月日无前导0（2025 6 22）
         //       → 统一归一为 8 位 yyyymmdd；OCR 易把 0 认成 O，先规整
-        val vNorm = v.replace('O', '0').replace('o', '0')
+        // OCR 字符容错：O/o→0、I/l/|→1、S→5、g→9、B→8（日期语境下最常见混淆）
+        val vNorm = v
+            .replace('O', '0').replace('o', '0')
+            .replace('I', '1').replace('l', '1').replace('|', '1')
+            .replace('S', '5').replace('s', '5')
+            .replace('g', '9')
+            .replace('B', '8')
         if (DATE8.matcher(vNorm).matches() || DATE_SEP.matcher(vNorm).matches() || DATE_CN.matcher(vNorm).matches()) {
             val digits = vNorm.replace(Regex("[^0-9]"), "")
             if (digits.length == 8) {
@@ -220,6 +229,13 @@ object LabelParser {
                 if (m != null) result.supplier = m.groupValues[1]
                 return
             }
+            // 日期标签行：MFG/DATE/日期/生产日期 后跟日期，整行无法归类 → 行内提取
+            line.contains("日期") || Regex("\\b(date|mfg|mfd|prod)\b", RegexOption.IGNORE_CASE).containsMatchIn(line) -> {
+                if (result.productionDate.isEmpty()) {
+                    extractDateInline(line)?.let { result.productionDate = it }
+                }
+                return
+            }
             line.contains("S/N", ignoreCase = true) || line.contains("SN", ignoreCase = true) ||
                 line.contains("序列号") -> {
                 val m = Regex("[:：]?\\s*([A-Za-z0-9]{6,30})").find(line.replace("S/N", "SN").replace("s/n", "SN"))
@@ -236,7 +252,14 @@ object LabelParser {
         // 不能再用 normalizeDate(line) 重算 —— 它只认 8 位纯数字，会把
         // 月日无前导 0 的日期还原成原样。
         when (val cls = classify(line)) {
-            null -> applyOcrSplitLine(result, line)
+            null -> {
+                // 行内日期兜底：物料与日期并排（如 `3011211002 2025-09-17`）整行匹配不上时，
+                // 先抠日期（不拆段，避免日期与紧贴字符连体），再走拆段补其余字段
+                if (result.productionDate.isEmpty()) {
+                    extractDateInline(line)?.let { result.productionDate = it }
+                }
+                applyOcrSplitLine(result, line)
+            }
             else -> when (cls.first) {
                 "date" -> if (result.productionDate.isEmpty()) result.productionDate = cls.second
                 "material10", "material12" -> if (result.materialCode.isEmpty()) {
@@ -271,6 +294,30 @@ object LabelParser {
                 "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = part
             }
         }
+    }
+
+    /**
+     * 行内日期提取（生产日期识别加强，2026-09-19）：
+     * OCR 常把日期和旁边文字/另一字段合成一行（如 `MFG 2026.07.13`、
+     * `生产日期:2026-7-13`、`3011211002   2025-09-17`）。整行锚定匹配不上时，
+     * 用本函数从行内抠出日期子串，做字符容错后校验合法性。
+     * 只提取"带分隔符"的日期（格式特征强、误伤小）；8 位纯数字留在
+     * 整行/分段流程里识别，避免把 SN/物料里的数字串当日期。
+     */
+    fun extractDateInline(line: String): String? {
+        val hit = DATE_INLINE.find(line) ?: return null
+        val raw = hit.value
+            .replace('O', '0').replace('o', '0')
+            .replace('I', '1').replace('l', '1').replace('|', '1')
+            .replace('S', '5').replace('s', '5')
+            .replace('g', '9')
+            .replace('B', '8')
+        val digits = raw.replace(Regex("[^0-9]"), "")
+        if (digits.length != 8) return null
+        val m = digits.substring(4, 6).toInt()
+        val d = digits.substring(6, 8).toInt()
+        if (m !in 1..12 || d !in 1..31) return null
+        return digits
     }
 
     /** 物料编码规范化：10 位补 01；12 位原样；69 开头保留（自有数据） */
