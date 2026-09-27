@@ -21,6 +21,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
+import com.anglesgirl.labelscanner.data.DbExecutor
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
 import com.anglesgirl.labelscanner.model.LabelResult
@@ -347,12 +348,20 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 materialFromEan69 = materialFromEan69,
             )
         }
-        RecordStore.append(this, records)
-        if (recognizedEan69.isNotBlank()) lookup69().learn(recognizedEan69, material)
-        tvBoxStatus.text = "✅ 已保存 ${records.size} 条（物料 $material / 箱号 $box）" +
-            if (dropped > 0) "\n（自动去重 $dropped 个重复序列号）" else ""
-        Toast.makeText(this, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
-        resetBox()
+        // 增量追加（按 SN upsert）+ 后台执行：扫描保存不再全量替换
+        DbExecutor.run({
+            RecordStore.append(this@SingleBoxInboundActivity, records)
+            if (recognizedEan69.isNotBlank()) lookup69().learn(recognizedEan69, material)
+        }) { result ->
+            result.onSuccess {
+                tvBoxStatus.text = "✅ 已保存 ${records.size} 条（物料 $material / 箱号 $box）" +
+                    if (dropped > 0) "\n（自动去重 $dropped 个重复序列号）" else ""
+                Toast.makeText(this@SingleBoxInboundActivity, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
+                resetBox()
+            }.onFailure {
+                Toast.makeText(this@SingleBoxInboundActivity, "保存失败：${it.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun resetBox() {

@@ -29,6 +29,8 @@ class LocalDatabase private constructor(context: Context) :
             )"""
         )
         db.execSQL("CREATE UNIQUE INDEX records_serial_index ON records(serial_number) WHERE serial_number <> ''")
+        // v2：托盘号索引 —— 按托盘查询/计数走索引，数据量大时不回退全表扫描
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_tray ON records(tray_code)")
         db.execSQL(
             """CREATE TABLE barcode69_lookup (
                 ean69 TEXT PRIMARY KEY NOT NULL,
@@ -39,12 +41,14 @@ class LocalDatabase private constructor(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Version 1 is the first database release; future schema changes belong here.
+        if (oldVersion < 2) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_tray ON records(tray_code)")
+        }
     }
 
     companion object {
         private const val DB_NAME = "label_scanner.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
 
         @Volatile private var instance: LocalDatabase? = null
 

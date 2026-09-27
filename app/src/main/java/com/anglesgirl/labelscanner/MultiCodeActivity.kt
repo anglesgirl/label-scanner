@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.anglesgirl.labelscanner.camera.ImageIn
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
+import com.anglesgirl.labelscanner.data.DbExecutor
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
@@ -183,9 +184,15 @@ class MultiCodeActivity : AppCompatActivity() {
                 ean69 = ean,
             )
         }
-        RecordStore.append(this, records)
-        Toast.makeText(this, "已保存 ${records.size} 条（序列号已入账）", Toast.LENGTH_LONG).show()
-        tvStatus.text = "已保存 ${records.size} 条，可继续拍照或选图"
+        // 增量追加（按 SN upsert）+ 后台执行：批量入库不卡主线程
+        DbExecutor.run({ RecordStore.append(this@MultiCodeActivity, records) }) { result ->
+            result.onSuccess {
+                Toast.makeText(this@MultiCodeActivity, "已保存 ${records.size} 条（序列号已入账）", Toast.LENGTH_LONG).show()
+                tvStatus.text = "已保存 ${records.size} 条，可继续拍照或选图"
+            }.onFailure {
+                Toast.makeText(this@MultiCodeActivity, "保存失败：${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun updateSaveState() {

@@ -21,6 +21,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
+import com.anglesgirl.labelscanner.data.DbExecutor
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
@@ -533,15 +534,22 @@ class SingleInboundActivity : AppCompatActivity() {
                 trayCode = tray, barcodes = codeCandidates.toList()
             )
         }
-        val store = com.anglesgirl.labelscanner.data.RecordStore.load(this).toMutableList()
-        store.addAll(records)
-        com.anglesgirl.labelscanner.data.RecordStore.save(this, store)
-        records.forEach { lookup69().learn(it.ean69, it.materialCode) }
-        updateTrayCount()
-        tvStatus.text = "✅ 已保存 ${records.size} 条（物料 $material，托盘 $tray）" +
-            if (snList.size > uniq.size) "（自动去重 ${snList.size - uniq.size} 个重复序列号）" else ""
-        Toast.makeText(this, "已保存 ${records.size} 条", Toast.LENGTH_SHORT).show()
-        resetAll()
+        // 增量追加（按 SN upsert）+ 后台执行：扫描保存不再全量替换，数据多也不卡
+        DbExecutor.run({
+            RecordStore.append(this@SingleInboundActivity, records)
+            records.forEach { lookup69().learn(it.ean69, it.materialCode) }
+            records.size
+        }) { result ->
+            result.onSuccess { saved ->
+                updateTrayCount()
+                tvStatus.text = "✅ 已保存 $saved 条（物料 $material，托盘 $tray）" +
+                    if (snList.size > uniq.size) "（自动去重 ${snList.size - uniq.size} 个重复序列号）" else ""
+                Toast.makeText(this@SingleInboundActivity, "已保存 $saved 条", Toast.LENGTH_SHORT).show()
+                resetAll()
+            }.onFailure {
+                Toast.makeText(this@SingleInboundActivity, "保存失败：${it.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun resetAll() {
@@ -566,7 +574,8 @@ class SingleInboundActivity : AppCompatActivity() {
             tvTrayCount.text = "当前托盘已保存：0 条箱号/SN"
             return
         }
-        val count = RecordStore.loadByTrayCode(this, tray).size
+        // SQL COUNT 走 tray_code 索引，毫秒级；不用全量加载该托盘再取 size
+        val count = RecordStore.countByTrayCode(this, tray)
         tvTrayCount.text = "当前托盘已保存：${count} 条箱号/SN"
     }
 

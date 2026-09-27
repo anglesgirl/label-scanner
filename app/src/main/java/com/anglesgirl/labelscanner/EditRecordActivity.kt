@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import com.anglesgirl.labelscanner.data.DbExecutor
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelResult
 
@@ -18,6 +19,8 @@ import com.anglesgirl.labelscanner.model.LabelResult
 class EditRecordActivity : AppCompatActivity() {
 
     private var index = -1
+    /** onCreate 后台加载后赋值；save 时以最新库为准重载再按下标写回。 */
+    private var records: List<LabelResult> = emptyList()
 
     private lateinit var etSupplier: EditText
     private lateinit var etSn: EditText
@@ -52,29 +55,36 @@ class EditRecordActivity : AppCompatActivity() {
         etDate = findViewById(R.id.etDate)
         etEan69 = findViewById(R.id.etEan69)
 
-        val records = RecordStore.load(this)
-        if (index >= records.size) {
-            Toast.makeText(this, "记录不存在", Toast.LENGTH_SHORT).show()
-            finish()
-            return
-        }
-        val r = records[index]
-        findViewById<TextView>(R.id.tvEditTitle).text = "编辑记录 #${index + 1}"
+        // 全量加载移后台线程，避免数据量大时打开编辑页卡顿
+        DbExecutor.run({ RecordStore.load(this@EditRecordActivity) }) { result ->
+            result.onSuccess { loaded ->
+                records = loaded
+                if (index >= loaded.size) {
+                    Toast.makeText(this, "记录不存在", Toast.LENGTH_SHORT).show()
+                    finish()
+                    return@onSuccess
+                }
+                val r = loaded[index]
+                findViewById<TextView>(R.id.tvEditTitle).text = "编辑记录 #${index + 1}"
 
-        etSupplier.setText(r.supplier)
-        etSn.setText(r.serialNumber)
-        etTrayCode.setText(r.trayCode)
-        etMaterial.setText(r.materialCode)
-        etQty.setText(r.quantity.toString())
-        etDate.setText(r.productionDate)
-        etEan69.setText(r.ean69)
+                etSupplier.setText(r.supplier)
+                etSn.setText(r.serialNumber)
+                etTrayCode.setText(r.trayCode)
+                etMaterial.setText(r.materialCode)
+                etQty.setText(r.quantity.toString())
+                etDate.setText(r.productionDate)
+                etEan69.setText(r.ean69)
+            }.onFailure {
+                Toast.makeText(this, "加载失败：${it.message}", Toast.LENGTH_SHORT).show()
+                finish()
+            }
+        }
 
         findViewById<Button>(R.id.btnEditSave).setOnClickListener { save() }
         findViewById<Button>(R.id.btnEditCancel).setOnClickListener { finish() }
     }
 
     private fun save() {
-        val records = RecordStore.load(this)
         if (index >= records.size) {
             finish()
             return
@@ -98,9 +108,27 @@ class EditRecordActivity : AppCompatActivity() {
             Toast.makeText(this, "序列号不能为空", Toast.LENGTH_SHORT).show()
             return
         }
-        records[index] = updated
-        RecordStore.save(this, records)
-        Toast.makeText(this, "✅ 已保存", Toast.LENGTH_SHORT).show()
-        finish()
+        findViewById<Button>(R.id.btnEditSave).isEnabled = false // 防重复点击
+        // 保存：以库中最新全量按下标写回，整体在后台完成
+        DbExecutor.run({
+            val current = RecordStore.load(this@EditRecordActivity).toMutableList()
+            if (index >= current.size) 0 else {
+                current[index] = updated
+                RecordStore.save(this@EditRecordActivity, current)
+                1
+            }
+        }) { result ->
+            result.onSuccess { saved ->
+                if (saved == 0) {
+                    Toast.makeText(this, "记录不存在", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "✅ 已保存", Toast.LENGTH_SHORT).show()
+                }
+                finish()
+            }.onFailure {
+                Toast.makeText(this, "保存失败：${it.message}", Toast.LENGTH_SHORT).show()
+                findViewById<Button>(R.id.btnEditSave).isEnabled = true
+            }
+        }
     }
 }

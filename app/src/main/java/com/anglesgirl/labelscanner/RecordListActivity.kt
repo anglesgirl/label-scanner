@@ -10,6 +10,7 @@ import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.anglesgirl.labelscanner.data.DbExecutor
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.export.Exporter
 import com.anglesgirl.labelscanner.model.LabelResult
@@ -33,6 +34,7 @@ class RecordListActivity : AppCompatActivity() {
     private var groups: List<TrayGroup> = emptyList()
     private val checked = mutableSetOf<String>() // 勾选的托盘码
     private var selectAllState = false
+    private var refreshGen = 0 // 防 onResume/onCreate 重叠加载时旧结果覆盖新结果
 
     data class TrayGroup(val trayCode: String, val items: List<LabelResult>)
 
@@ -63,8 +65,19 @@ class RecordListActivity : AppCompatActivity() {
         refresh() // 从编辑页返回后刷新
     }
 
+    /** 全量加载移后台线程；gen 计数丢弃过期结果（如返回本页时旧加载仍在跑）。 */
     private fun refresh() {
-        allRecords = RecordStore.load(this)
+        val gen = ++refreshGen
+        DbExecutor.run({ RecordStore.load(this@RecordListActivity) }) { result ->
+            if (gen != refreshGen) return@run
+            result.onSuccess { allRecords = it; renderGroups() }
+                .onFailure {
+                    Toast.makeText(this@RecordListActivity, "加载失败：${it.message}", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
+
+    private fun renderGroups() {
         if (allRecords.isEmpty()) {
             groups = emptyList()
             checked.clear()
@@ -155,24 +168,34 @@ class RecordListActivity : AppCompatActivity() {
                     Toast.makeText(this, "托盘号不能为空", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                val full = RecordStore.load(this).toMutableList()
-                var count = 0
-                for (r in full) {
-                    val matches = if (isUnassigned) r.trayCode.isBlank() else r.trayCode == group.trayCode
-                    if (matches) {
-                        r.trayCode = tray
-                        count++
+                val oldTray = group.trayCode
+                // 改托盘号：加载+修改+全量保存整段在后台完成
+                DbExecutor.run({
+                    val full = RecordStore.load(this@RecordListActivity).toMutableList()
+                    var count = 0
+                    for (r in full) {
+                        val matches = if (isUnassigned) r.trayCode.isBlank() else r.trayCode == oldTray
+                        if (matches) {
+                            r.trayCode = tray
+                            count++
+                        }
+                    }
+                    RecordStore.save(this@RecordListActivity, full)
+                    count
+                }) { result ->
+                    result.onSuccess { count ->
+                        checked.remove(oldTray)
+                        Toast.makeText(
+                            this@RecordListActivity,
+                            if (isUnassigned) "已分配 $count 条记录到托盘 $tray"
+                            else "已将 $count 条记录改到托盘 $tray",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        refresh()
+                    }.onFailure {
+                        Toast.makeText(this@RecordListActivity, "保存失败：${it.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
-                RecordStore.save(this, full)
-                checked.remove(group.trayCode)
-                Toast.makeText(
-                    this,
-                    if (isUnassigned) "已分配 $count 条记录到托盘 $tray"
-                    else "已将 $count 条记录改到托盘 $tray",
-                    Toast.LENGTH_SHORT,
-                ).show()
-                refresh()
             }
             .setNegativeButton("取消", null)
             .show()
@@ -188,14 +211,22 @@ class RecordListActivity : AppCompatActivity() {
                 else "将删除托盘 ${group.trayCode} 及其全部 $count 条记录，此操作不可恢复！",
             )
             .setPositiveButton("删除") { _, _ ->
-                val full = RecordStore.load(this).toMutableList()
-                val kept = full.filterNot {
-                    if (isUnassigned) it.trayCode.isBlank() else it.trayCode == group.trayCode
+                // 加载+过滤+全量保存整段在后台完成，防主线程卡顿
+                DbExecutor.run({
+                    val full = RecordStore.load(this@RecordListActivity).toMutableList()
+                    val kept = full.filterNot {
+                        if (isUnassigned) it.trayCode.isBlank() else it.trayCode == group.trayCode
+                    }
+                    RecordStore.save(this@RecordListActivity, kept)
+                }) { result ->
+                    result.onSuccess {
+                        checked.remove(group.trayCode)
+                        Toast.makeText(this@RecordListActivity, "已删除托盘，共 $count 条记录", Toast.LENGTH_SHORT).show()
+                        refresh()
+                    }.onFailure {
+                        Toast.makeText(this@RecordListActivity, "删除失败：${it.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
-                RecordStore.save(this, kept)
-                checked.remove(group.trayCode)
-                Toast.makeText(this, "已删除托盘，共 $count 条记录", Toast.LENGTH_SHORT).show()
-                refresh()
             }
             .setNegativeButton("取消", null)
             .show()
@@ -233,11 +264,19 @@ class RecordListActivity : AppCompatActivity() {
         }
         listDetail.setOnItemLongClickListener { _, _, position, _ ->
             val toDelete = selected[position]
-            val full = RecordStore.load(this).toMutableList()
-            full.removeAll { it.serialNumber == toDelete.serialNumber && it.trayCode == toDelete.trayCode }
-            RecordStore.save(this, full)
-            Toast.makeText(this, "已删除 ${toDelete.serialNumber}", Toast.LENGTH_SHORT).show()
-            refresh()
+            // 删除单条：加载+过滤+保存整段后台完成
+            DbExecutor.run({
+                val full = RecordStore.load(this@RecordListActivity).toMutableList()
+                full.removeAll { it.serialNumber == toDelete.serialNumber && it.trayCode == toDelete.trayCode }
+                RecordStore.save(this@RecordListActivity, full)
+            }) { result ->
+                result.onSuccess {
+                    Toast.makeText(this@RecordListActivity, "已删除 ${toDelete.serialNumber}", Toast.LENGTH_SHORT).show()
+                    refresh()
+                }.onFailure {
+                    Toast.makeText(this@RecordListActivity, "删除失败：${it.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
             true
         }
     }

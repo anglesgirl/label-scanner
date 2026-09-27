@@ -27,11 +27,38 @@ object RecordStore {
         }
     }
 
-    fun loadByTrayCode(context: Context, trayCode: String): MutableList<LabelResult> =
-        load(context).filter { it.trayCode == trayCode }.toMutableList()
+    /** 按托盘查：走 tray_code 索引，只读该托盘的行（不再全表加载后 filter）。 */
+    fun loadByTrayCode(context: Context, trayCode: String): MutableList<LabelResult> {
+        ensureImported(context)
+        val db = LocalDatabase.get(context).readableDatabase
+        db.rawQuery("SELECT * FROM records WHERE tray_code = ? ORDER BY id", arrayOf(trayCode)).use { cursor ->
+            val list = mutableListOf<LabelResult>()
+            while (cursor.moveToNext()) list += fromCursor(cursor)
+            return list
+        }
+    }
 
-    fun getAllTrayCodes(context: Context): List<String> =
-        load(context).map { it.trayCode }.filter { it.isNotBlank() }.distinct()
+    /** 单托盘条数：SQL COUNT 走索引，比 loadByTrayCode(...).size 快一个量级。 */
+    fun countByTrayCode(context: Context, trayCode: String): Int {
+        ensureImported(context)
+        LocalDatabase.get(context).readableDatabase
+            .rawQuery("SELECT COUNT(*) FROM records WHERE tray_code = ?", arrayOf(trayCode)).use { c ->
+                return if (c.moveToFirst()) c.getInt(0) else 0
+            }
+    }
+
+    /** 托盘列表：SQL DISTINCT，不再全表加载后 distinct。 */
+    fun getAllTrayCodes(context: Context): List<String> {
+        ensureImported(context)
+        LocalDatabase.get(context).readableDatabase
+            .rawQuery(
+                "SELECT DISTINCT tray_code FROM records WHERE tray_code <> '' ORDER BY tray_code", null
+            ).use { c ->
+                val list = mutableListOf<String>()
+                while (c.moveToNext()) list += c.getString(0)
+                return list
+            }
+    }
 
     /** 全量替换在一个事务内完成，兼容现有编辑页按下标保存的接口。 */
     fun save(context: Context, records: List<LabelResult>) {
@@ -49,9 +76,16 @@ object RecordStore {
         } finally {
             database.endTransaction()
         }
+        // 外部 JSON 备份直接用传入数据，不再全量 load 一遍（原实现多一次 O(n) 全表读）
         writeExternal(context, deduped)
     }
 
+    /**
+     * 追加/更新（按 SN upsert）。扫描入库的主路径：
+     * 事务内只碰新记录对应行，不再全量替换；也不再每次全量重写外部 JSON——
+     * 那是数据量大后的卡顿源（O(n) × 每次），SQLite 已是主数据源，
+     * 备份职责交给导出（xlsx）与首次迁移逻辑。
+     */
     fun append(context: Context, newRecords: List<LabelResult>) {
         ensureImported(context)
         val database = LocalDatabase.get(context).writableDatabase
@@ -72,7 +106,6 @@ object RecordStore {
         } finally {
             database.endTransaction()
         }
-        writeExternal(context, load(context))
     }
 
     private fun ensureImported(context: Context) {
