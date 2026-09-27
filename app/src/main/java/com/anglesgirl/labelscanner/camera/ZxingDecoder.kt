@@ -25,23 +25,26 @@ object ZxingDecoder {
     private const val MAX_SYMBOLS = 100
 
     /**
-     * 格式白名单（2026-09-14 扫码优化）：
+     * 格式白名单（2026-09-14 首版，2026-09-28 扩增）：
      *
      * 为什么限制：全格式盲扫时，zxing-cpp 会把噪声/图案/反光误判成"几乎不可能
      * 出现的格式"（AZTEC/MAXICODE/RMQR/CODABAR…），产生乱码值。用户实测感受
-     * 就是"扫出来一串用不上的垃圾"。标签场景真正会出现的格式就这 8 种：
-     *  - EAN_13 / UPC_A：69 商品码（UPC-A 是 EAN-13 的美版，扫描器可能报任一）
-     *  - CODE_128 / CODE_39：SN / 物料条码（PANTUM SN 条码实测是 CODE39 类）
-     *  - ITF：外箱物流码（ITF-14 是出口纸箱条码惯例，保留防漏）
-     *  - QR_CODE / DATA_MATRIX / PDF_417：集成码 / SN 二维码
-     * 砍掉的（标签上不会出现）：AZTEC、CODABAR、CODE_93、DATA_BAR 系列、
-     * DX_FILM_EDGE、EAN_8、MAXICODE、MICRO_QR、RMQR、UPC_E。
+     * 就是"扫出来一串用不上的垃圾"。
+     *
+     * 2026-09-28 扩增 EAN_8 / CODE_93 / UPC_E：用户实测"部分条码 App 扫不出、
+     * 微信能扫"。白名单首版把这三个也砍了，但 EAN-8（小标签商品码）在耗材
+     * 小标签上很常见，CODE_93/UPC_E 偶见于部分品牌标签 —— 三者都有强校验位，
+     * 误判率远低于 AZTEC 那类，属于"该留没留"。仍保留砍掉 AZTEC/MAXICODE/
+     * RMQR/CODABAR/DATA_BAR/DX_FILM_EDGE（无校验或噪声极易误判）。
      */
     private val FORMATS: Set<BarcodeReader.Format> = setOf(
         BarcodeReader.Format.EAN_13,
         BarcodeReader.Format.UPC_A,
+        BarcodeReader.Format.EAN_8,
+        BarcodeReader.Format.UPC_E,
         BarcodeReader.Format.CODE_128,
         BarcodeReader.Format.CODE_39,
+        BarcodeReader.Format.CODE_93,
         BarcodeReader.Format.ITF,
         BarcodeReader.Format.QR_CODE,
         BarcodeReader.Format.DATA_MATRIX,
@@ -54,19 +57,63 @@ object ZxingDecoder {
      * 为什么要位置：实测把标签图缩到 35% 后集成码（PDF417）直接解不出，但把它
      * **裁到码区再放大 3x** 就能解出 —— 瓶颈是"码在画面里占多少像素"，不是码本身
      * 难解。拿到位置才能做"裁切放大重试"。
+     *
+     * 1x 解不出时走 [decodeWithPositionsProgressive] 逐级放大，小码/离得远的码
+     * 也能框出来（2026-09-28 用户反馈"部分条码扫不出、微信能扫"）。
      */
     fun decodeWithPositions(original: Bitmap): List<Pair<String, android.graphics.Rect>> {
-        val direct = decodeWithPositionsOnce(original)
+        val direct = decodeWithPositionsOnce(original, 1f)
         if (direct.isNotEmpty()) return direct
         // 暗光兜底（同 decode）：提亮高对比 → 灰度高对比
-        val enhanced = decodeWithPositionsOnce(ImageEnhance.enhanceBright(original))
+        val enhanced = decodeWithPositionsOnce(ImageEnhance.enhanceBright(original), 1f)
         if (enhanced.isNotEmpty()) return enhanced
-        return decodeWithPositionsOnce(ImageEnhance.binarize(original))
+        return decodeWithPositionsOnce(ImageEnhance.binarize(original), 1f)
     }
 
-    private fun decodeWithPositionsOnce(original: Bitmap): List<Pair<String, android.graphics.Rect>> {
+    /**
+     * 带位置的**渐进**解码：1x → 2x → 3x 逐级，任一尺度解出即返回。
+     *
+     * 与 [decodeProgressive] 同思路（常见场景快、困难场景兜底），但保留每个码的
+     * 位置框 —— 放大后解出的矩形坐标按 scale 除回原图坐标，供定格点选画框。
+     * 1x 命中毫秒级；小码/远码 2x/3x 兜底。
+     */
+    fun decodeWithPositionsProgressive(original: Bitmap): List<Pair<String, android.graphics.Rect>> {
+        if (original.width < 10 || original.height < 10) return emptyList()
+        for (scale in listOf(1f, 2f, 3f)) {
+            val r = decodeWithPositionsOnce(original, scale)
+            if (r.isNotEmpty()) return r
+        }
+        // 暗光兜底：增强后 1x→2x 即可（不再上 3x 增强，避免最坏 9 次解码卡死）
+        val enhanced = ImageEnhance.enhanceBright(original)
+        for (scale in listOf(1f, 2f)) {
+            val r = decodeWithPositionsOnce(enhanced, scale)
+            if (r.isNotEmpty()) return r
+        }
+        val binary = ImageEnhance.binarize(original)
+        for (scale in listOf(1f, 2f)) {
+            val r = decodeWithPositionsOnce(binary, scale)
+            if (r.isNotEmpty()) return r
+        }
+        return emptyList()
+    }
+
+    private fun decodeWithPositionsOnce(original: Bitmap, scale: Float): List<Pair<String, android.graphics.Rect>> {
         if (original.width < 10 || original.height < 10) return emptyList()
         return try {
+            var w = original.width
+            var h = original.height
+            var scaled = original
+            if (scale > 1f) {
+                w = (original.width * scale).toInt()
+                h = (original.height * scale).toInt()
+                val maxDim = maxOf(w, h)
+                if (maxDim > MAX_DIM) {
+                    val ratio = MAX_DIM.toFloat() / maxDim
+                    w = (w * ratio).toInt().coerceAtLeast(1)
+                    h = (h * ratio).toInt().coerceAtLeast(1)
+                }
+                scaled = Bitmap.createScaledBitmap(original, w, h, true)
+            }
             val reader = BarcodeReader(
                 BarcodeReader.Options(
                     formats = FORMATS,
@@ -77,18 +124,25 @@ object ZxingDecoder {
                     maxNumberOfSymbols = MAX_SYMBOLS,
                 )
             )
-            reader.read(original).mapNotNull { b ->
+            val results = reader.read(scaled)
+            if (scaled !== original) scaled.recycle()
+
+            results.mapNotNull { b ->
                 val text = b.text?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
                 val rect = runCatching {
                     val p = b.position
                     val xs = listOf(p.topLeft.x, p.topRight.x, p.bottomLeft.x, p.bottomRight.x)
                     val ys = listOf(p.topLeft.y, p.topRight.y, p.bottomLeft.y, p.bottomRight.y)
                     android.graphics.Rect(
-                        xs.min(), ys.min(), xs.max(), ys.max()
+                        (xs.min() / scale).toInt(), (ys.min() / scale).toInt(),
+                        (xs.max() / scale).toInt(), (ys.max() / scale).toInt(),
                     )
                 }.getOrNull() ?: return@mapNotNull null
                 text to rect
             }
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "decodeWithPositions OOM (input ${original.width}x${original.height}, scale $scale): ${e.message}")
+            emptyList()
         } catch (e: Throwable) {
             Log.w(TAG, "decodeWithPositions failed: ${e.message}")
             emptyList()

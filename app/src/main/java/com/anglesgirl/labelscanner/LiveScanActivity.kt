@@ -159,6 +159,8 @@ class LiveScanActivity : AppCompatActivity() {
     private val seenCodes = linkedSetOf<String>()
     private var expectedCount = 0
     private val initialCodes = linkedSetOf<String>()
+    /** 定格画面当前展示的候选（条码 + 后续 OCR 补上的文字框）。 */
+    private var currentPickItems: List<BarcodePickOverlay.Pickable> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -264,25 +266,29 @@ class LiveScanActivity : AppCompatActivity() {
         future.addListener({
             try {
                 val provider = future.get()
-                val preview = Preview.Builder().build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
+                // 预览与定格（analysis 帧）锁同一分辨率：用户看着预览对位，定格后
+                // 画面取景必须和预览一致，否则框就"不在对应位置"（2026-09-28 反馈）。
+                val resolutionSelector = androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                    .setResolutionStrategy(
+                        androidx.camera.core.resolutionselector.ResolutionStrategy(
+                            android.util.Size(1920, 1080),
+                            androidx.camera.core.resolutionselector.ResolutionStrategy
+                                .FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                        )
+                    )
+                    .build()
+                val preview = Preview.Builder()
+                    .setResolutionSelector(resolutionSelector)
+                    .build()
+                    .also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
                 val analysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     // 提高分析帧分辨率：默认约 640x480，高密度 2D 码（集成码那种
                     // DataMatrix）在小帧里只占几十像素，再强的解码器也解不出。
                     // 入库那条路用的是全分辨率照片，这才是它能读出集成码的根本原因。
-                    .setResolutionSelector(
-                        androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
-                            .setResolutionStrategy(
-                                androidx.camera.core.resolutionselector.ResolutionStrategy(
-                                    android.util.Size(1920, 1080),
-                                    androidx.camera.core.resolutionselector.ResolutionStrategy
-                                        .FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
-                                )
-                            )
-                            .build()
-                    )
+                    .setResolutionSelector(resolutionSelector)
                     .build()
                 analysis.setAnalyzer(ContextCompat.getMainExecutor(this)) { imageProxy ->
                     analyzeFrame(imageProxy)
@@ -671,13 +677,14 @@ class LiveScanActivity : AppCompatActivity() {
     private val reportCooldownMs = 500L
 
     /**
-     * 补扫定格稳定检测（2026-09-15 用户反馈"小放大镜扫码太快，人没反应过来就弹"）：
-     * **首次识别到码即开始计时**，持续约 1.5 秒才定格画框；手晃（码短暂
-     * 变化/丢失）不重置计时，只有长时间无码（>2.5s）才重新计时 ——
-     * 给用户留出对准和稳住镜头的时间，而不是一识别到就冻结画面。
+     * 补扫定格稳定检测（2026-09-15 用户反馈"小放大镜扫码太快，人没反应过来就弹"，
+     * 2026-09-28 用户反馈"定屏是乱定的"——等待过长会定格到人已经移开的画面）：
+     * **首次识别到码即开始计时**，持续约 0.7 秒才定格画框；手晃（码短暂
+     * 变化/丢失）不重置计时，只有长时间无码（>1.7s）才重新计时 ——
+     * 既给用户留出对准的时间，又避免定格到已经移开的画面。
      */
     private var pickStableSince = 0L
-    private val pickStableMs = 1500L
+    private val pickStableMs = 700L
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     /** OCR 兜底的延迟定格：暂存候选 + 画面帧，1.5s 后弹（与条码稳定检测对齐）。 */
@@ -747,11 +754,12 @@ class LiveScanActivity : AppCompatActivity() {
                 // 集成码模式用**渐进解码**（1x→2x→3x 逐级，命中即返回）：
                 // 用户对准后码在画面里通常占足够像素，1x 毫秒级解出；只有码很小
                 // 才逐级放大兜底，不再一刀切 3x 慢通道（2026-09-14 用户反馈拆码扫码慢）。
-                // 补扫（pickMode）用**带位置**解码：定格后要把每个码框出来供点选，
-                // 只有值没有位置框就没法标记。原始分辨率解 1D 码字段足够。
+                // 补扫（pickMode）用**带位置渐进解码**（1x→2x→3x）：定格后要把每个码
+                // 框出来供点选，只有值没有位置框就没法标记；部分小码 1x 解不出、
+                // 微信却能扫（2026-09-28 用户反馈），逐级放大后解出并框位正确。
                 // USB 内窥镜分辨率低（640x480）：1D 码直接 1x，2D 码走渐进放大兜底。
                 val found = when {
-                    pickMode -> ZxingDecoder.decodeWithPositions(bmp)
+                    pickMode -> ZxingDecoder.decodeWithPositionsProgressive(bmp)
                     wantIntegrated -> ZxingDecoder.decodeProgressive(bmp).map { it to null }
                     else -> ZxingDecoder.decode(bmp, 1f).map { it to null }
                 }
@@ -787,14 +795,21 @@ class LiveScanActivity : AppCompatActivity() {
                             val integ = v.contains(',') || v.contains('\uFF0C')
                             TypedCode(v, integ, 0)
                         }.distinctBy { it.value }
-                        // 多帧确认 + 冷却：同一组码连续 2 帧命中才上报；上报后 500ms
-                        // 冷却期内不重复报同一组（持续对准不弹重复框）。码变化则重新累计。
+                        // 多帧确认 + 冷却：**两帧码集有交集即确认**（2026-09-28 放宽）——
+                        // 原来要求"同一组码完全一致"才上报，手持微抖导致一帧漏解某个码、
+                        // 码集变来变去，就永远确认不了（"对准半天扫不出"）。现在只要
+                        // 有任一码在两帧重复出现即上报交集；上报后 500ms 冷却期内
+                        // 不重复报同一组。码集完全变化则重新累计。
                         val key = typed.joinToString("|") { it.value }
                         val now = android.os.SystemClock.elapsedRealtime()
-                        if (key == lastFrameKey && now - lastReportAt >= reportCooldownMs) {
+                        val prev = lastFrameKey?.split("|")?.toSet() ?: emptySet()
+                        val cur = typed.map { it.value }.toSet()
+                        val common = prev.intersect(cur)
+                        if (lastFrameKey != null && common.isNotEmpty() && now - lastReportAt >= reportCooldownMs) {
                             lastReportAt = now
                             lastFrameKey = null
-                            runOnUiThread { onCodesCollected(typed) }
+                            val toReport = typed.filter { it.value in common }
+                            runOnUiThread { onCodesCollected(toReport) }
                         } else if (key != lastFrameKey) {
                             lastFrameKey = key
                         }
@@ -897,6 +912,7 @@ class LiveScanActivity : AppCompatActivity() {
             paused.set(false)
             return
         }
+        currentPickItems = items
         ivSnapshot.setImageBitmap(displayBmp)
         ivSnapshot.visibility = android.view.View.VISIBLE
         pickOverlay.setSourceSize(displayBmp.width, displayBmp.height)
@@ -904,6 +920,36 @@ class LiveScanActivity : AppCompatActivity() {
         pickOverlay.setPicked(pickedBoxes)
         beep()
         updatePickBar()
+        // ⭐ 定格后补 OCR：同屏的印字（型号等无码字段）也框出来点选。
+        // 2026-09-28 用户反馈"条码出现的时候 OCR 好像会罢工"——此前有条码时
+        // OCR 一次都不跑（条码优先原则），定格画面里文字就永远没有框可选。
+        // 定格后画面静止，补跑一次 OCR 把文字行并入候选框，条码 + 文字同屏可点。
+        runOcrOnFrame(displayBmp)
+    }
+
+    /**
+     * 定格帧 OCR：识别画面里的印字并画框，并入定格候选（条码优先、文字补充）。
+     *
+     * 输入是已旋转的定格帧（displayBmp），ML Kit 返回的文字框直接就是显示坐标，
+     * 无需再变换。结果回来时若已重扫/退出则丢弃。
+     */
+    private fun runOcrOnFrame(bmp: Bitmap) {
+        if (!ocrBusy.compareAndSet(false, true)) return
+        ocrRecognizer.process(InputImage.fromBitmap(bmp, 0))
+            .addOnSuccessListener { text ->
+                ocrBusy.set(false)
+                if (isFinishing || isDestroyed || !paused.get()) return@addOnSuccessListener
+                val extra = buildOcrPicks(text)
+                    .map { (v, r) -> BarcodePickOverlay.Pickable(v, r) }
+                    .filter { it.value !in currentPickItems.map { p -> p.value } }
+                if (extra.isEmpty()) return@addOnSuccessListener
+                currentPickItems = currentPickItems + extra
+                pickOverlay.setItems(currentPickItems)
+            }
+            .addOnFailureListener { e ->
+                ocrBusy.set(false)
+                android.util.Log.w(TAG, "定格帧 OCR 失败: ${e.message}")
+            }
     }
 
     /** 按传感器旋转角转正画面（预览方向）。 */
@@ -954,6 +1000,7 @@ class LiveScanActivity : AppCompatActivity() {
     private fun resumeLiveScan() {
         cancelPendingOcr()
         pickStableSince = 0L   // 重扫后重新计时
+        currentPickItems = emptyList()
         ivSnapshot.visibility = android.view.View.GONE
         ivSnapshot.setImageBitmap(null)
         pickOverlay.setItems(emptyList())
