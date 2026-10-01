@@ -53,6 +53,8 @@ class BarcodePickOverlay @JvmOverloads constructor(
     }
 
     private val screenRects = HashMap<String, Rect>()
+    /** 已放置的码值标签矩形（供命中测试：点标签也能选中）。 */
+    private val labelRects = HashMap<String, RectF>()
 
     fun setSourceSize(w: Int, h: Int) {
         srcW = w
@@ -62,6 +64,7 @@ class BarcodePickOverlay @JvmOverloads constructor(
     /** 当前帧识别到的候选（每次刷新）。 */
     fun setItems(list: List<Pickable>) {
         items = list
+        labelRects.clear()
         rebuildScreenRects()
         invalidate()
     }
@@ -99,9 +102,24 @@ class BarcodePickOverlay @JvmOverloads constructor(
 
         val base = minOf(width, height).toFloat()
         labelPaint.textSize = base * 0.036f
+        // 稍外扩一点，让框不压住码的边缘模块
+        val pad = base * 0.008f
 
+        // 每个码的绘制框（码框 + 外扩）
+        val frames = HashMap<String, RectF>()
         for (it in items) {
             val r = screenRects[it.value] ?: continue
+            frames[it.value] = RectF(
+                r.left - pad, r.top - pad,
+                r.right + pad, r.bottom + pad,
+            )
+        }
+
+        // 第一遍：画框。**大框先画、小框后画** —— 小码不被大码盖住
+        // （2026-10-01 用户反馈"想要的码被上面不需要的挡住"）。
+        val boxOrder = items.sortedByDescending { frames[it.value]?.let { f -> f.width() * f.height() } ?: 0f }
+        for (it in boxOrder) {
+            val fr = frames[it.value] ?: continue
             val order = picked.indexOf(it.value)
             val isPicked = order >= 0
 
@@ -111,12 +129,6 @@ class BarcodePickOverlay @JvmOverloads constructor(
             strokePaint.color = color
             strokePaint.strokeWidth = base * (if (isPicked) 0.008f else 0.005f)
 
-            // 稍外扩一点，让框不压住码的边缘模块
-            val pad = base * 0.008f
-            val fr = RectF(
-                r.left - pad, r.top - pad,
-                r.right + pad, r.bottom + pad,
-            )
             // 半透明底 + 描边，既突出又不遮挡码
             fillPaint.alpha = 46
             canvas.drawRoundRect(fr, base * 0.012f, base * 0.012f, fillPaint)
@@ -150,41 +162,80 @@ class BarcodePickOverlay @JvmOverloads constructor(
                 canvas.drawText(badge, bx, by + labelPaint.textSize * 0.36f, labelPaint)
                 labelPaint.textAlign = Paint.Align.LEFT
             }
+        }
 
-            // 码值标签：贴在框内侧下方（不遮挡码主体）
+        // 第二遍：画码值标签。默认贴在框下方；**与其它码框或已放标签重叠则改放
+        // 框上方；上下都重叠则跳过不画**（框照样可点）—— 2026-10-01 用户反馈
+        // "码值标签盖住想要的码"。
+        labelRects.clear()
+        val placed = mutableListOf<RectF>()
+        for (it in items) {
+            val fr = frames[it.value] ?: continue
+            val order = picked.indexOf(it.value)
+            val isPicked = order >= 0
             val label = it.value.take(22)
             val tw = labelPaint.measureText(label)
             val th = labelPaint.textSize
             val lpad = th * 0.22f
+            val labelH = th + lpad * 2
             val bgL = fr.left
-            val bgT = (fr.bottom + th * 0.15f)
+            val below = RectF(bgL, fr.bottom + th * 0.15f, bgL + tw + lpad * 2, fr.bottom + th * 0.15f + labelH)
+            val above = RectF(bgL, fr.top - th * 0.15f - labelH, bgL + tw + lpad * 2, fr.top - th * 0.15f)
+            val chosen = when {
+                !hitsAnyLabel(below, it.value, placed) -> below
+                !hitsAnyLabel(above, it.value, placed) -> above
+                else -> null
+            } ?: continue
+            // 别画出屏幕外
+            if (chosen.top < 0 || chosen.bottom > height) continue
             fillPaint.color = if (isPicked) Color.parseColor("#E6FFD54F") else Color.parseColor("#B3000000")
-            canvas.drawRoundRect(
-                RectF(bgL, bgT, bgL + tw + lpad * 2, bgT + th + lpad * 2),
-                th * 0.25f, th * 0.25f, fillPaint,
-            )
+            canvas.drawRoundRect(chosen, th * 0.25f, th * 0.25f, fillPaint)
             labelPaint.color = if (isPicked) Color.BLACK else Color.WHITE
-            canvas.drawText(label, bgL + lpad, bgT + th + lpad * 0.5f, labelPaint)
+            canvas.drawText(label, chosen.left + lpad, chosen.top + th + lpad * 0.5f, labelPaint)
             labelPaint.color = Color.WHITE
+            placed.add(chosen)
+            labelRects[it.value] = RectF(chosen)
         }
     }
 
-    /** 命中测试：小框优先，避免大框吃掉小框。 */
+    /** 标签矩形是否压住其它码的框或已放置的标签（排除自己）。 */
+    private fun hitsAnyLabel(rect: RectF, selfValue: String, placed: List<RectF>): Boolean {
+        for ((v, r) in screenRects) {
+            if (v == selfValue) continue
+            if (RectF.intersects(rect, RectF(r))) return true
+        }
+        for (p in placed) {
+            if (RectF.intersects(rect, p)) return true
+        }
+        return false
+    }
+
+    /** 命中测试：小框优先，避免大框吃掉小框；框没点中再试标签（2026-10-01）。 */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.action != MotionEvent.ACTION_UP) return items.isNotEmpty()
         val x = event.x
         val y = event.y
 
-        // 先判"点到了箭头/标签附近"（因为箭头不一定压在码上）
-        val hit = screenRects.entries
+        // 先判框：直接点框内即选中；略微外扩以容忍手指误差
+        val boxHit = screenRects.entries
             .filter { (_, r) ->
-                // 画框在码上，直接点框内即选中；略微外扩以容忍手指误差
                 val pad = maxOf(r.width(), r.height()) * 0.10f
                 x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad
             }
             .minByOrNull { (_, r) -> r.width().toLong() * r.height().toLong() }
+        if (boxHit != null) {
+            onPick?.invoke(boxHit.key)
+            return true
+        }
 
-        if (hit != null) onPick?.invoke(hit.key)
+        // 再判码值标签：点标签文字也能选中（标签紧贴框下方，手指点标签本意就是选这个码）
+        val labelHit = labelRects.entries
+            .filter { (_, r) ->
+                val pad = 8f
+                x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad
+            }
+            .minByOrNull { (_, r) -> (r.width() * r.height()).toLong() }
+        if (labelHit != null) onPick?.invoke(labelHit.key)
         return true
     }
 }

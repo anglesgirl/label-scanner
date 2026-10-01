@@ -160,7 +160,9 @@ object StaticRecognizer {
         val input = InputImage.fromBitmap(bitmap, 0)
         val zxingFuture = zxingPool.submit<List<String>> {
             Log.i(TAG, "[MULTI_ZXING] start ${bitmap.width}x${bitmap.height}")
-            ZxingDecoder.decode(bitmap).also {
+            // 多码场景用并集解码（2026-10-01）："任一尺度解出即返回"的 progressive/
+            // 3x 直解会在部分码解出后提前返回，小码永远没机会；并集 1x/2x/3x 全跑取并集。
+            ZxingDecoder.decodeUnion(bitmap).also {
                 Log.i(TAG, "[MULTI_ZXING] complete count=${it.size}")
             }
         }

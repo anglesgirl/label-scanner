@@ -760,7 +760,10 @@ class LiveScanActivity : AppCompatActivity() {
                 // USB 内窥镜分辨率低（640x480）：1D 码直接 1x，2D 码走渐进放大兜底。
                 val found = when {
                     pickMode -> ZxingDecoder.decodeWithPositionsProgressive(bmp)
-                    wantIntegrated -> ZxingDecoder.decodeProgressive(bmp).map { it to null }
+                    // 集成码多码场景用并集解码（2026-10-01）："任一尺度解出即返回"的
+                    // progressive 会在 1x 解出部分码后提前返回，小码永远没机会；
+                    // 并集 1x/2x/3x 全跑，小码在高倍率被解出后并入结果。
+                    wantIntegrated -> ZxingDecoder.decodeUnion(bmp).map { it to null }
                     else -> ZxingDecoder.decode(bmp, 1f).map { it to null }
                 }
                 if (found.isNotEmpty()) {
@@ -783,7 +786,10 @@ class LiveScanActivity : AppCompatActivity() {
                             if (pickStableSince == 0L) pickStableSince = now
                             if (now - pickStableSince >= pickStableMs) {
                                 pickStableSince = 0L
-                                runOnUiThread { freezeAndShow(bmp, found, rotationDegrees) }
+                                // 定格时用并集重解当前帧（2026-10-01）：直播流里每帧跑的是
+                                // progressive（快，但 1x 解出部分码就提前返回），定格这一刻
+                                // 用 1x/2x/3x 并集把漏掉的小码补回来，框位与定格画面严格对应。
+                                runOnUiThread { freezeForUnionDecode(bmp, found, rotationDegrees) }
                             }
                         } else {
                             if (pickStableSince != 0L && now - pickStableSince >= pickStableMs + 1000L) {
@@ -878,6 +884,85 @@ class LiveScanActivity : AppCompatActivity() {
     }
 
     /**
+     * 定格 + 并集重解（2026-10-01 用户反馈"10 个码只出 6-7 个"）：
+     * 稳定性检测仍用直播流每帧的渐进解码（快），但定格这一刻用
+     * [ZxingDecoder.decodeWithPositionsUnion]（1x/2x/3x 全跑取并集）重解当前帧 ——
+     * 小码在 2x/3x 被解出后并入，框位与定格画面严格对应。
+     * 解码在后台跑，画面先定格并提示"识别中"，不卡预览线程。
+     *
+     * @param fallback progressive 已解出的（值, 框），万一并集意外为空时兜底用。
+     */
+    private fun freezeForUnionDecode(
+        bmp: Bitmap,
+        fallback: List<Pair<String, android.graphics.Rect?>>,
+        rotationDegrees: Int = 0,
+    ) {
+        if (paused.get()) return
+        if (!paused.compareAndSet(false, true)) return
+        val rot = rotationDegrees % 360
+        val displayBmp = if (rot == 0) bmp else rotateBitmap(bmp, rot)
+        // 先定格画面 + 提示，后台跑并集解码
+        ivSnapshot.setImageBitmap(displayBmp)
+        ivSnapshot.visibility = android.view.View.VISIBLE
+        pickOverlay.setSourceSize(displayBmp.width, displayBmp.height)
+        pickOverlay.setItems(emptyList())
+        pickOverlay.setPicked(pickedBoxes)
+        tvPickInfo.text = "画面已定格，正在识别全部条码…"
+        llPickBar.visibility = android.view.View.VISIBLE
+        beep()
+        zxingPool.execute {
+            val union = ZxingDecoder.decodeWithPositionsUnion(displayBmp)
+                .map { (v, r) -> BarcodePickOverlay.Pickable(v, r) }
+            // 兜底（理论上走不到：并集 ⊇ progressive 的结果）：用 progressive 的框，
+            // 注意坐标系是未旋转的 bmp，要同步变换到 displayBmp。
+            val items = if (union.isNotEmpty()) union else fallback.mapNotNull { (v, r) ->
+                r?.let {
+                    val rr = if (rot == 0) it else rotateRect(it, rot, bmp.width, bmp.height)
+                    BarcodePickOverlay.Pickable(v, rr)
+                }
+            }.distinctBy { it.value }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || !paused.get()) return@runOnUiThread
+                showFrozenPicks(displayBmp, items)
+                // 定格后补 OCR（与原 freezeAndShow 一致）：同屏印字也框出来点选
+                runOcrOnFrame(displayBmp)
+            }
+        }
+    }
+
+    /**
+     * 点选候选按阅读顺序排（2026-10-01 用户反馈"点选页排序混乱"）：
+     * 先上后下、再左到右。行分组容差 = 平均框高的一半，防同一行轻微错位被拆散。
+     */
+    private fun sortPicksSpatial(items: List<BarcodePickOverlay.Pickable>): List<BarcodePickOverlay.Pickable> {
+        if (items.size < 2) return items
+        val avgH = items.map { it.box.height().coerceAtLeast(1) }.average()
+        val tol = (avgH * 0.5).coerceAtLeast(1.0)
+        return items.sortedWith(
+            compareBy<BarcodePickOverlay.Pickable> { (it.box.centerY() / tol).toInt() }
+                .thenBy { it.box.centerX() }
+        )
+    }
+
+    /**
+     * 定格画面 + 候选框展示（条码并集 / OCR 两路共用）。
+     * items 在这里统一按阅读顺序排好，绘制层只负责"小框压大框"的层叠。
+     */
+    private fun showFrozenPicks(
+        displayBmp: Bitmap,
+        items: List<BarcodePickOverlay.Pickable>,
+    ) {
+        currentPickItems = sortPicksSpatial(items)
+        ivSnapshot.setImageBitmap(displayBmp)
+        ivSnapshot.visibility = android.view.View.VISIBLE
+        pickOverlay.setSourceSize(displayBmp.width, displayBmp.height)
+        pickOverlay.setItems(currentPickItems)
+        pickOverlay.setPicked(pickedBoxes)
+        beep()
+        updatePickBar()
+    }
+
+    /**
      * 定格 + 标记：把这一帧固定显示，识别到的内容画框，用户在这张静止画面上点选。
      *
      * 为什么必须定格：实时预览里码在移动，手指点下去时码已移开，必然点错
@@ -912,14 +997,7 @@ class LiveScanActivity : AppCompatActivity() {
             paused.set(false)
             return
         }
-        currentPickItems = items
-        ivSnapshot.setImageBitmap(displayBmp)
-        ivSnapshot.visibility = android.view.View.VISIBLE
-        pickOverlay.setSourceSize(displayBmp.width, displayBmp.height)
-        pickOverlay.setItems(items)
-        pickOverlay.setPicked(pickedBoxes)
-        beep()
-        updatePickBar()
+        showFrozenPicks(displayBmp, items)
         // ⭐ 定格后补 OCR：同屏的印字（型号等无码字段）也框出来点选。
         // 2026-09-28 用户反馈"条码出现的时候 OCR 好像会罢工"——此前有条码时
         // OCR 一次都不跑（条码优先原则），定格画面里文字就永远没有框可选。
@@ -943,7 +1021,9 @@ class LiveScanActivity : AppCompatActivity() {
                     .map { (v, r) -> BarcodePickOverlay.Pickable(v, r) }
                     .filter { it.value !in currentPickItems.map { p -> p.value } }
                 if (extra.isEmpty()) return@addOnSuccessListener
-                currentPickItems = currentPickItems + extra
+                // OCR 候选并入后整体按阅读顺序重排（2026-10-01）：原来直接追加到末尾，
+                // 追加的框画在最上层压住条码框，且顺序中途跳变。重排后稳定。
+                currentPickItems = sortPicksSpatial(currentPickItems + extra)
                 pickOverlay.setItems(currentPickItems)
             }
             .addOnFailureListener { e ->

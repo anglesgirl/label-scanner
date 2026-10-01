@@ -97,6 +97,64 @@ object ZxingDecoder {
         return emptyList()
     }
 
+    /**
+     * 多码并集解码（只返回值）：1x → 2x → 3x **全跑**，结果按码值去重合并。
+     *
+     * 为什么不用 [decodeProgressive]（2026-10-01 用户反馈"10 个码只出 6-7 个"）：
+     * progressive 是"任一尺度解出即返回"——1x 解出 6 个就直接返回，2x/3x 永远没机会跑；
+     * 偏小的码在 1x 下像素不够，直接被截断。并集模式为多码场景设计：三个尺度全跑取并集，
+     * 小码在 2x/3x 被解出后并入结果。**单码场景继续用 progressive（快），多码场景用本函数。**
+     *
+     * 增强兜底：三个 plain 尺度全空才走增强（暗光场景），好光下不浪费时间。
+     * 注意 AGENTS.md 物理限制：高密度 DM 码每模块 <3px 时实时帧无论如何解不出，
+     * 那种走全分辨率拍照裁切，本函数不解决物理问题，只解决"截断"问题。
+     */
+    fun decodeUnion(original: Bitmap): List<String> {
+        if (original.width < 10 || original.height < 10) return emptyList()
+        val acc = linkedSetOf<String>()
+        for (scale in listOf(1f, 2f, 3f)) {
+            acc.addAll(decodeOnce(original, scale))
+        }
+        if (acc.isEmpty()) {
+            val enhanced = ImageEnhance.enhanceBright(original)
+            for (scale in listOf(1f, 2f)) acc.addAll(decodeOnce(enhanced, scale))
+        }
+        if (acc.isEmpty()) {
+            val binary = ImageEnhance.binarize(original)
+            for (scale in listOf(1f, 2f)) acc.addAll(decodeOnce(binary, scale))
+        }
+        return acc.toList()
+    }
+
+    /**
+     * 多码并集解码（值 + 位置框）：点选定格用。
+     *
+     * 同 [decodeUnion] 的思路，但保留每个码的位置框 —— 同一码值在多个尺度解出时
+     * 保留首次出现的框（坐标已按 scale 还原到原图，可比）。定格点选要求"框位与
+     * 画面严格对应"，所以定格那一刻用本函数重解当前帧，而不是复用直播流里的
+     * progressive 结果（后者可能在 1x 就提前返回，丢了小码）。
+     */
+    fun decodeWithPositionsUnion(original: Bitmap): List<Pair<String, android.graphics.Rect>> {
+        if (original.width < 10 || original.height < 10) return emptyList()
+        val acc = linkedMapOf<String, android.graphics.Rect>()
+        for (scale in listOf(1f, 2f, 3f)) {
+            for ((v, r) in decodeWithPositionsOnce(original, scale)) acc.putIfAbsent(v, r)
+        }
+        if (acc.isEmpty()) {
+            val enhanced = ImageEnhance.enhanceBright(original)
+            for (scale in listOf(1f, 2f)) {
+                for ((v, r) in decodeWithPositionsOnce(enhanced, scale)) acc.putIfAbsent(v, r)
+            }
+        }
+        if (acc.isEmpty()) {
+            val binary = ImageEnhance.binarize(original)
+            for (scale in listOf(1f, 2f)) {
+                for ((v, r) in decodeWithPositionsOnce(binary, scale)) acc.putIfAbsent(v, r)
+            }
+        }
+        return acc.map { (v, r) -> v to r }
+    }
+
     private fun decodeWithPositionsOnce(original: Bitmap, scale: Float): List<Pair<String, android.graphics.Rect>> {
         if (original.width < 10 || original.height < 10) return emptyList()
         return try {
