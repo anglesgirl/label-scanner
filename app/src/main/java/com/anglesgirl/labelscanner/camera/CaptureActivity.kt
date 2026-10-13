@@ -113,22 +113,40 @@ class CaptureActivity : AppCompatActivity() {
                 val analysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
-                alignmentAnalyzer = CaptureAlignmentAnalyzer(
-                    onState = { state -> runOnUiThread { updateAlignmentState(state) } },
-                    onStable = {
+                // 自动文档捕获：标签角点追踪 → 自动变焦 → 清晰度达标自动拍
+                // （替代旧的条码稳定性检测，解决"识别很长时间才拍"的问题）
+                val autoDocAnalyzer = AutoDocCaptureAnalyzer(
+                    onCornersDetected = { corners, zoomRatio ->
                         runOnUiThread {
-                            if (!captureStarted) captureAfterFocus(auto = true)
+                            if (captureStarted) return@runOnUiThread
+                            // 自动变焦：让标签占画面 80%
+                            val currentZoom = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f
+                            val targetZoom = zoomRatio.coerceIn(1f, 4f)
+                            // 只有变化够大才调，避免频繁打断
+                            if (kotlin.math.abs(targetZoom - currentZoom) > 0.15f) {
+                                camera?.cameraControl?.setZoomRatio(targetZoom)
+                            }
+                            // UI 反馈
+                            tvStatus.text = "已找到标签，正在对焦放大..."
+                            alignmentFrame.setBackgroundResource(R.drawable.bg_scan_frame)
                         }
                     },
-                ).also { analyzer ->
-                    analysis.setAnalyzer(ContextCompat.getMainExecutor(this), analyzer)
-                }
+                    onReadyToCapture = {
+                        runOnUiThread {
+                            if (!captureStarted) {
+                                tvStatus.text = "清晰，正在拍照..."
+                                captureAfterFocus(auto = true)
+                            }
+                        }
+                    },
+                )
+                analysis.setAnalyzer(ContextCompat.getMainExecutor(this), autoDocAnalyzer)
                 provider.unbindAll()
                 camera = provider.bindToLifecycle(
                     this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture, analysis
                 )
                 torchControl?.attach(camera)
-                tvStatus.text = "将标签放入框内，保持稳定即可自动拍照"
+                tvStatus.text = "将标签放入画面，自动找标签、对焦、拍照"
             } catch (e: Exception) {
                 fail("相机启动失败: ${e.message}")
             }
