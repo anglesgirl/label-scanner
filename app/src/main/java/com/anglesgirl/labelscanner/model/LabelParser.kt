@@ -27,9 +27,19 @@ object LabelParser {
     private val MAT12 = Pattern.compile("^\\d{12}$")
     private val SN_MIX = Pattern.compile("^[A-Za-z0-9]{6,30}$")
 
+    /**
+     * OCR 容错：去掉数字之间的空白。
+     * OCR 常把 "17" 识别成 "1 7"（数字中间插空格），导致日期正则只匹配到
+     * "2024-12-1"（7 位），长度校验失败。先把数字间的空格压掉，
+     * "2024-12-1 7" → "2024-12-17"，再走正常流程。
+     */
+    private fun collapseDigitSpaces(input: String): String {
+        return input.replace(Regex("(?<=\\d)\\s+(?=\\d)"), "")
+    }
+
     /** 解析单个值，返回 (字段名, 规范化值)，无法判断返回 null */
     fun classify(value: String): Pair<String, String>? {
-        val v = value.trim()
+        val v = collapseDigitSpaces(value.trim())
         if (v.isEmpty()) return null
 
         // 日期：8 位纯数字（yyyymmdd）、带符号（2025-05-08 / 2025.05.08 / 2025_05_08）、
@@ -305,7 +315,7 @@ object LabelParser {
      * 整行/分段流程里识别，避免把 SN/物料里的数字串当日期。
      */
     fun extractDateInline(line: String): String? {
-        val m = DATE_INLINE.matcher(line)
+        val m = DATE_INLINE.matcher(collapseDigitSpaces(line))
         if (!m.find()) return null
         val hit = m.group()
         val raw = hit
