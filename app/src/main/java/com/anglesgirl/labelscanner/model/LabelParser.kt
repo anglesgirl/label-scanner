@@ -55,9 +55,12 @@ object LabelParser {
         if (DATE8.matcher(vNorm).matches() || DATE_SEP.matcher(vNorm).matches() || DATE_CN.matcher(vNorm).matches()) {
             val digits = vNorm.replace(Regex("[^0-9]"), "")
             if (digits.length == 8) {
+                val y = digits.substring(0, 4).toInt()
                 val m = digits.substring(4, 6).toInt()
                 val d = digits.substring(6, 8).toInt()
-                if (m in 1..12 && d in 1..31) return "date" to digits
+                // 年份校验：生产日期应在合理范围内（2000-2050），
+                // 避免 "24001024"（年=2400）这类无效日期被误认
+                if (y in 2000..2050 && m in 1..12 && d in 1..31) return "date" to digits
             } else if (digits.length in 6..7 && DATE_SEP.matcher(vNorm).matches()) {
                 // 月日无前导0：2026 6 2（去符号 6 位）→ 20260602；
                 //             2026 6 22（去符号 7 位）→ 20260622
@@ -326,9 +329,10 @@ object LabelParser {
             .replace('B', '8')
         val digits = raw.replace(Regex("[^0-9]"), "")
         if (digits.length != 8) return null
+        val year = digits.substring(0, 4).toInt()
         val month = digits.substring(4, 6).toInt()
         val day = digits.substring(6, 8).toInt()
-        if (month !in 1..12 || day !in 1..31) return null
+        if (year !in 2000..2050 || month !in 1..12 || day !in 1..31) return null
         return digits
     }
 
