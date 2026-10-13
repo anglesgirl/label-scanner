@@ -12,10 +12,13 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.view.ViewCompat
@@ -87,6 +90,8 @@ class LiveScanActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var tvScanHint: TextView
+    /** 当前相机，用于点按测光 */
+    private var camera: Camera? = null
 
     /** 补光灯（灯光开关 + 亮度调节），USB 外接摄像头无闪光灯时禁用。 */
     private var torchControl: com.anglesgirl.labelscanner.util.TorchControl? = null
@@ -295,11 +300,39 @@ class LiveScanActivity : AppCompatActivity() {
                 }
                 provider.unbindAll()
                 val cam = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                camera = cam
                 torchControl?.attach(cam)
+                // 点按测光：光照不均时，用户点标签位置，相机会对该区域正确曝光
+                setupTapToMeter(previewView, cam)
             } catch (e: Exception) {
                 Toast.makeText(this, "相机启动失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /**
+     * 点按测光：用户点击预览画面时，对该点做自动对焦+测光。
+     * 光照不均（一片暗一片亮）时，全局测光会被亮斑/阴影带偏，
+     * 点标签位置可让相机对该区域正确曝光，提升 OCR/扫码成功率。
+     */
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    private fun setupTapToMeter(previewView: PreviewView, camera: Camera) {
+        previewView.setOnTouchListener { _, event ->
+            if (event.action == android.view.MotionEvent.ACTION_UP) {
+                val factory = SurfaceOrientedMeteringPointFactory(
+                    previewView.width.toFloat(),
+                    previewView.height.toFloat()
+                )
+                val point = factory.createPoint(event.x, event.y)
+                val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+                    .setAutoCancelDuration(3, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                runCatching {
+                    camera.cameraControl.startFocusAndMetering(action)
+                }
+            }
+            true
+        }
     }
 
     // ================= USB UVC 摄像头初始化与生命周期 =================
