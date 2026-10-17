@@ -134,6 +134,8 @@ class LiveScanActivity : AppCompatActivity() {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
     private val ocrBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** 小标签模式：OCR 前 2 倍放大，小字识别率更高 */
+    private var smallLabelMode = false
     /** 连续无条码的 zxing 周期数，达到阈值才启用 OCR。 */
     private var noCodeStreak = 0
     /** 无条码多少轮后启用 OCR：型号（已知无码）更快，其余多等等以免打断正常扫条码。 */
@@ -255,6 +257,18 @@ class LiveScanActivity : AppCompatActivity() {
             findViewById<android.widget.SeekBar>(R.id.sbTorchBrightness),
         )
         if (usbMode) torchControl?.disableForUsbCamera()
+
+        // 小标签模式：OCR 前 2 倍放大，小字识别率更高
+        findViewById<Button>(R.id.btnSmallLabel).setOnClickListener {
+            smallLabelMode = !smallLabelMode
+            it.isSelected = smallLabelMode
+            (it as Button).text = if (smallLabelMode) "🔍 小标签✓" else "🔍 小标签"
+            Toast.makeText(
+                this,
+                if (smallLabelMode) "小标签模式开：OCR 放大 2 倍" else "小标签模式关",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
 
         startCamera()
     }
@@ -425,7 +439,13 @@ class LiveScanActivity : AppCompatActivity() {
      */
     private fun runOcrFallback(bmp: Bitmap, rotationDegrees: Int = 0) {
         if (!ocrBusy.compareAndSet(false, true)) return
-        ocrRecognizer.process(InputImage.fromBitmap(bmp, 0))
+        // 小标签模式：2 倍放大后再 OCR，小字识别率更高
+        val ocrBmp = if (smallLabelMode) {
+            runCatching {
+                com.anglesgirl.labelscanner.camera.ImageEnhance.upscale2x(bmp)
+            }.getOrDefault(bmp)
+        } else bmp
+        ocrRecognizer.process(InputImage.fromBitmap(ocrBmp, 0))
             .addOnSuccessListener { text ->
                 ocrBusy.set(false)
                 if (paused.get()) return@addOnSuccessListener

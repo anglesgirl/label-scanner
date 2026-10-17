@@ -53,6 +53,18 @@
             android:visibility="gone" />
 
         <Button
+            android:id="@+id/btnSmallLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:backgroundTint="#546E7A"
+            android:insetBottom="0dp"
+            android:insetTop="0dp"
+            android:minWidth="72dp"
+            android:text="🔍 小标签"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+
+        <Button
             android:id="@+id/btnCloseScan"
             android:layout_width="wrap_content"
             android:layout_height="44dp"

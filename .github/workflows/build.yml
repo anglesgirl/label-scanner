@@ -56,3 +56,30 @@ jobs:
         with:
           name: label-scanner-debug
           path: app/build/outputs/apk/debug/*.apk
+
+  # 每次推送 main 后，把构建好的 APK 自动发到 Releases（tag：build-日期-提交号）
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: label-scanner-debug
+          path: apks
+
+      - name: Publish to Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="build-$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+          SUBJECT=$(git log -1 --pretty=%s)
+          gh release create "$TAG" apks/*.apk \
+            --title "构建版 $TAG" \
+            --notes "main 分支自动构建：$SUBJECT" \
+            --target "$GITHUB_SHA"
+          ls -lh apks

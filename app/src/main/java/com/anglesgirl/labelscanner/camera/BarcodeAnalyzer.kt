@@ -33,6 +33,9 @@ class BarcodeAnalyzer(
     private val lookup69: ((String) -> String?)? = null,
 ) : ImageAnalysis.Analyzer {
 
+    /** 小标签模式：OCR 前 2 倍放大，小字识别率更高 */
+    var smallLabelMode: Boolean = false
+
     private val tag = "BarcodeAnalyzer"
 
     // 全格式条码（能扫到什么返回什么）
@@ -117,7 +120,23 @@ class BarcodeAnalyzer(
     }
 
     private fun runOcr(inputImage: InputImage, barcodes: List<String>, imageProxy: ImageProxy) {
-        recognizer.process(inputImage)
+        // 小标签模式：2 倍放大后再 OCR，小字识别率更高
+        val ocrImage = if (smallLabelMode) {
+            try {
+                val bmp = imageProxy.toBitmap()
+                val upscaled = ImageEnhance.upscale2x(bmp)
+                bmp.recycle()
+                val out = InputImage.fromBitmap(upscaled, imageProxy.imageInfo.rotationDegrees)
+                // 注意：upscaled 的回收由 ML Kit 处理完后进行，这里不立即 recycle
+                out
+            } catch (t: Throwable) {
+                Log.w(tag, "upscale failed, fallback to original", t)
+                inputImage
+            }
+        } else {
+            inputImage
+        }
+        recognizer.process(ocrImage)
             .addOnSuccessListener { text ->
                 val ocr = text.text?.trim() ?: ""
                 emit(barcodes, ocr, imageProxy)

@@ -45,6 +45,23 @@ object ImageEnhance {
     }
 
     /**
+     * 2 倍放大（小标签模式）：双线性插值放大，给 OCR 更多像素。
+     * 小标签的字在预览帧里太小，ML Kit 直接认不清；放大 2 倍后再跑 OCR，
+     * 识别率明显提升。耗时约 10-20ms，只在小标签模式下用。
+     */
+    fun upscale2x(src: Bitmap): Bitmap {
+        val out = Bitmap.createBitmap(src.width * 2, src.height * 2, Bitmap.Config.ARGB_8888)
+        val paint = Paint().apply {
+            isAntiAlias = true
+            isFilterBitmap = true  // 双线性插值
+        }
+        val canvas = Canvas(out)
+        canvas.scale(2f, 2f)
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return out
+    }
+
+    /**
      * 灰度高对比（近似二值化）：BT.709 亮度灰度 × 强对比 + 负偏移，
      * 暗的压黑、亮的拉白。矩阵一次性算好（灰度系数 × 对比度写在 3x3，
      * 偏移写在第 5 列）。
