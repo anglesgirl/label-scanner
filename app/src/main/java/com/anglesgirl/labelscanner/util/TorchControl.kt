@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.SeekBar
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 
@@ -137,9 +138,10 @@ class TorchControl(
                 // 0~100 映射到 1~maxLevel（0 表示关灯，由 torch 开关控制）
                 val strengthLevel = (1 + (flashStrengthMaxLevel - 1) * level / 100f).toInt()
                     .coerceIn(1, flashStrengthMaxLevel)
-                cam2Control.setCaptureRequestOption(
-                    CaptureRequest.FLASH_STRENGTH_LEVEL,
-                    strengthLevel
+                cam2Control.setCaptureRequestOptions(
+                    CaptureRequestOptions.Builder()
+                        .setCaptureRequestOption(CaptureRequest.FLASH_STRENGTH_LEVEL, strengthLevel)
+                        .build()
                 )
                 return
             }
