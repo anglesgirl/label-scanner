@@ -6,245 +6,335 @@ import android.graphics.PointF
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import java.nio.ByteBuffer
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
- * 自动文档捕获分析器：实时检测标签 → 自动变焦 → 清晰度达标自动拍照。
- *
- * 流程：
- * 1. 预览帧降采样到 480p，跑 LabelRectifier.detectCorners() 找标签四角
- * 2. 多帧平滑角点位置（防抖动）
- * 3. 根据标签在画面中的占比，计算目标 zoomRatio（标签占画面 80%）
- * 4. 在标签区域内算 Laplacian 方差（清晰度）
- * 5. 清晰度达标且稳定 N 帧 → 回调 onReadyToCapture()
- *
- * 由调用方负责：setZoomRatio() 和实际拍照。
+ * Finds the whole label on a small upright/cropped preview frame, suggests a safe zoom, and only
+ * signals capture after the geometry, optical zoom, sharpness, and camera adjustment have settled.
+ * All frame conversion after taking a compact YUV-plane snapshot runs on a shared background thread.
  */
 class AutoDocCaptureAnalyzer(
-    private val onCornersDetected: (corners: List<PointF>, zoomRatio: Float) -> Unit,
+    private val onDetection: (Detection?) -> Unit,
     private val onReadyToCapture: () -> Unit,
 ) : ImageAnalysis.Analyzer {
 
+    /** Corners are clockwise, normalized [0,1] coordinates in the upright ImageProxy crop. */
+    data class Detection(
+        val corners: List<PointF>,
+        val center: PointF,
+        val targetZoom: Float,
+        val sharpness: Double,
+        val stable: Boolean,
+        val geometryStable: Boolean,
+        val adjusting: Boolean,
+        val status: Status,
+    )
+
+    enum class Status { FOUND, ADJUSTING_ZOOM, WAITING_FOR_STABILITY, WAITING_FOR_SHARPNESS, READY }
+
+    /** Compatibility constructor for existing callers; new integrations should consume Detection?. */
+    constructor(
+        onCornersDetected: (corners: List<PointF>, zoomRatio: Float) -> Unit,
+        onReadyToCapture: () -> Unit,
+    ) : this(
+        onDetection = { detection ->
+            if (detection != null) onCornersDetected(detection.corners, detection.targetZoom)
+        },
+        onReadyToCapture = onReadyToCapture,
+    )
+
+    private data class CameraState(val currentZoom: Float, val minZoom: Float, val maxZoom: Float, val adjusting: Boolean)
+    private data class PlaneBytes(val data: ByteArray, val rowStride: Int, val pixelStride: Int, val position: Int)
+    private data class Frame(
+        val width: Int,
+        val height: Int,
+        val cropLeft: Int,
+        val cropTop: Int,
+        val cropWidth: Int,
+        val cropHeight: Int,
+        val rotation: Int,
+        val y: PlaneBytes,
+        val u: PlaneBytes,
+        val v: PlaneBytes,
+    )
+
     companion object {
         private const val TAG = "AutoDocCapture"
-        // 预览分析用小图，加速
         private const val ANALYZE_MAX_EDGE = 480
-        // 标签占画面的目标比例
-        private const val TARGET_FILL_RATIO = 0.8f
-        // 角点稳定阈值（像素，480p 坐标系）
-        private const val STABLE_THRESHOLD_PX = 12f
-        // 连续稳定帧数
-        private const val STABLE_FRAMES_REQUIRED = 8
-        // 清晰度阈值（Laplacian 方差，经验值）
-        private const val SHARPNESS_THRESHOLD = 120.0
-        // 分析节流：每隔几帧跑一次检测（检测较重）
         private const val DETECT_EVERY_N_FRAMES = 3
+        private const val REQUIRED_STABLE_FRAMES = 8
+        private const val GEOMETRY_THRESHOLD = 0.022f
+        private const val SHARPNESS_THRESHOLD = 120.0
+        private val background = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "label-frame-analysis").apply { isDaemon = true }
+        }
     }
 
-    private var frameCount = 0
-    private var lastCorners: List<PointF>? = null
-    private var stableFrames = 0
-    private var lastZoomRatio = 1f
-    private var captureTriggered = false
+    private val cameraState = AtomicReference(CameraState(1f, 1f, 4f, false))
+    private val resetGeneration = AtomicLong(0)
+    private val captureTriggered = AtomicBoolean(false)
+    private val inputFrameCount = AtomicLong(0)
+    private val pendingFrame = AtomicReference<Frame?>(null)
+    private val workerActive = AtomicBoolean(false)
+    private val closed = AtomicBoolean(false)
 
-    // YUV → RGB 用的 buffer
-    private var rgbBuffer: IntArray? = null
+    // Accessed by the single background executor only.
+    private var appliedResetGeneration = 0L
+    private var frameCount = 0
+    private var stableFrames = 0
+    private var lastCorners: List<PointF>? = null
+
+    /** Publish camera state confirmed by CameraX; safe to call from the UI thread. */
+    fun updateCameraState(currentZoom: Float, minZoom: Float, maxZoom: Float, adjusting: Boolean) {
+        if (!currentZoom.isFinite() || !minZoom.isFinite() || !maxZoom.isFinite()) return
+        val minValue = minZoom.coerceAtLeast(0.1f)
+        cameraState.set(CameraState(currentZoom.coerceIn(minValue, maxZoom.coerceAtLeast(minValue)), minValue, maxZoom.coerceAtLeast(minValue), adjusting))
+    }
 
     override fun analyze(image: ImageProxy) {
-        if (captureTriggered) {
+        if (closed.get() || captureTriggered.get() || inputFrameCount.incrementAndGet() % DETECT_EVERY_N_FRAMES != 0L) {
             image.close()
             return
         }
+        val frame = try {
+            snapshot(image)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to snapshot camera frame", t)
+            null
+        } finally {
+            // Never hold up CameraX while YUV is converted or corners/sharpness are computed.
+            image.close()
+        } ?: return
+
+        if (captureTriggered.get()) return
+        pendingFrame.set(frame)
+        scheduleWorker()
+    }
+
+    private fun scheduleWorker() {
+        if (!workerActive.compareAndSet(false, true)) return
         try {
-            frameCount++
-            // 节流
-            if (frameCount % DETECT_EVERY_N_FRAMES != 0) return
+            background.execute {
+                try {
+                    while (true) {
+                        val latest = pendingFrame.getAndSet(null) ?: break
+                        applyPendingReset()
+                        if (!captureTriggered.get()) process(latest)
+                    }
+                } finally {
+                    workerActive.set(false)
+                    if (pendingFrame.get() != null) scheduleWorker()
+                }
+            }
+        } catch (e: RuntimeException) {
+            workerActive.set(false)
+            Log.w(TAG, "Background analysis unavailable", e)
+        }
+    }
 
-            val bitmap = imageProxyToSmallBitmap(image) ?: return
-            val corners = LabelRectifier.detectCorners(bitmap)
-            bitmap.recycle()
+    /** Reset/rearm after a capture attempt; thread-safe from the UI/camera thread. */
+    fun reset() {
+        resetGeneration.incrementAndGet()
+        pendingFrame.set(null)
+        captureTriggered.set(false)
+    }
 
-            if (corners == null || corners.size != 4) {
-                // 没检测到，重置稳定计数
-                stableFrames = 0
-                lastCorners = null
+    fun close() {
+        closed.set(true)
+        resetGeneration.incrementAndGet()
+        pendingFrame.set(null)
+    }
+
+    private fun applyPendingReset() {
+        val generation = resetGeneration.get()
+        if (generation != appliedResetGeneration) {
+            appliedResetGeneration = generation
+            frameCount = 0
+            stableFrames = 0
+            lastCorners = null
+        }
+    }
+
+    private fun process(frame: Frame) {
+        if (closed.get()) return
+        val generation = resetGeneration.get()
+        frameCount++
+        val bitmap = frame.toSmallUprightBitmap() ?: run {
+            loseDetection()
+            return
+        }
+        try {
+            // LabelRectifier returns corners in the source bitmap's coordinate system; here that
+            // source is the already upright, crop-only, <=480px image (not the full sensor frame).
+            val pixels = LabelRectifier.detectCorners(bitmap, liveDetection = true)
+            if (pixels == null || pixels.size != 4) {
+                loseDetection()
                 return
             }
-
-            // 平滑：与上一帧比较，位移小算稳定
-            val isStable = lastCorners?.let { prev ->
-                corners.zip(prev).all { (a, b) ->
-                    abs(a.x - b.x) < STABLE_THRESHOLD_PX &&
-                    abs(a.y - b.y) < STABLE_THRESHOLD_PX
-                }
-            } ?: false
-
-            if (isStable) {
-                stableFrames++
-            } else {
-                stableFrames = 0
+            val corners = pixels.map { p ->
+                PointF((p.x / bitmap.width).coerceIn(0f, 1f), (p.y / bitmap.height).coerceIn(0f, 1f))
             }
-            // 指数平滑角点
-            lastCorners = if (lastCorners == null) {
-                corners
-            } else {
-                corners.zip(lastCorners!!).map { (cur, prev) ->
-                    PointF(prev.x * 0.6f + cur.x * 0.4f, prev.y * 0.6f + cur.y * 0.4f)
-                }
+            val normalized = corners.map { it.x to it.y }
+            val geometricStable = AutoDocGeometry.geometryStable(normalized, lastCorners?.map { it.x to it.y }, GEOMETRY_THRESHOLD)
+            val bounds = bounds(corners)
+            val state = cameraState.get()
+            val targetZoom = AutoDocGeometry.targetZoom(
+                bounds.left, bounds.right, bounds.top, bounds.bottom,
+                state.currentZoom, state.minZoom, state.maxZoom,
+            )
+            val zoomSettled = AutoDocGeometry.zoomSettled(targetZoom, state.currentZoom)
+            // Do not accumulate stable frames during zoom, even if the image happens not to move.
+            stableFrames = if (geometricStable && zoomSettled && !state.adjusting) stableFrames + 1 else 0
+            val sharpness = sharpnessWithinLabel(bitmap, corners)
+            val ready = stableFrames >= REQUIRED_STABLE_FRAMES && sharpness >= SHARPNESS_THRESHOLD &&
+                zoomSettled && !state.adjusting
+            val center = PointF(
+                corners.map { it.x }.average().toFloat(),
+                corners.map { it.y }.average().toFloat(),
+            )
+            val status = when {
+                state.adjusting || !zoomSettled -> Status.ADJUSTING_ZOOM
+                ready -> Status.READY
+                stableFrames < REQUIRED_STABLE_FRAMES -> Status.WAITING_FOR_STABILITY
+                sharpness < SHARPNESS_THRESHOLD -> Status.WAITING_FOR_SHARPNESS
+                else -> Status.FOUND
             }
-
-            // 计算目标 zoom：让标签占画面 80%
-            val zoomRatio = computeTargetZoom(corners, image.width, image.height)
-            // 平滑 zoom，避免跳变
-            val smoothZoom = lastZoomRatio * 0.7f + zoomRatio * 0.3f
-            lastZoomRatio = smoothZoom
-            onCornersDetected(lastCorners!!, smoothZoom)
-
-            // 清晰度检测（在标签区域内）
-            if (stableFrames >= STABLE_FRAMES_REQUIRED) {
-                val sharpness = computeSharpness(image, corners)
-                Log.d(TAG, "stable=$stableFrames sharpness=$sharpness")
-                if (sharpness > SHARPNESS_THRESHOLD) {
-                    captureTriggered = true
-                    onReadyToCapture()
-                }
-            }
+            if (closed.get() || resetGeneration.get() != generation) return
+            onDetection(Detection(corners, center, targetZoom, sharpness, ready, geometricStable, state.adjusting, status))
+            lastCorners = corners
+            if (ready && captureTriggered.compareAndSet(false, true)) onReadyToCapture()
         } catch (e: Exception) {
             Log.e(TAG, "analyze failed", e)
+            loseDetection()
         } finally {
-            image.close()
+            bitmap.recycle()
         }
     }
 
-    fun reset() {
-        captureTriggered = false
+    private fun loseDetection() {
         stableFrames = 0
         lastCorners = null
-        lastZoomRatio = 1f
-        frameCount = 0
+        // Null is intentionally emitted on every sampled miss: consumers can clear stale UI state.
+        onDetection(null)
     }
 
-    /**
-     * 计算目标 zoom：标签包围盒占画面比例 → 缩放到目标比例。
-     * 简单模型：当前标签宽度占画面 w_ratio，要达到 TARGET_FILL_RATIO，
-     * 需要 zoom = TARGET_FILL_RATIO / w_ratio（限幅 1x~4x）。
-     */
-    private fun computeTargetZoom(corners: List<PointF>, imgW: Int, imgH: Int): Float {
-        // corners 是 480p 坐标系下的，需要换算回原图比例
-        // 这里简化：用包围盒在 480p 中的占比
-        val xs = corners.map { it.x }
-        val ys = corners.map { it.y }
-        val bw = (xs.maxOrNull() ?: 0f) - (xs.minOrNull() ?: 0f)
-        val bh = (ys.maxOrNull() ?: 0f) - (ys.minOrNull() ?: 0f)
-        // 480p 工作尺寸
-        val workW = ANALYZE_MAX_EDGE.toFloat()
-        val wRatio = bw / workW
-        if (wRatio <= 0.05f) return 1f // 太小，不 zoom（可能误检）
-        val target = TARGET_FILL_RATIO / wRatio
-        return target.coerceIn(1f, 4f)
-    }
+    private data class Bounds(val left: Float, val top: Float, val right: Float, val bottom: Float)
+    private fun bounds(points: List<PointF>) = Bounds(
+        points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y },
+    )
 
-    /**
-     * 清晰度：Laplacian 方差。在整图上算（简化，标签区域定位到原图较复杂，
-     * 整图清晰度对自动拍照已够用——用户已把标签对准中央）。
-     */
-    private fun computeSharpness(image: ImageProxy, corners: List<PointF>): Double {
-        // 取中心区域（标签大致在中央）做清晰度计算
-        val w = image.width
-        val h = image.height
-        // 为速度，用更小的图
-        val smallW = 240
-        val smallH = (smallW * h / w).coerceAtLeast(1)
-        val bitmap = imageProxyToBitmap(image, smallW, smallH) ?: return 0.0
-
-        val px = IntArray(smallW * smallH)
-        bitmap.getPixels(px, 0, smallW, 0, 0, smallW, smallH)
-        bitmap.recycle()
-
-        // 灰度
-        val gray = DoubleArray(px.size)
+    /** Laplacian variance is measured only inside the detected polygon, never on the background. */
+    private fun sharpnessWithinLabel(bitmap: Bitmap, corners: List<PointF>): Double {
+        val width = bitmap.width
+        val height = bitmap.height
+        val px = IntArray(width * height)
+        bitmap.getPixels(px, 0, width, 0, 0, width, height)
+        val gray = IntArray(px.size)
         for (i in px.indices) {
             val c = px[i]
-            gray[i] = (Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000.0
+            gray[i] = (Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000
         }
-
-        // Laplacian 方差（3x3）
+        val b = bounds(corners)
+        val xStart = (b.left * width).toInt().coerceIn(1, width - 2)
+        val xEnd = (b.right * width).toInt().coerceIn(2, width - 1)
+        val yStart = (b.top * height).toInt().coerceIn(1, height - 2)
+        val yEnd = (b.bottom * height).toInt().coerceIn(2, height - 1)
         var sum = 0.0
         var sumSq = 0.0
         var count = 0
-        for (y in 1 until smallH - 1) {
-            for (x in 1 until smallW - 1) {
-                val idx = y * smallW + x
-                val lap = -4 * gray[idx] +
-                    gray[idx - 1] + gray[idx + 1] +
-                    gray[idx - smallW] + gray[idx + smallW]
-                sum += lap
-                sumSq += lap * lap
-                count++
-            }
+        for (y in yStart until yEnd) for (x in xStart until xEnd) {
+            if (!insidePolygon(x + 0.5f, y + 0.5f, corners, width, height)) continue
+            val i = y * width + x
+            val lap = -4 * gray[i] + gray[i - 1] + gray[i + 1] + gray[i - width] + gray[i + width]
+            sum += lap
+            sumSq += lap.toDouble() * lap
+            count++
         }
-        if (count == 0) return 0.0
+        if (count < 16) return 0.0
         val mean = sum / count
         return sumSq / count - mean * mean
     }
 
-    /** ImageProxy → 降采样 Bitmap（用于角点检测） */
-    private fun imageProxyToSmallBitmap(image: ImageProxy): Bitmap? {
-        val w = image.width
-        val h = image.height
-        val scale = ANALYZE_MAX_EDGE.toFloat() / max(w, h)
-        val sw = max(1, (w * scale).toInt())
-        val sh = max(1, (h * scale).toInt())
-        return imageProxyToBitmap(image, sw, sh)
+    private fun insidePolygon(x: Float, y: Float, corners: List<PointF>, width: Int, height: Int): Boolean {
+        var inside = false
+        var j = corners.lastIndex
+        for (i in corners.indices) {
+            val a = corners[i]
+            val b = corners[j]
+            val ax = a.x * width; val ay = a.y * height
+            val bx = b.x * width; val by = b.y * height
+            if ((ay > y) != (by > y) && x < (bx - ax) * (y - ay) / (by - ay) + ax) inside = !inside
+            j = i
+        }
+        return inside
     }
 
-    /** ImageProxy(YUV_420_888) → 指定尺寸 Bitmap */
-    private fun imageProxyToBitmap(image: ImageProxy, outW: Int, outH: Int): Bitmap? {
-        if (image.format != android.graphics.ImageFormat.YUV_420_888) return null
-        val yPlane = image.planes[0]
-        val uPlane = image.planes[1]
-        val vPlane = image.planes[2]
-        val yRowStride = yPlane.rowStride
-        val uvRowStride = uPlane.rowStride
-        val uvPixelStride = uPlane.pixelStride
-        val w = image.width
-        val h = image.height
-
-        // 先转全尺寸 RGB
-        val fullSize = w * h
-        var rgb = rgbBuffer
-        if (rgb == null || rgb.size != fullSize) {
-            rgb = IntArray(fullSize)
-            rgbBuffer = rgb
+    /** Copy the YUV planes (only), crop metadata, and rotation, then return without RGB conversion. */
+    private fun snapshot(image: ImageProxy): Frame? {
+        if (image.format != android.graphics.ImageFormat.YUV_420_888 || image.planes.size < 3) return null
+        val crop = image.cropRect
+        val left = crop.left.coerceIn(0, image.width - 1)
+        val top = crop.top.coerceIn(0, image.height - 1)
+        val right = crop.right.coerceIn(left + 1, image.width)
+        val bottom = crop.bottom.coerceIn(top + 1, image.height)
+        fun copyPlane(index: Int): PlaneBytes {
+            val plane = image.planes[index]
+            val buffer = plane.buffer.duplicate()
+            val position = buffer.position()
+            val data = ByteArray(buffer.remaining())
+            buffer.get(data)
+            return PlaneBytes(data, plane.rowStride, plane.pixelStride, position)
         }
-        val yBuf = yPlane.buffer
-        val uBuf = uPlane.buffer
-        val vBuf = vPlane.buffer
-        yBuf.rewind(); uBuf.rewind(); vBuf.rewind()
+        return Frame(
+            image.width, image.height, left, top, right - left, bottom - top,
+            ((image.imageInfo.rotationDegrees % 360) + 360) % 360,
+            copyPlane(0), copyPlane(1), copyPlane(2),
+        )
+    }
 
-        for (j in 0 until h) {
-            for (i in 0 until w) {
-                val y = (yBuf.get(j * yRowStride + i).toInt() and 0xFF)
-                val uvJ = j / 2
-                val uvI = i / 2
-                val u = (uBuf.get(uvJ * uvRowStride + uvI * uvPixelStride).toInt() and 0xFF) - 128
-                val v = (vBuf.get(uvJ * uvRowStride + uvI * uvPixelStride).toInt() and 0xFF) - 128
-                var r = (y + 1.402 * v).toInt()
-                var g = (y - 0.344136 * u - 0.714136 * v).toInt()
-                var b = (y + 1.772 * u).toInt()
-                r = r.coerceIn(0, 255); g = g.coerceIn(0, 255); b = b.coerceIn(0, 255)
-                rgb[j * w + i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    private fun Frame.toSmallUprightBitmap(): Bitmap? {
+        if (rotation !in listOf(0, 90, 180, 270)) return null
+        val uprightWidth = if (rotation == 90 || rotation == 270) cropHeight else cropWidth
+        val uprightHeight = if (rotation == 90 || rotation == 270) cropWidth else cropHeight
+        val scale = ANALYZE_MAX_EDGE.toFloat() / max(uprightWidth, uprightHeight)
+        val outWidth = max(1, (uprightWidth * scale).roundToInt())
+        val outHeight = max(1, (uprightHeight * scale).roundToInt())
+        val out = IntArray(outWidth * outHeight)
+        for (oy in 0 until outHeight) for (ox in 0 until outWidth) {
+            val ux = (((ox + 0.5f) * uprightWidth / outWidth) - 0.5f).roundToInt().coerceIn(0, uprightWidth - 1)
+            val uy = (((oy + 0.5f) * uprightHeight / outHeight) - 0.5f).roundToInt().coerceIn(0, uprightHeight - 1)
+            val (cx, cy) = when (rotation) {
+                90 -> uy to (cropHeight - 1 - ux)
+                180 -> (cropWidth - 1 - ux) to (cropHeight - 1 - uy)
+                270 -> (cropWidth - 1 - uy) to ux
+                else -> ux to uy
             }
+            val sourceX = cropLeft + cx
+            val sourceY = cropTop + cy
+            val yValue = planeValue(y, sourceY * y.rowStride + sourceX * y.pixelStride).toInt() and 0xff
+            val uvIndexU = (sourceY / 2) * u.rowStride + (sourceX / 2) * u.pixelStride
+            val uvIndexV = (sourceY / 2) * v.rowStride + (sourceX / 2) * v.pixelStride
+            val uu = (planeValue(u, uvIndexU).toInt() and 0xff) - 128
+            val vv = (planeValue(v, uvIndexV).toInt() and 0xff) - 128
+            val yy = max(0, yValue - 16) * 1.164f
+            val r = (yy + 1.596f * vv).toInt().coerceIn(0, 255)
+            val g = (yy - 0.813f * vv - 0.391f * uu).toInt().coerceIn(0, 255)
+            val b = (yy + 2.018f * uu).toInt().coerceIn(0, 255)
+            out[oy * outWidth + ox] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
         }
-        val fullBmp = Bitmap.createBitmap(rgb, w, h, Bitmap.Config.ARGB_8888)
-        return if (outW == w && outH == h) {
-            fullBmp
-        } else {
-            val small = Bitmap.createScaledBitmap(fullBmp, outW, outH, true)
-            fullBmp.recycle()
-            small
-        }
+        return Bitmap.createBitmap(out, outWidth, outHeight, Bitmap.Config.ARGB_8888)
+    }
+
+    private fun planeValue(plane: PlaneBytes, absoluteIndex: Int): Byte {
+        val index = absoluteIndex - plane.position
+        return if (index in plane.data.indices) plane.data[index] else 0
     }
 }

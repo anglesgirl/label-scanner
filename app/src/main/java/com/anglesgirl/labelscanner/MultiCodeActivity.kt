@@ -93,8 +93,7 @@ class MultiCodeActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
         findViewById<Button>(R.id.btnScanDoc).setOnClickListener {
-            if (imageIn.isDocumentScanAvailable()) imageIn.scanDocument()
-            else Toast.makeText(this, "本机不支持文档扫描，请用拍照或相册", Toast.LENGTH_LONG).show()
+            imageIn.scanDocument()
         }
         findViewById<Button>(R.id.btnPickGallery).setOnClickListener { imageIn.pickGallery() }
 

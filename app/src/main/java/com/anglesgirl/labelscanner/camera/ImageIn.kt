@@ -24,7 +24,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
  *
  * 用法（各页面只声明一次，并只负责"拿到图之后怎么处理"）：
  * ```
- * private val imageIn by lazy { ImageIn(this) { uri -> recognize(uri) } }
+ * private val imageIn = ImageIn(this) { uri -> recognize(uri) }
  * // 按钮：
  * btnTakePhoto.setOnClickListener { imageIn.takePhoto() }
  * btnScanDoc.setOnClickListener  { imageIn.scanDocument() }
@@ -37,7 +37,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
  *  - [pickGallery]  —— 相册导入（走系统文档模式拍完再投喂的兜底）
  *
  * 注意：[ComponentActivity] 要求在 Activity 初始化阶段就注册 launcher，
- * 所以本类要在 `onCreate` 之前或之中构造（用 `by lazy` 或直接赋值均可）。
+ * 所以本类要在 Activity 构造阶段或 onCreate 中构造，不能延迟到点击时初始化。
  */
 class ImageIn(
     private val activity: ComponentActivity,
@@ -71,13 +71,28 @@ class ImageIn(
     }
 
     /**
-     * ML Kit 文档扫描。参数只在这里定义，所有页面共用，避免各处走偏。
+     * Google 文档扫描的 SDK 自带取景页不开放相机变焦控制。
+     * 明确提供可控相机与原版 Google 两条路径，而非冒充 Google 自动变焦。
+     * 这两条路径最终仍由同一个 onImage 回调交给全量扫码/OCR。
+     */
+    fun scanDocument() {
+        androidx.appcompat.app.AlertDialog.Builder(activity)
+            .setTitle("文档扫描方式")
+            .setItems(arrayOf("自动放大拍标签（推荐）", "Google 文档扫描（原版）")) { _, which ->
+                if (which == 0) takePhoto() else scanGoogleDocument()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /**
+     * ML Kit 原版文档扫描。参数只在这里定义，所有页面共用，避免各处走偏。
      * - **FULL 模式**：自动找边 + 裁切 + 透视矫正 + 图像增强。
      *   对 PDF417 这类堆叠式二维码至关重要 —— 手机拍照必然有透视变形，
      *   而堆叠码对透视极其敏感，不矫正很难稳定解出。
      * - 页数限 1（一张标签）、允许从相册导入、JPEG 结果。
      */
-    fun scanDocument() {
+    fun scanGoogleDocument() {
         val options = GmsDocumentScannerOptions.Builder()
             .setGalleryImportAllowed(true)
             .setPageLimit(1)

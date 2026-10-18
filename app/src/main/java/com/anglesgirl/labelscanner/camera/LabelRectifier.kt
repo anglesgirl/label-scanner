@@ -89,74 +89,79 @@ object LabelRectifier {
     /**
      * 检测标签四角（原图坐标系）。检测不到返回 null。
      */
-    fun detectCorners(src: Bitmap): List<PointF>? {
+    fun detectCorners(src: Bitmap, liveDetection: Boolean = false): List<PointF>? {
         val scale = WORK_MAX_EDGE.toFloat() / max(src.width, src.height)
         val sw = max(1, (src.width * scale).toInt())
         val sh = max(1, (src.height * scale).toInt())
         val small = Bitmap.createScaledBitmap(src, sw, sh, true)
 
-        val w = small.width
-        val h = small.height
-        val px = IntArray(w * h)
-        small.getPixels(px, 0, w, 0, 0, w, h)
+        try {
+            val w = small.width
+            val h = small.height
+            val px = IntArray(w * h)
+            small.getPixels(px, 0, w, 0, 0, w, h)
 
-        // 灰度 + Otsu 阈值
-        val gray = IntArray(w * h)
-        for (i in px.indices) {
-            val c = px[i]
-            val g = ((Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000)
-            gray[i] = g
-        }
-        val th = otsu(gray)
-        // 亮于阈值视为标签候选
-        val fg = BooleanArray(w * h)
-        var fgCount = 0
-        for (i in gray.indices) {
-            if (gray[i] > th) { fg[i] = true; fgCount++ }
-        }
-        val ratio = fgCount.toFloat() / (w * h).toFloat()
-        if (ratio < MIN_FG_RATIO || ratio > MAX_FG_RATIO) return null
-
-        // 逐行取前景左右边界 → 四条边的采样点
-        val leftPts = ArrayList<PointF>()
-        val rightPts = ArrayList<PointF>()
-        for (y in 0 until h) {
-            var l = -1
-            var r = -1
-            for (x in 0 until w) {
-                if (fg[y * w + x]) { l = x; break }
+            // 灰度 + Otsu 阈值
+            val gray = IntArray(w * h)
+            for (i in px.indices) {
+                val c = px[i]
+                val g = ((Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000)
+                gray[i] = g
             }
-            for (x in w - 1 downTo 0) {
-                if (fg[y * w + x]) { r = x; break }
+            val th = otsu(gray)
+            // 亮于阈值视为标签候选
+            val fg = BooleanArray(w * h)
+            var fgCount = 0
+            for (i in gray.indices) {
+                if (gray[i] > th) { fg[i] = true; fgCount++ }
             }
-            // 要求该行前景足够宽，避免噪点/文字行干扰
-            if (l >= 0 && r >= 0 && (r - l) > w * 0.25f) {
-                leftPts.add(PointF(l.toFloat(), y.toFloat()))
-                rightPts.add(PointF(r.toFloat(), y.toFloat()))
+            val ratio = fgCount.toFloat() / (w * h).toFloat()
+            if (ratio < (if (liveDetection) 0.01f else MIN_FG_RATIO) || ratio > MAX_FG_RATIO) return null
+
+            // 逐行取前景左右边界 → 四条边的采样点
+            val leftPts = ArrayList<PointF>()
+            val rightPts = ArrayList<PointF>()
+            for (y in 0 until h) {
+                var l = -1
+                var r = -1
+                for (x in 0 until w) {
+                    if (fg[y * w + x]) { l = x; break }
+                }
+                for (x in w - 1 downTo 0) {
+                    if (fg[y * w + x]) { r = x; break }
+                }
+                // 要求该行前景足够宽，避免噪点/文字行干扰
+                val minRowWidth = w * (if (liveDetection) 0.08f else 0.25f)
+                if (l >= 0 && r >= 0 && (r - l) > minRowWidth) {
+                    leftPts.add(PointF(l.toFloat(), y.toFloat()))
+                    rightPts.add(PointF(r.toFloat(), y.toFloat()))
+                }
             }
+            if (leftPts.size < h * (if (liveDetection) 0.08f else (1f / 3f))) return null
+
+            // 左右两条边各拟合一条直线 x = a*y + b（用首尾 30% 的点分上下两端，再分别拟合）
+            val topLeft = fitEnd(leftPts, top = true, w, h, liveDetection)
+            val bottomLeft = fitEnd(leftPts, top = false, w, h, liveDetection)
+            val topRight = fitEnd(rightPts, top = true, w, h, liveDetection)
+            val bottomRight = fitEnd(rightPts, top = false, w, h, liveDetection)
+
+            // 也拟合上下边（用左右边界点集的首行/末行不容易，这里直接用四个端点做四边形）
+            val quad = listOf(topLeft, topRight, bottomRight, bottomLeft)
+
+            // 合理性校验
+            if (!isReasonableQuad(quad, w.toFloat(), h.toFloat(), liveDetection)) return null
+            val ordered = ImageWarp.sortCorners(quad)
+
+            // 换算回原图坐标
+            val inv = 1f / scale
+            return ordered.map { PointF(it.x * inv, it.y * inv) }
+        } finally {
+            if (small !== src && !small.isRecycled) small.recycle()
         }
-        if (leftPts.size < h / 3) return null
-
-        // 左右两条边各拟合一条直线 x = a*y + b（用首尾 30% 的点分上下两端，再分别拟合）
-        val topLeft = fitEnd(leftPts, top = true, w, h)
-        val bottomLeft = fitEnd(leftPts, top = false, w, h)
-        val topRight = fitEnd(rightPts, top = true, w, h)
-        val bottomRight = fitEnd(rightPts, top = false, w, h)
-
-        // 也拟合上下边（用左右边界点集的首行/末行不容易，这里直接用四个端点做四边形）
-        val quad = listOf(topLeft, topRight, bottomRight, bottomLeft)
-
-        // 合理性校验
-        if (!isReasonableQuad(quad, w.toFloat(), h.toFloat())) return null
-        val ordered = ImageWarp.sortCorners(quad)
-
-        // 换算回原图坐标
-        val inv = 1f / scale
-        return ordered.map { PointF(it.x * inv, it.y * inv) }
     }
 
     /** 用一列边界点里"靠上"或"靠下"的那部分拟合直线，返回它与该侧边界的交点估计。 */
-    private fun fitEnd(pts: List<PointF>, top: Boolean, w: Int, h: Int): PointF {
+    private fun fitEnd(pts: List<PointF>, top: Boolean, w: Int, h: Int, liveDetection: Boolean): PointF {
         val sorted = pts.sortedBy { it.y }
         val take = max(2, sorted.size / 4)
         val seg = if (top) sorted.take(take) else sorted.takeLast(take)
@@ -169,14 +174,21 @@ object LabelRectifier {
         val denom = n * syy - sy * sy
         val a = if (abs(denom) < 1e-3f) 0f else (n * syx - sy * sx) / denom
         val b = (sx - a * sy) / n
-        // 取该段的中位 y 作为代表位置
-        val yRep = if (top) sorted.take(take).last().y else sorted.takeLast(take).first().y
+        // 静图历史行为不变。实时角点扩展到真实检测外缘，否则四角会缩进标签约 1/4 高度。
+        val padding = if (liveDetection) max(1f, h * 0.005f) else 0f
+        val yRep = if (top) {
+            if (liveDetection) (sorted.first().y - padding).coerceAtLeast(0f)
+            else sorted.take(take).last().y
+        } else {
+            if (liveDetection) (sorted.last().y + padding).coerceAtMost(h.toFloat())
+            else sorted.takeLast(take).first().y
+        }
         val x = a * yRep + b
         return PointF(x.coerceIn(0f, w.toFloat()), yRep.coerceIn(0f, h.toFloat()))
     }
 
     /** 凸性 + 面积 + 宽的合理性检查，防止把噪点当成标签。 */
-    private fun isReasonableQuad(q: List<PointF>, w: Float, h: Float): Boolean {
+    private fun isReasonableQuad(q: List<PointF>, w: Float, h: Float, liveDetection: Boolean): Boolean {
         if (q.size != 4) return false
         // 面积（鞋带公式）
         var area = 0f
@@ -187,7 +199,7 @@ object LabelRectifier {
         }
         area = abs(area) / 2f
         val imgArea = w * h
-        if (area < imgArea * 0.08f) return false          // 太小 → 不像标签
+        if (area < imgArea * (if (liveDetection) 0.01f else 0.08f)) return false // 实时预览需要能找到尚未放大的小标签
         if (area > imgArea * 0.98f) return false          // 几乎满屏 → 说明没分割出边界
         // 四条边长度不能太悬殊（标签是矩形，透视后边比有界）
         val sides = (0 until 4).map { i ->
@@ -195,8 +207,8 @@ object LabelRectifier {
             kotlin.math.hypot((a.x - b.x).toDouble(), (a.y - b.y).toDouble()).toFloat()
         }
         val minS = sides.min(); val maxS = sides.max()
-        if (minS < 8f) return false
-        if (maxS / minS > 4.0f) return false
+        if (minS < (if (liveDetection) 2f else 8f)) return false
+        if (maxS / minS > (if (liveDetection) 8.0f else 4.0f)) return false
         return true
     }
 
