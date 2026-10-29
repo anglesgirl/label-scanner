@@ -91,7 +91,7 @@ object TursoLedgerClient {
                 "ORDER BY material_code, location, tray_code",
             emptyList(),
         )
-        if (err != null) return emptyList() to err
+        if (err != null) return emptyList<StockRow>() to err
         return rows.mapNotNull { r ->
             if (r.size < 5) null
             else StockRow(r[0], r[1], r[2], r[3].toIntOrNull() ?: 0, r[4].toLongOrNull() ?: 0L)
@@ -106,7 +106,7 @@ object TursoLedgerClient {
                 "WHERE material_code = ? ORDER BY location, tray_code",
             listOf(txt(materialCode)),
         )
-        if (err != null) return emptyList() to err
+        if (err != null) return emptyList<StockRow>() to err
         return rows.mapNotNull { r ->
             if (r.size < 5) null
             else StockRow(r[0], r[1], r[2], r[3].toIntOrNull() ?: 0, r[4].toLongOrNull() ?: 0L)
@@ -121,7 +121,7 @@ object TursoLedgerClient {
                 "WHERE tray_code = ? ORDER BY material_code, location",
             listOf(txt(trayCode)),
         )
-        if (err != null) return emptyList() to err
+        if (err != null) return emptyList<StockRow>() to err
         return rows.mapNotNull { r ->
             if (r.size < 5) null
             else StockRow(r[0], r[1], r[2], r[3].toIntOrNull() ?: 0, r[4].toLongOrNull() ?: 0L)
@@ -136,7 +136,7 @@ object TursoLedgerClient {
                 "FROM ledger_movements ORDER BY created_at DESC LIMIT 500",
             emptyList(),
         )
-        if (err != null) return emptyList() to err
+        if (err != null) return emptyList<MovementRow>() to err
         return rows.mapNotNull { r ->
             if (r.size < 8) null
             else MovementRow(
@@ -167,14 +167,14 @@ object TursoLedgerClient {
                 .put("sql", sql)
                 .put("args", JSONArray(args))),
         ))
-        val resp = post(baseUrl, token, body) ?: return emptyList() to "请求失败"
+        val resp = post(baseUrl, token, body) ?: return emptyList<List<String>>() to "请求失败"
         val first = resp.optJSONArray("results")?.optJSONObject(0)
-            ?: return emptyList() to "响应异常: ${resp.optString("error")}"
+            ?: return emptyList<List<String>>() to "响应异常: ${resp.optString("error")}"
         if (first.optString("type") != "ok") {
-            return emptyList() to (first.optJSONObject("error")?.optString("message") ?: "未知错误")
+            return emptyList<List<String>>() to (first.optJSONObject("error")?.optString("message") ?: "未知错误")
         }
         val rowsJson = first.optJSONObject("response")?.optJSONObject("result")?.optJSONArray("rows")
-            ?: return emptyList() to null
+            ?: return emptyList<List<String>>() to null
         val rows = mutableListOf<List<String>>()
         for (i in 0 until rowsJson.length()) {
             val rowJson = rowsJson.optJSONArray(i) ?: continue
