@@ -25,7 +25,8 @@ class LocalDatabase private constructor(context: Context) :
                 color TEXT NOT NULL DEFAULT '',
                 toner_model TEXT NOT NULL DEFAULT '',
                 tray_code TEXT NOT NULL DEFAULT '',
-                box_code TEXT NOT NULL DEFAULT ''
+                box_code TEXT NOT NULL DEFAULT '',
+                location TEXT NOT NULL DEFAULT ''
             )"""
         )
         db.execSQL("CREATE UNIQUE INDEX records_serial_index ON records(serial_number) WHERE serial_number <> ''")
@@ -38,17 +39,57 @@ class LocalDatabase private constructor(context: Context) :
                 updated_at INTEGER NOT NULL
             )"""
         )
+        createLedgerTables(db)
+    }
+
+    /**
+     * 台账本地镜像表（v3 新增）：库存按（物料编码，库位，托盘号）主键，
+     * 流水按 client_id 去重；dirty=1 表示还没推到远程 Turso，同步成功后清零。
+     * 台账从空开始：这里只建空表，不把现有 records 导入成库存。
+     */
+    private fun createLedgerTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS ledger_stock (
+                material_code TEXT NOT NULL,
+                location TEXT NOT NULL,
+                tray_code TEXT NOT NULL,
+                balance INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                dirty INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (material_code, location, tray_code)
+            )"""
+        )
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS ledger_movements (
+                client_id TEXT PRIMARY KEY NOT NULL,
+                move_type TEXT NOT NULL,
+                material_code TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                location TEXT NOT NULL,
+                tray_code TEXT NOT NULL,
+                balance_after INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                dirty INTEGER NOT NULL DEFAULT 0
+            )"""
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_ledger_stock_material ON ledger_stock(material_code)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_ledger_movements_material ON ledger_movements(material_code)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_tray ON records(tray_code)")
         }
+        if (oldVersion < 3) {
+            // v3：records 加库位列（新装直接建在表里，老库 ALTER 补列，默认空串不影响旧数据）
+            db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
+            createLedgerTables(db)
+        }
     }
 
     companion object {
         private const val DB_NAME = "label_scanner.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
 
         @Volatile private var instance: LocalDatabase? = null
 

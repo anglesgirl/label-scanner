@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/ls_bg">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:text="📒 台账管理"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="@color/ls_text" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp"
+        android:text="库存结存与出入流水，数据存远程数据库存档"
+        android:textSize="12sp"
+        android:textColor="@color/ls_text_dim" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp">
+
+        <EditText
+            android:id="@+id/etLedgerSearch"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="搜物料编码 / 库位 / 托盘号"
+            android:textSize="15sp"
+            android:textColor="@color/ls_text"
+            android:textColorHint="@color/ls_hint" />
+
+        <Button
+            android:id="@+id/btnLedgerSearch"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="@color/ls_btn_scan"
+            android:text="搜索"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:minWidth="72dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvLedgerStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="8dp"
+        android:text="正在加载本地台账…"
+        android:textSize="13sp"
+        android:textColor="@color/ls_text_dim" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="8dp">
+
+        <Button
+            android:id="@+id/btnTabStock"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:backgroundTint="@color/ls_primary"
+            android:text="库存"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+
+        <Button
+            android:id="@+id/btnTabMovements"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="@color/ls_text_dim"
+            android:text="流水"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/listLedger"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_margin="8dp"
+        android:background="@color/ls_card" />
+
+    <TextView
+        android:id="@+id/tvLedgerEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:visibility="gone"
+        android:text="暂无台账记录，先登记一笔入库"
+        android:textSize="14sp"
+        android:textColor="@color/ls_text_dim" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="12dp">
+
+        <Button
+            android:id="@+id/btnRegisterIn"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:backgroundTint="@color/ls_ok"
+            android:text="入库登记"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+
+        <Button
+            android:id="@+id/btnRegisterOut"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="@color/ls_warn"
+            android:text="出库登记"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+
+        <Button
+            android:id="@+id/btnLedgerSync"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="@color/ls_primary"
+            android:text="同步"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+    </LinearLayout>
+
+</LinearLayout>

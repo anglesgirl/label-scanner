@@ -13,7 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.anglesgirl.labelscanner.util.CrashHandler
 
 /**
- * 主界面 = 导航页：单条入库 / 单箱入库 / 托盘中心 / 设置。
+ * 主界面 = 导航页：单条入库 / 单箱入库 / 托盘中心 / 台账管理 / 设置。
  * 录入逻辑都在独立 Activity（SingleInbound / SingleBoxInbound），
  * 数据统一落 RecordStore（含 trayCode），托盘中心查询/导出。
  */
@@ -64,6 +64,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnGotoCenter).setOnClickListener {
             startActivity(Intent(this, RecordListActivity::class.java))
+        }
+        findViewById<Button>(R.id.btnLedger).setOnClickListener {
+            startActivity(Intent(this, LedgerActivity::class.java))
         }
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))

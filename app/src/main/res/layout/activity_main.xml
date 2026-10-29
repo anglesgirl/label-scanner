@@ -78,6 +78,17 @@
         android:textColor="#FFFFFF"
         android:textStyle="bold" />
 
+    <Button
+        android:id="@+id/btnLedger"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="14dp"
+        android:backgroundTint="@color/ls_primary"
+        android:text="📒 台账管理\n扫码出入库 / 库存结存 / 出入流水"
+        android:textSize="15sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
+
     <View
         android:layout_width="match_parent"
         android:layout_height="0dp"

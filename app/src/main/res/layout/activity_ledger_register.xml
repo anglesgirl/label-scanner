@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ls_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvLedgerRegTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="入库登记"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_text"
+            android:paddingBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingBottom="8dp">
+
+            <Button
+                android:id="@+id/btnTypeIn"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:backgroundTint="@color/ls_ok"
+                android:text="入库"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+
+            <Button
+                android:id="@+id/btnTypeOut"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_text_dim"
+                android:text="出库"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnScanLedger"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/ls_btn_scan"
+            android:text="📷 扫码获取信息"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="物料编码"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_text_dim" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <EditText
+                android:id="@+id/etRegMaterial"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="扫描或输入物料编码"
+                android:textSize="15sp"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint" />
+
+            <Button
+                android:id="@+id/btnScanMaterial"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_btn_scan"
+                android:text="🔍 扫"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="库位"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_text_dim" />
+
+        <EditText
+            android:id="@+id/etRegLocation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="如 A区-01-01"
+            android:textSize="15sp"
+            android:textColor="@color/ls_text"
+            android:textColorHint="@color/ls_hint" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="托盘号"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_text_dim" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <EditText
+                android:id="@+id/etRegTray"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="扫描或输入托盘号"
+                android:textSize="15sp"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint" />
+
+            <Button
+                android:id="@+id/btnScanTray"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_btn_scan"
+                android:text="🔍 扫"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvRegBalance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="当前结存：—"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_primary" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="数量"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_text_dim" />
+
+        <EditText
+            android:id="@+id/etRegQuantity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="填写出入数量"
+            android:inputType="number"
+            android:textSize="15sp"
+            android:textColor="@color/ls_text"
+            android:textColorHint="@color/ls_hint" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="16dp">
+
+            <Button
+                android:id="@+id/btnRegLookup"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:backgroundTint="@color/ls_primary"
+                android:text="查库存"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+
+            <Button
+                android:id="@+id/btnRegConfirm"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_ok"
+                android:text="确认入库"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvRegStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text=""
+            android:textSize="13sp"
+            android:textColor="@color/ls_text_dim" />
+
+    </LinearLayout>
+</ScrollView>
