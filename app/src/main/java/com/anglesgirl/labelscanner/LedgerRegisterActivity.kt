@@ -72,6 +72,32 @@ class LedgerRegisterActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 库位专用启动器：只把扫到的值原样填进库位框（不做格式校验），
+     * 绝不走 onCodeScanned → resolveScanned 的物料/托盘解析链 —— 库位码
+     * （如 103A3501-1、A区-01-01）既不是物料也不是托盘，解析链会查错。
+     * 填值会触发原有的手改监听（旧结存显示作废），这是期望行为。
+     */
+    private val locationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val data = result.data
+            val codes = data?.getStringArrayListExtra(LiveScanActivity.EXTRA_RESULT_CODES)
+                ?: data?.getStringExtra(LiveScanActivity.EXTRA_RESULT_CODE)?.let { arrayListOf(it) }
+                ?: arrayListOf()
+            when {
+                codes.isEmpty() -> Unit
+                codes.size == 1 -> etLocation.setText(codes[0])
+                else -> {
+                    AlertDialog.Builder(this)
+                        .setTitle("扫到多个码，用哪一个作库位")
+                        .setItems(codes.toTypedArray()) { _, which -> etLocation.setText(codes[which]) }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -141,6 +167,15 @@ class LedgerRegisterActivity : AppCompatActivity() {
                 Intent(this, LiveScanActivity::class.java)
                     .putExtra(LiveScanActivity.EXTRA_TITLE, "托盘号")
                     .putExtra(LiveScanActivity.EXTRA_WANT_FIELD, "tray")
+                    .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true),
+            )
+        }
+        findViewById<Button>(R.id.btnScanLocation).setOnClickListener {
+            // 库位无固定格式、fieldScore 也无 location 分支：用普通点选模式，不传 wantField，
+            // 多个码时由 locationLauncher 的选择框让用户点一个。
+            locationLauncher.launch(
+                Intent(this, LiveScanActivity::class.java)
+                    .putExtra(LiveScanActivity.EXTRA_TITLE, "库位")
                     .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true),
             )
         }

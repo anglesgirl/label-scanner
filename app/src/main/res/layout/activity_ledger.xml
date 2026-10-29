@@ -159,6 +159,19 @@
             android:textSize="14sp"
             android:insetTop="0dp"
             android:insetBottom="0dp" />
+
+        <Button
+            android:id="@+id/btnLedgerTransfer"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="@color/ls_primary"
+            android:text="库存移动"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
     </LinearLayout>
 
 </LinearLayout>

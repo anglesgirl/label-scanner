@@ -179,6 +179,230 @@ object LedgerStore {
         }
     }
 
+    // ---------------- 库存移动（事务） ----------------
+
+    /** 托盘间移动结果：出库流水（源）与入库流水（目标）。 */
+    data class TransferResult(
+        val outMovement: TursoLedgerClient.MovementRow,
+        val inMovement: TursoLedgerClient.MovementRow,
+    )
+
+    /**
+     * 托盘间部分移动：同一物料从源（库位，托盘）移 quantity 件到目标（库位，托盘）。
+     * 单事务：源行减数（0 也保留行不删）、目标行加数（无行新建）、流水一出一入。
+     * 校验失败抛 IllegalArgumentException，文案可直接展示给用户。
+     */
+    fun transferBetweenTrays(
+        context: Context,
+        materialCode: String,
+        quantity: Int,
+        sourceLocation: String,
+        sourceTray: String,
+        targetLocation: String,
+        targetTray: String,
+    ): TransferResult {
+        val material = materialCode.trim()
+        val srcLoc = sourceLocation.trim()
+        val srcTray = sourceTray.trim()
+        val dstLoc = targetLocation.trim()
+        val dstTray = targetTray.trim()
+        if (material.isEmpty()) throw IllegalArgumentException("请填写物料编码")
+        if (quantity <= 0) throw IllegalArgumentException("数量必须大于 0")
+        if (srcLoc.isEmpty() || srcTray.isEmpty()) throw IllegalArgumentException("请先查库存确定源库位与源托盘")
+        if (dstLoc.isEmpty() || dstTray.isEmpty()) throw IllegalArgumentException("请填写目标库位与目标托盘")
+        if (srcLoc == dstLoc && srcTray == dstTray) throw IllegalArgumentException("目标与源相同，无需移动")
+        val db = LocalDatabase.get(context).writableDatabase
+        db.beginTransaction()
+        try {
+            var srcBalance: Int? = null
+            db.rawQuery(
+                "SELECT balance FROM ledger_stock WHERE material_code = ? AND location = ? AND tray_code = ?",
+                arrayOf(material, srcLoc, srcTray),
+            ).use { c ->
+                if (c.moveToFirst()) srcBalance = c.getInt(0)
+            }
+            val src = srcBalance ?: throw IllegalArgumentException("源托盘无该物料库存，无法移动")
+            if (quantity > src) throw IllegalArgumentException("源结存不足，当前结存 $src")
+            var dstBalance = 0
+            db.rawQuery(
+                "SELECT balance FROM ledger_stock WHERE material_code = ? AND location = ? AND tray_code = ?",
+                arrayOf(material, dstLoc, dstTray),
+            ).use { c ->
+                if (c.moveToFirst()) dstBalance = c.getInt(0)
+            }
+            val now = System.currentTimeMillis()
+            val srcNew = src - quantity
+            val dstNew = dstBalance + quantity
+            val srcValues = ContentValues().apply {
+                put("balance", srcNew)
+                put("updated_at", now)
+                put("dirty", 1)
+            }
+            db.update(
+                "ledger_stock", srcValues,
+                "material_code = ? AND location = ? AND tray_code = ?",
+                arrayOf(material, srcLoc, srcTray),
+            )
+            val dstValues = ContentValues().apply {
+                put("material_code", material)
+                put("location", dstLoc)
+                put("tray_code", dstTray)
+                put("balance", dstNew)
+                put("updated_at", now)
+                put("dirty", 1)
+            }
+            db.insertWithOnConflict(
+                "ledger_stock", null, dstValues, SQLiteDatabase.CONFLICT_REPLACE,
+            )
+            val outId = UUID.randomUUID().toString()
+            val inId = UUID.randomUUID().toString()
+            val outValues = ContentValues().apply {
+                put("client_id", outId)
+                put("move_type", TYPE_OUT)
+                put("material_code", material)
+                put("quantity", quantity)
+                put("location", srcLoc)
+                put("tray_code", srcTray)
+                put("balance_after", srcNew)
+                put("created_at", now)
+                put("dirty", 1)
+            }
+            db.insertOrThrow("ledger_movements", null, outValues)
+            val inValues = ContentValues().apply {
+                put("client_id", inId)
+                put("move_type", TYPE_IN)
+                put("material_code", material)
+                put("quantity", quantity)
+                put("location", dstLoc)
+                put("tray_code", dstTray)
+                put("balance_after", dstNew)
+                put("created_at", now)
+                put("dirty", 1)
+            }
+            db.insertOrThrow("ledger_movements", null, inValues)
+            db.setTransactionSuccessful()
+            return TransferResult(
+                TursoLedgerClient.MovementRow(outId, TYPE_OUT, material, quantity, srcLoc, srcTray, srcNew, now),
+                TursoLedgerClient.MovementRow(inId, TYPE_IN, material, quantity, dstLoc, dstTray, dstNew, now),
+            )
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** 整托移库结果：实际移动的物料种数与总件数。 */
+    data class WholeTrayResult(
+        val movedKinds: Int,
+        val movedTotal: Int,
+    )
+
+    /**
+     * 整托移库：源托盘全部库存行换到目标库位（托盘号不变）。
+     * 单事务逐行处理：目标行存在则余额相加并删除源行；不存在则 UPDATE 源行库位。
+     * 已在目标库位的行跳过；托盘无行或全部行已在目标库位时抛 IllegalArgumentException。
+     * 每种物料记一出一入两条流水（出库 balance_after=0），同时间戳、各自 client_id。
+     */
+    fun moveWholeTray(
+        context: Context,
+        sourceTray: String,
+        targetLocation: String,
+    ): WholeTrayResult {
+        val tray = sourceTray.trim()
+        val dstLoc = targetLocation.trim()
+        if (tray.isEmpty()) throw IllegalArgumentException("请填写源托盘")
+        if (dstLoc.isEmpty()) throw IllegalArgumentException("请填写目标库位")
+        val db = LocalDatabase.get(context).writableDatabase
+        db.beginTransaction()
+        try {
+            val rows = mutableListOf<TursoLedgerClient.StockRow>()
+            db.rawQuery(
+                "SELECT material_code, location, tray_code, balance, updated_at FROM ledger_stock " +
+                    "WHERE tray_code = ? ORDER BY material_code",
+                arrayOf(tray),
+            ).use { c ->
+                while (c.moveToNext()) {
+                    rows += TursoLedgerClient.StockRow(
+                        c.getString(0), c.getString(1), c.getString(2),
+                        c.getInt(3), c.getLong(4),
+                    )
+                }
+            }
+            if (rows.isEmpty()) throw IllegalArgumentException("该托盘暂无库存")
+            // 已在目标库位的行跳过（目标行就是它自己，合并逻辑会把余额翻倍，必须排除）。
+            val toMove = rows.filter { it.location != dstLoc }
+            if (toMove.isEmpty()) throw IllegalArgumentException("已经在该库位")
+            val now = System.currentTimeMillis()
+            var total = 0
+            for (row in toMove) {
+                var dstBalance: Int? = null
+                db.rawQuery(
+                    "SELECT balance FROM ledger_stock WHERE material_code = ? AND location = ? AND tray_code = ?",
+                    arrayOf(row.materialCode, dstLoc, tray),
+                ).use { c ->
+                    if (c.moveToFirst()) dstBalance = c.getInt(0)
+                }
+                val dstNew = (dstBalance ?: 0) + row.balance
+                if (dstBalance != null) {
+                    val dstValues = ContentValues().apply {
+                        put("balance", dstNew)
+                        put("updated_at", now)
+                        put("dirty", 1)
+                    }
+                    db.update(
+                        "ledger_stock", dstValues,
+                        "material_code = ? AND location = ? AND tray_code = ?",
+                        arrayOf(row.materialCode, dstLoc, tray),
+                    )
+                    db.delete(
+                        "ledger_stock",
+                        "material_code = ? AND location = ? AND tray_code = ?",
+                        arrayOf(row.materialCode, row.location, tray),
+                    )
+                } else {
+                    val srcValues = ContentValues().apply {
+                        put("location", dstLoc)
+                        put("updated_at", now)
+                        put("dirty", 1)
+                    }
+                    db.update(
+                        "ledger_stock", srcValues,
+                        "material_code = ? AND location = ? AND tray_code = ?",
+                        arrayOf(row.materialCode, row.location, tray),
+                    )
+                }
+                val outValues = ContentValues().apply {
+                    put("client_id", UUID.randomUUID().toString())
+                    put("move_type", TYPE_OUT)
+                    put("material_code", row.materialCode)
+                    put("quantity", row.balance)
+                    put("location", row.location)
+                    put("tray_code", tray)
+                    put("balance_after", 0)
+                    put("created_at", now)
+                    put("dirty", 1)
+                }
+                db.insertOrThrow("ledger_movements", null, outValues)
+                val inValues = ContentValues().apply {
+                    put("client_id", UUID.randomUUID().toString())
+                    put("move_type", TYPE_IN)
+                    put("material_code", row.materialCode)
+                    put("quantity", row.balance)
+                    put("location", dstLoc)
+                    put("tray_code", tray)
+                    put("balance_after", dstNew)
+                    put("created_at", now)
+                    put("dirty", 1)
+                }
+                db.insertOrThrow("ledger_movements", null, inValues)
+                total += row.balance
+            }
+            db.setTransactionSuccessful()
+            return WholeTrayResult(toMove.size, total)
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     // ---------------- 扫码解析链路 ----------------
 
     /**

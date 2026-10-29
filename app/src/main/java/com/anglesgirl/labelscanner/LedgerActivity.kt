@@ -83,6 +83,9 @@ class LedgerActivity : AppCompatActivity() {
             startRegister(LedgerStore.TYPE_OUT, null)
         }
         findViewById<Button>(R.id.btnLedgerSync).setOnClickListener { syncNow() }
+        findViewById<Button>(R.id.btnLedgerTransfer).setOnClickListener {
+            startActivity(Intent(this, TransferActivity::class.java))
+        }
 
         refreshLocal()
         syncNow()

@@ -1,0 +1,430 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ls_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="库存移动"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_text"
+            android:paddingBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingBottom="8dp">
+
+            <Button
+                android:id="@+id/btnModePartial"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:backgroundTint="@color/ls_primary"
+                android:text="托盘间移动"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+
+            <Button
+                android:id="@+id/btnModeWhole"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_text_dim"
+                android:text="整托移库"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
+
+        <!-- 托盘间移动：部分移量 -->
+        <LinearLayout
+            android:id="@+id/layoutPartial"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="源托盘"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_text_dim" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/etTransSrcTray"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="扫描或输入源托盘号"
+                    android:textSize="15sp"
+                    android:textColor="@color/ls_text"
+                    android:textColorHint="@color/ls_hint" />
+
+                <Button
+                    android:id="@+id/btnScanSrcTray"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_btn_scan"
+                    android:text="🔍 扫"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:minWidth="64dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="物料编码"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_text_dim" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/etTransMaterial"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="扫描、识码或输入物料编码"
+                    android:textSize="15sp"
+                    android:textColor="@color/ls_text"
+                    android:textColorHint="@color/ls_hint" />
+
+                <Button
+                    android:id="@+id/btnScanTransMaterial"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_btn_scan"
+                    android:text="🔍 扫"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:minWidth="64dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+
+                <Button
+                    android:id="@+id/btnOcrTransMaterial"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_primary"
+                    android:text="🔍 识码"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:minWidth="64dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="数量"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_text_dim" />
+
+            <EditText
+                android:id="@+id/etTransQuantity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="填写移动数量"
+                android:inputType="number"
+                android:textSize="15sp"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="目标托盘"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_text_dim" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/etTransDstTray"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="扫描或输入目标托盘号"
+                    android:textSize="15sp"
+                    android:textColor="@color/ls_text"
+                    android:textColorHint="@color/ls_hint" />
+
+                <Button
+                    android:id="@+id/btnScanDstTray"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_btn_scan"
+                    android:text="🔍 扫"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:minWidth="64dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="目标库位"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_text_dim" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/etTransDstLocation"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="扫描或输入目标库位"
+                    android:textSize="15sp"
+                    android:textColor="@color/ls_text"
+                    android:textColorHint="@color/ls_hint" />
+
+                <Button
+                    android:id="@+id/btnScanDstLocation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_btn_scan"
+                    android:text="🔍 扫"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:minWidth="64dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvTransSrcInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="源库位：— · 源结存：—"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_primary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="16dp">
+
+                <Button
+                    android:id="@+id/btnTransLookup"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="@color/ls_primary"
+                    android:text="查库存"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+
+                <Button
+                    android:id="@+id/btnTransConfirmPartial"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_ok"
+                    android:text="确认移动"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 整托移库：整托换库位 -->
+        <LinearLayout
+            android:id="@+id/layoutWhole"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="源托盘"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_text_dim" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/etWholeSrcTray"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="扫描或输入源托盘号"
+                    android:textSize="15sp"
+                    android:textColor="@color/ls_text"
+                    android:textColorHint="@color/ls_hint" />
+
+                <Button
+                    android:id="@+id/btnScanWholeSrcTray"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_btn_scan"
+                    android:text="🔍 扫"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:minWidth="64dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="目标库位"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_text_dim" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/etWholeDstLocation"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="扫描或输入目标库位"
+                    android:textSize="15sp"
+                    android:textColor="@color/ls_text"
+                    android:textColorHint="@color/ls_hint" />
+
+                <Button
+                    android:id="@+id/btnScanWholeDstLocation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_btn_scan"
+                    android:text="🔍 扫"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:minWidth="64dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvWholeSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="先点查托盘"
+                android:textSize="14sp"
+                android:textColor="@color/ls_text" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="16dp">
+
+                <Button
+                    android:id="@+id/btnWholeLookup"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="@color/ls_primary"
+                    android:text="查托盘"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+
+                <Button
+                    android:id="@+id/btnWholeConfirm"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/ls_ok"
+                    android:text="确认移动"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvTransStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text=""
+            android:textSize="13sp"
+            android:textColor="@color/ls_text_dim" />
+
+    </LinearLayout>
+</ScrollView>

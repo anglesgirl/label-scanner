@@ -126,14 +126,35 @@
             android:textStyle="bold"
             android:textColor="@color/ls_text_dim" />
 
-        <EditText
-            android:id="@+id/etRegLocation"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="如 A区-01-01"
-            android:textSize="15sp"
-            android:textColor="@color/ls_text"
-            android:textColorHint="@color/ls_hint" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <EditText
+                android:id="@+id/etRegLocation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="如 A区-01-01"
+                android:textSize="15sp"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint" />
+
+            <Button
+                android:id="@+id/btnScanLocation"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_btn_scan"
+                android:text="🔍 扫"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
