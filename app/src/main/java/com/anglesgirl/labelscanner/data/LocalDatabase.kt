@@ -87,6 +87,27 @@ class LocalDatabase private constructor(context: Context) :
         }
     }
 
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        if (db.isReadOnly) return
+        // 自愈：老库若因版本已是 3（或其它来源的库）而没走 onUpgrade 建表，
+        // 这里用 IF NOT EXISTS 补齐，保证台账表一定存在；已存在的表和数据不受影响。
+        // （真机教训：只靠 onUpgrade 升级的老用户会报 no such table: ledger_stock）
+        createLedgerTables(db)
+        if (!hasColumn(db, "records", "location")) {
+            db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean {
+        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == column) return true
+            }
+        }
+        return false
+    }
+
     companion object {
         private const val DB_NAME = "label_scanner.db"
         private const val DB_VERSION = 3
