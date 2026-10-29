@@ -131,6 +131,11 @@ class LedgerRegisterActivity : AppCompatActivity() {
                     .putExtra(LiveScanActivity.EXTRA_PICK_MODE, true),
             )
         }
+        findViewById<Button>(R.id.btnOcrMaterial).setOnClickListener {
+            // 连续采样识码：无条码的来料标识卡用 OCR 连续取帧、多帧命中后点选填入，
+            // 走 scanLauncher 现成链路（RESULT_OK + EXTRA_RESULT_CODE → 查库存）。
+            scanLauncher.launch(Intent(this, OcrPickActivity::class.java))
+        }
         findViewById<Button>(R.id.btnScanTray).setOnClickListener {
             scanLauncher.launch(
                 Intent(this, LiveScanActivity::class.java)
