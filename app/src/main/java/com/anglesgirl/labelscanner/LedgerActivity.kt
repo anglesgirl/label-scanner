@@ -77,10 +77,10 @@ class LedgerActivity : AppCompatActivity() {
             render()
         }
         findViewById<Button>(R.id.btnRegisterIn).setOnClickListener {
-            startRegister(LedgerStore.TYPE_IN, null)
+            startRegister(LedgerStore.TYPE_IN)
         }
         findViewById<Button>(R.id.btnRegisterOut).setOnClickListener {
-            startRegister(LedgerStore.TYPE_OUT, null)
+            startRegister(LedgerStore.TYPE_OUT)
         }
         findViewById<Button>(R.id.btnLedgerSync).setOnClickListener { syncNow() }
         findViewById<Button>(R.id.btnLedgerTransfer).setOnClickListener {
@@ -173,27 +173,28 @@ class LedgerActivity : AppCompatActivity() {
                         "${row.materialCode}  结存 ${row.balance}"
                     view.findViewById<TextView>(R.id.tvStockSub).text =
                         "库位 ${row.location} · 托盘 ${row.trayCode}"
-                    view.findViewById<Button>(R.id.btnStockIn).setOnClickListener {
-                        startRegister(LedgerStore.TYPE_IN, row)
-                    }
-                    view.findViewById<Button>(R.id.btnStockOut).setOnClickListener {
-                        startRegister(LedgerStore.TYPE_OUT, row)
-                    }
+                    // 列表只负责看：点行进详情，入库/出库/移动都在详情里做。
+                    view.setOnClickListener { startDetail(row) }
                     return view
                 }
             }
         }
     }
 
-    private fun startRegister(type: String, row: TursoLedgerClient.StockRow?) {
-        val intent = Intent(this, LedgerRegisterActivity::class.java)
-            .putExtra(LedgerRegisterActivity.EXTRA_TYPE, type)
-        if (row != null) {
-            intent.putExtra(LedgerRegisterActivity.EXTRA_MATERIAL, row.materialCode)
-            intent.putExtra(LedgerRegisterActivity.EXTRA_LOCATION, row.location)
-            intent.putExtra(LedgerRegisterActivity.EXTRA_TRAY, row.trayCode)
-        }
-        startActivity(intent)
+    private fun startRegister(type: String) {
+        startActivity(
+            Intent(this, LedgerRegisterActivity::class.java)
+                .putExtra(LedgerRegisterActivity.EXTRA_TYPE, type),
+        )
+    }
+
+    private fun startDetail(row: TursoLedgerClient.StockRow) {
+        startActivity(
+            Intent(this, StockDetailActivity::class.java)
+                .putExtra(StockDetailActivity.EXTRA_MATERIAL, row.materialCode)
+                .putExtra(StockDetailActivity.EXTRA_LOCATION, row.location)
+                .putExtra(StockDetailActivity.EXTRA_TRAY, row.trayCode),
+        )
     }
 
     private fun formatTime(millis: Long): String {

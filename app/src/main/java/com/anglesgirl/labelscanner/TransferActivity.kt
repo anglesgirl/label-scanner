@@ -41,6 +41,10 @@ class TransferActivity : AppCompatActivity() {
     companion object {
         private const val MODE_PARTIAL = 0
         private const val MODE_WHOLE = 1
+
+        /** 详情页带入：源托盘 + 物料编码，两者都带入时自动查一次库存。 */
+        const val EXTRA_SRC_TRAY = "transfer_src_tray"
+        const val EXTRA_MATERIAL = "transfer_material"
     }
 
     private lateinit var btnModePartial: Button
@@ -178,6 +182,16 @@ class TransferActivity : AppCompatActivity() {
                 tvWholeSummary.text = "先点查托盘"
             }
         })
+
+        // 详情页带入源托盘 + 物料编码时，默认托盘间移动模式，直接查一次库存，
+        // 源库位与结存显示出来，不用用户再点一次查库存。
+        val preSrcTray = intent.getStringExtra(EXTRA_SRC_TRAY).orEmpty()
+        val preMaterial = intent.getStringExtra(EXTRA_MATERIAL).orEmpty()
+        if (preSrcTray.isNotEmpty() && preMaterial.isNotEmpty()) {
+            etSrcTray.setText(preSrcTray)
+            etMaterial.setText(preMaterial)
+            lookupPartial()
+        }
     }
 
     private fun setMode(newMode: Int) {
