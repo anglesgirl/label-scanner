@@ -40,7 +40,7 @@
                 android:layout_height="50dp"
                 android:layout_weight="1"
                 android:backgroundTint="@color/ls_primary"
-                android:text="📷 拍照"
+                android:text="自动拍照"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
 
@@ -51,7 +51,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_primary"
-                android:text="📄 文档扫描"
+                android:text="Google 扫描"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
 
@@ -96,43 +96,92 @@
             android:textStyle="bold"
             android:textColor="@color/ls_text_dim" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="托盘号（必填，WMS 按托盘导入）"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:textColor="@color/ls_text_dim" />
-
+        <!-- 托盘输入缩短，右侧就近显示最近成功入库的序列号。 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="top">
 
-            <EditText
-                android:id="@+id/etTrayCode"
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.15"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="托盘号（必填）"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/ls_text_dim" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <EditText
+                        android:id="@+id/etTrayCode"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:hint="输入托盘码"
+                        android:inputType="textCapCharacters"
+                        android:singleLine="true"
+                        android:textSize="13sp"
+                        android:textColor="@color/ls_text"
+                        android:textColorHint="@color/ls_hint" />
+
+                    <Button
+                        android:id="@+id/btnScanTrayCode"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_marginStart="4dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="0dp"
+                        android:paddingEnd="0dp"
+                        android:backgroundTint="@color/ls_btn_scan"
+                        android:text="扫"
+                        android:contentDescription="扫描托盘号"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="扫描/输入托盘码"
-                android:textSize="15sp"
-                android:textColor="@color/ls_text"
-                android:textColorHint="@color/ls_hint" />
+                android:layout_marginStart="12dp"
+                android:orientation="vertical">
 
-            <Button
-                android:id="@+id/btnScanTrayCode"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="@color/ls_btn_scan"
-                android:text="🔍 扫"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:minWidth="64dp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="上次已存序列号"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/ls_text_dim" />
+
+                <TextView
+                    android:id="@+id/tvLastSavedSn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:gravity="center_vertical"
+                    android:text="读取中…"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textIsSelectable="true"
+                    android:breakStrategy="simple"
+                    android:textColor="@color/ls_primary" />
+            </LinearLayout>
         </LinearLayout>
 
         <TextView

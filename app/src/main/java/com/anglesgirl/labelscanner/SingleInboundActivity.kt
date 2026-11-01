@@ -26,6 +26,7 @@ import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
 import com.anglesgirl.labelscanner.util.AmbiguousChar
+import com.anglesgirl.labelscanner.util.LastSavedHint
 import com.anglesgirl.labelscanner.util.TrayPrefs
 import java.io.File
 
@@ -79,7 +80,10 @@ class SingleInboundActivity : AppCompatActivity() {
     // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**：
     // registerForActivityResult 要求在当前状态仍为 CREATED 时注册，
     // 延迟到点击按钮时才初始化会抛异常，表现为"相机入口点不进去"。
-    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeStatic(uri) }
+    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(
+        this,
+        com.anglesgirl.labelscanner.camera.CameraCaptureMode.INBOUND_LABEL,
+    ) { uri -> recognizeStatic(uri) }
 
     /** 字段补扫：实时扫码相机 → 确认框 → 填目标框（不拍照，自动识别） */
     private val liveScan = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -147,6 +151,7 @@ class SingleInboundActivity : AppCompatActivity() {
         llCodeCandidates = findViewById(R.id.llCodeCandidates)
         tvStatus = findViewById(R.id.tvStatus)
         tvTrayCount = findViewById(R.id.tvTrayCount)
+        LastSavedHint.bind(this, findViewById(R.id.tvLastSavedSn), prefix = "")
         updateTrayCount()
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
@@ -237,6 +242,8 @@ class SingleInboundActivity : AppCompatActivity() {
     }
 
     private fun showResult(result: LabelResult) {
+        showingEan69 = false
+        findViewById<Button>(R.id.btnToggle69).text = "69"
         etMaterial.setText(result.materialCode)
         etDate.setText(result.productionDate)
         recognizedEan69 = result.ean69
@@ -276,7 +283,8 @@ class SingleInboundActivity : AppCompatActivity() {
                     runOnUiThread {
                         if (material != null && etMaterial.text.toString().isBlank()) {
                             etMaterial.setText(material)
-                            tvStatus.text = "🔁 69码远程反查物料: $material（可修改）"
+                            tvStatus.text = "🔁 69码远程反查物料: $material（可修改）" +
+                                (result.recognitionNote.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: "")
                         }
                     }
                 }
@@ -284,7 +292,11 @@ class SingleInboundActivity : AppCompatActivity() {
         } else if (result.productionDate == "19000101" && tips.isEmpty()) {
             tips = "⚠️ 未识别到生产日期"
         }
-        tvStatus.text = "✅ 识别完成 ${result.barcodes.size} 个条码${if (tips.isEmpty()) "" else "，$tips"}"
+        val hasConfirmedResult = result.barcodes.isNotEmpty() || result.ocrText.isNotBlank() ||
+            result.materialCode.isNotBlank() || result.productionDate.isNotBlank() ||
+            result.ean69.isNotBlank() || result.serialNumber.isNotBlank()
+        tvStatus.text = (if (!hasConfirmedResult) "⚠️ 未识别到稳定结果" else "✅ 识别完成 ${result.barcodes.size} 个已确认条码${if (tips.isEmpty()) "" else "，$tips"}") +
+            (result.recognitionNote.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: "")
         updateSaveButton()
     }
 
@@ -385,7 +397,7 @@ class SingleInboundActivity : AppCompatActivity() {
             // 易混淆字符（O/0、I/l/1）标红加粗：OCR 分不清这些形状，人眼同样分不清，
             // 标出来才能让人专注于核对这些位（用户明确要求）。
             // SN 也按来源判断：只有 OCR 途径得到的才可能认错字符、才需要标红核对
-            val snFromOcr = codeCandidateSources[sn] == "OCR"
+            val snFromOcr = codeCandidateSources[sn]?.contains("OCR") == true
             tvSn.text = android.text.TextUtils.concat(
                 "${index + 1}. ",
                 if (snFromOcr) AmbiguousChar.highlight(sn) else sn,
@@ -442,7 +454,7 @@ class SingleInboundActivity : AppCompatActivity() {
             tv.text = if (src == null) code
             else android.text.TextUtils.concat("[$src] ", code)
             tv.setTextColor(
-                if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)
+                if (src?.contains("OCR") == true) cc(R.color.ls_neutral) else cc(R.color.ls_primary)
             )
             row.findViewById<Button>(R.id.btnDelSn).text = "选"
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener { showCodeActionDialog(code) }
@@ -541,6 +553,7 @@ class SingleInboundActivity : AppCompatActivity() {
             records.size
         }) { result ->
             result.onSuccess { saved ->
+                LastSavedHint.refresh(this@SingleInboundActivity, findViewById(R.id.tvLastSavedSn), prefix = "")
                 updateTrayCount()
                 tvStatus.text = "✅ 已保存 $saved 条（物料 $material，托盘 $tray）" +
                     if (snList.size > uniq.size) "（自动去重 ${snList.size - uniq.size} 个重复序列号）" else ""

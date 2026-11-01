@@ -176,9 +176,15 @@ public final class USBMonitor {
 		if (destroyed) throw new IllegalStateException("already destroyed");
 		if (mPermissionIntent == null) {
 			if (DEBUG) Log.i(TAG, "register:");
-			final Context context = mWeakContext.get();
-			if (context != null) {
-				mPermissionIntent = PendingIntent.getBroadcast(context, 0, new Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE);
+				final Context context = mWeakContext.get();
+				if (context != null) {
+					// USBManager fills in EXTRA_DEVICE and EXTRA_PERMISSION_GRANTED when
+					// delivering the result, so this PendingIntent must be mutable on S+.
+					final Intent permissionIntent = new Intent(ACTION_USB_PERMISSION)
+						.setPackage(context.getPackageName());
+					final int pendingIntentFlags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+						? PendingIntent.FLAG_MUTABLE : 0;
+					mPermissionIntent = PendingIntent.getBroadcast(context, 0, permissionIntent, pendingIntentFlags);
 				final IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
 				// ACTION_USB_DEVICE_ATTACHED never comes on some devices so it should not be added here
 				filter.addAction(ACTION_USB_DEVICE_ATTACHED);
@@ -554,8 +560,14 @@ public final class USBMonitor {
 					final UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
 					if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
 						if (device != null) {
-							// get permission, call onConnect
-							processConnect(device);
+							// Do not trust a broadcast extra alone: this receiver is exported
+							// to receive system USB broadcasts and a device may have detached
+							// since the permission result was queued.
+							if (mUsbManager.hasPermission(device)) {
+								processConnect(device);
+							} else {
+								processCancel(device);
+							}
 						}
 					} else {
 						// failed to get permission
@@ -626,31 +638,49 @@ public final class USBMonitor {
 	 * @param device
 	 */
 	private final void processConnect(final UsbDevice device) {
-		if (destroyed) return;
+		if (destroyed || (device == null)) return;
 		updatePermission(device, true);
-		mAsyncHandler.post(new Runnable() {
-			@Override
-			public void run() {
-				if (DEBUG) Log.v(TAG, "processConnect:device=" + device);
-				UsbControlBlock ctrlBlock;
-				final boolean createNew;
-				ctrlBlock = mCtrlBlocks.get(device);
-				if (ctrlBlock == null) {
-					ctrlBlock = new UsbControlBlock(USBMonitor.this, device);
-					mCtrlBlocks.put(device, ctrlBlock);
-					createNew = true;
-				} else {
-					createNew = false;
+			mAsyncHandler.post(new Runnable() {
+				@Override
+				public void run() {
+					if (DEBUG) Log.v(TAG, "processConnect:device=" + device);
+					if (destroyed) return;
+					UsbControlBlock ctrlBlock = null;
+					boolean createNew = false;
+					try {
+						// Permission and attachment can change between the broadcast and
+						// this worker callback. openDevice may then return null or throw.
+						if (!mUsbManager.hasPermission(device)) {
+							processCancel(device);
+							return;
+						}
+						ctrlBlock = mCtrlBlocks.get(device);
+						if (ctrlBlock == null) {
+							ctrlBlock = new UsbControlBlock(USBMonitor.this, device);
+							mCtrlBlocks.put(device, ctrlBlock);
+							createNew = true;
+						}
+						if (mOnDeviceConnectListener != null) {
+							mOnDeviceConnectListener.onConnect(device, ctrlBlock, createNew);
+						}
+					} catch (final RuntimeException e) {
+						Log.w(TAG, "processConnect: device was removed or could not be opened", e);
+						if (createNew && ctrlBlock != null) {
+							mCtrlBlocks.remove(device, ctrlBlock);
+							try {
+								ctrlBlock.close();
+							} catch (final RuntimeException closeError) {
+								Log.w(TAG, "processConnect: failed to close control block", closeError);
+							}
+						}
+						processCancel(device);
+					}
 				}
-				if (mOnDeviceConnectListener != null) {
-					mOnDeviceConnectListener.onConnect(device, ctrlBlock, createNew);
-				}
-			}
-		});
+			});
 	}
 
 	private final void processCancel(final UsbDevice device) {
-		if (destroyed) return;
+		if (destroyed || (device == null)) return;
 		if (DEBUG) Log.v(TAG, "processCancel:");
 		updatePermission(device, false);
 		if (mOnDeviceConnectListener != null) {
@@ -664,7 +694,7 @@ public final class USBMonitor {
 	}
 
 	private final void processAttach(final UsbDevice device) {
-		if (destroyed) return;
+		if (destroyed || (device == null)) return;
 		if (DEBUG) Log.v(TAG, "processAttach:");
 		if (mOnDeviceConnectListener != null) {
 			mAsyncHandler.post(new Runnable() {
@@ -677,7 +707,7 @@ public final class USBMonitor {
 	}
 
 	private final void processDettach(final UsbDevice device) {
-		if (destroyed) return;
+		if (destroyed || (device == null)) return;
 		if (DEBUG) Log.v(TAG, "processDettach:");
 		if (mOnDeviceConnectListener != null) {
 			mAsyncHandler.post(new Runnable() {
@@ -999,45 +1029,47 @@ public final class USBMonitor {
 			}
 			if ((manager != null) && manager.hasPermission(device)) {
 				final UsbDeviceConnection connection = manager.openDevice(device);
-				if(connection == null) {
-					return null;
-				}
-				final byte[] desc = connection.getRawDescriptors();
-
-				if (TextUtils.isEmpty(info.usb_version)) {
-					info.usb_version = String.format("%x.%02x", ((int)desc[3] & 0xff), ((int)desc[2] & 0xff));
-				}
-				if (TextUtils.isEmpty(info.version)) {
-					info.version = String.format("%x.%02x", ((int)desc[13] & 0xff), ((int)desc[12] & 0xff));
-				}
-				if (TextUtils.isEmpty(info.serial)) {
-					info.serial = connection.getSerial();
-				}
-
-				final byte[] languages = new byte[256];
-				int languageCount = 0;
-				// controlTransfer(int requestType, int request, int value, int index, byte[] buffer, int length, int timeout)
-				try {
-					int result = connection.controlTransfer(
-						USB_REQ_STANDARD_DEVICE_GET, // USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE
-	    				USB_REQ_GET_DESCRIPTOR,
-	    				(USB_DT_STRING << 8) | 0, 0, languages, 256, 0);
-					if (result > 0) {
-	        			languageCount = (result - 2) / 2;
-					}
-					if (languageCount > 0) {
-						if (TextUtils.isEmpty(info.manufacturer)) {
-							info.manufacturer = getString(connection, desc[14], languageCount, languages);
-						}
-						if (TextUtils.isEmpty(info.product)) {
-							info.product = getString(connection, desc[15], languageCount, languages);
+				if (connection != null) {
+					try {
+						final byte[] desc = connection.getRawDescriptors();
+						if (desc != null) {
+							if (TextUtils.isEmpty(info.usb_version) && (desc.length > 3)) {
+								info.usb_version = String.format("%x.%02x", ((int)desc[3] & 0xff), ((int)desc[2] & 0xff));
+							}
+							if (TextUtils.isEmpty(info.version) && (desc.length > 13)) {
+								info.version = String.format("%x.%02x", ((int)desc[13] & 0xff), ((int)desc[12] & 0xff));
+							}
 						}
 						if (TextUtils.isEmpty(info.serial)) {
-							info.serial = getString(connection, desc[16], languageCount, languages);
+							info.serial = connection.getSerial();
 						}
+
+						if ((desc != null) && (desc.length > 16)) {
+							final byte[] languages = new byte[256];
+							int languageCount = 0;
+							// controlTransfer(int requestType, int request, int value, int index, byte[] buffer, int length, int timeout)
+							int result = connection.controlTransfer(
+								USB_REQ_STANDARD_DEVICE_GET, // USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE
+								USB_REQ_GET_DESCRIPTOR,
+								(USB_DT_STRING << 8) | 0, 0, languages, 256, 0);
+							if (result > 2) {
+								languageCount = Math.min((result - 2) / 2, languages.length - 1);
+							}
+							if (languageCount > 0) {
+								if (TextUtils.isEmpty(info.manufacturer)) {
+									info.manufacturer = getString(connection, desc[14], languageCount, languages);
+								}
+								if (TextUtils.isEmpty(info.product)) {
+									info.product = getString(connection, desc[15], languageCount, languages);
+								}
+								if (TextUtils.isEmpty(info.serial)) {
+									info.serial = getString(connection, desc[16], languageCount, languages);
+								}
+							}
+						}
+					} finally {
+						connection.close();
 					}
-				} finally {
-					connection.close();
 				}
 			}
 			if (TextUtils.isEmpty(info.manufacturer)) {
@@ -1060,6 +1092,7 @@ public final class USBMonitor {
 	public static final class UsbControlBlock implements Cloneable {
 		private final WeakReference<USBMonitor> mWeakMonitor;
 		private final WeakReference<UsbDevice> mWeakDevice;
+		private final boolean mIsClone;
 		protected UsbDeviceConnection mConnection;
 		protected final UsbDeviceInfo mInfo;
 		private final int mBusNum;
@@ -1075,15 +1108,31 @@ public final class USBMonitor {
 			if (DEBUG) Log.i(TAG, "UsbControlBlock:constructor");
 			mWeakMonitor = new WeakReference<USBMonitor>(monitor);
 			mWeakDevice = new WeakReference<UsbDevice>(device);
+			mIsClone = false;
 			mConnection = monitor.mUsbManager.openDevice(device);
-			mInfo = updateDeviceInfo(monitor.mUsbManager, device, null);
+			if (mConnection == null) {
+				throw new IllegalStateException("USB device could not be opened (detached or permission revoked)");
+			}
+			final UsbDeviceInfo info;
+			try {
+				info = updateDeviceInfo(monitor.mUsbManager, device, null);
+			} catch (final RuntimeException e) {
+				mConnection.close();
+				mConnection = null;
+				throw e;
+			}
+			mInfo = info != null ? info : new UsbDeviceInfo();
 			final String name = device.getDeviceName();
 			final String[] v = !TextUtils.isEmpty(name) ? name.split("/") : null;
 			int busnum = 0;
 			int devnum = 0;
-			if (v != null) {
-				busnum = Integer.parseInt(v[v.length-2]);
-				devnum = Integer.parseInt(v[v.length-1]);
+			if ((v != null) && (v.length >= 2)) {
+				try {
+					busnum = Integer.parseInt(v[v.length-2]);
+					devnum = Integer.parseInt(v[v.length-1]);
+				} catch (final NumberFormatException e) {
+					Log.w(TAG, "UsbControlBlock: unexpected device name " + name, e);
+				}
 			}
 			mBusNum = busnum;
 			mDevNum = devnum;
@@ -1106,6 +1155,9 @@ public final class USBMonitor {
 		private UsbControlBlock(final UsbControlBlock src) throws IllegalStateException {
 			final USBMonitor monitor = src.getUSBMonitor();
 			final UsbDevice device = src.getDevice();
+			if (monitor == null) {
+				throw new IllegalStateException("USB monitor was already released");
+			}
 			if (device == null) {
 				throw new IllegalStateException("device may already be removed");
 			}
@@ -1113,9 +1165,18 @@ public final class USBMonitor {
 			if (mConnection == null) {
 				throw new IllegalStateException("device may already be removed or have no permission");
 			}
-			mInfo = updateDeviceInfo(monitor.mUsbManager, device, null);
+			final UsbDeviceInfo info;
+			try {
+				info = updateDeviceInfo(monitor.mUsbManager, device, null);
+			} catch (final RuntimeException e) {
+				mConnection.close();
+				mConnection = null;
+				throw e;
+			}
+			mInfo = info != null ? info : new UsbDeviceInfo();
 			mWeakMonitor = new WeakReference<USBMonitor>(monitor);
 			mWeakDevice = new WeakReference<UsbDevice>(device);
+			mIsClone = true;
 			mBusNum = src.mBusNum;
 			mDevNum = src.mDevNum;
 			// FIXME USBMonitor.mCtrlBlocksに追加する(今はHashMapなので追加すると置き換わってしまうのでだめ, ListかHashMapにListをぶら下げる?)
@@ -1397,6 +1458,7 @@ public final class USBMonitor {
 			if (DEBUG) Log.i(TAG, "UsbControlBlock#close:");
 
 			if (mConnection != null) {
+				final UsbDeviceConnection connection = mConnection;
 				final int n = mInterfaces.size();
 				for (int i = 0; i < n; i++) {
 					final SparseArray<UsbInterface> intfs = mInterfaces.valueAt(i);
@@ -1404,20 +1466,37 @@ public final class USBMonitor {
 						final int m = intfs.size();
 						for (int j = 0; j < m; j++) {
 							final UsbInterface intf = intfs.valueAt(j);
-							mConnection.releaseInterface(intf);
+							try {
+								connection.releaseInterface(intf);
+							} catch (final RuntimeException e) {
+								Log.w(TAG, "close: failed to release USB interface", e);
+							}
 						}
 						intfs.clear();
 					}
 				}
 				mInterfaces.clear();
-				mConnection.close();
+				try {
+					connection.close();
+				} catch (final RuntimeException e) {
+					Log.w(TAG, "close: failed to close USB connection", e);
+				}
 				mConnection = null;
 				final USBMonitor monitor = mWeakMonitor.get();
 				if (monitor != null) {
-					if (monitor.mOnDeviceConnectListener != null) {
-						monitor.mOnDeviceConnectListener.onDisconnect(mWeakDevice.get(), UsbControlBlock.this);
+					final UsbDevice device = getDevice();
+					if (!mIsClone && device != null) {
+						monitor.mCtrlBlocks.remove(device, UsbControlBlock.this);
 					}
-					monitor.mCtrlBlocks.remove(getDevice());
+					// Cloned blocks own an independent UsbDeviceConnection. Closing a
+					// clone must not signal device removal or evict the monitor's block.
+					if (!mIsClone && device != null && monitor.mOnDeviceConnectListener != null) {
+						try {
+							monitor.mOnDeviceConnectListener.onDisconnect(device, UsbControlBlock.this);
+						} catch (final RuntimeException e) {
+							Log.w(TAG, "close: onDisconnect callback failed", e);
+						}
+					}
 				}
 			}
 		}

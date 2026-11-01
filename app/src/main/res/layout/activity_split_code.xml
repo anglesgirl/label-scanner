@@ -39,7 +39,7 @@
             android:textColor="@color/ls_text_dim"
             android:textSize="13sp" />
 
-        <!-- 唯一的输入入口：扫一箱 / 粘贴一箱 -->
+        <!-- 集成码相机入口：连续扫码或单箱扫码；另可直接粘贴 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -59,15 +59,14 @@
                 android:insetTop="0dp"
                 android:insetBottom="0dp" />
 
-            <!-- 拍一箱：走统一取图模块（camera.ImageIn），与采集页同一套实现与参数 -->
             <Button
-                android:id="@+id/btnPhotoBox"
+                android:id="@+id/btnSingleScanBox"
                 android:layout_width="0dp"
                 android:layout_height="50dp"
                 android:layout_weight="1"
                 android:layout_marginStart="10dp"
                 android:backgroundTint="@color/ls_accent"
-                android:text="📷 拍一箱"
+                android:text="🔎 单扫一箱"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:textStyle="bold"

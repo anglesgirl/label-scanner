@@ -57,6 +57,17 @@
         android:textStyle="bold" />
 
     <Button
+        android:id="@+id/btnModeListBatch"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="10dp"
+        android:backgroundTint="@color/ls_badge"
+        android:text="🧾 双页清单 / 双页入库\n先识别物料/日期，再录入多条集成码"
+        android:textSize="15sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
+
+    <Button
         android:id="@+id/btnSplitCode"
         android:layout_width="match_parent"
         android:layout_height="64dp"

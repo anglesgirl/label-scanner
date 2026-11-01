@@ -27,6 +27,16 @@
             android:textSize="12sp"
             android:textColor="@color/ls_text_dim" />
 
+        <TextView
+            android:id="@+id/tvLastSavedSn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="上次保存序列号：读取中…"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_primary" />
+
         <!-- 识别来源：拍照 / 文档扫描 / 相册 -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -40,7 +50,7 @@
                 android:layout_height="50dp"
                 android:layout_weight="1"
                 android:backgroundTint="@color/ls_primary"
-                android:text="📷 拍照"
+                android:text="自动拍照"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
 
@@ -51,7 +61,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:backgroundTint="@color/ls_primary"
-                android:text="📄 文档扫描"
+                android:text="Google 扫描"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
 

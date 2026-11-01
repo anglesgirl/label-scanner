@@ -4,7 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-/** 本地业务数据库：记录和 69 码映射共用一个事务数据库。 */
+/** 本地业务数据库：扫描记录、69 码映射和台账镜像共用一个事务数据库。 */
 class LocalDatabase private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DB_NAME, null, DB_VERSION) {
 
@@ -30,7 +30,6 @@ class LocalDatabase private constructor(context: Context) :
             )"""
         )
         db.execSQL("CREATE UNIQUE INDEX records_serial_index ON records(serial_number) WHERE serial_number <> ''")
-        // v2：托盘号索引 —— 按托盘查询/计数走索引，数据量大时不回退全表扫描
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_tray ON records(tray_code)")
         db.execSQL(
             """CREATE TABLE barcode69_lookup (
@@ -39,14 +38,11 @@ class LocalDatabase private constructor(context: Context) :
                 updated_at INTEGER NOT NULL
             )"""
         )
+        createAppMetadataTable(db)
         createLedgerTables(db)
     }
 
-    /**
-     * 台账本地镜像表（v3 新增）：库存按（物料编码，库位，托盘号）主键，
-     * 流水按 client_id 去重；dirty=1 表示还没推到远程 Turso，同步成功后清零。
-     * 台账从空开始：这里只建空表，不把现有 records 导入成库存。
-     */
+    /** v3 台账本地镜像：库存按（物料、库位、托盘）定位，流水按 client_id 去重。 */
     private fun createLedgerTables(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE IF NOT EXISTS ledger_stock (
@@ -76,33 +72,39 @@ class LocalDatabase private constructor(context: Context) :
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_ledger_movements_material ON ledger_movements(material_code)")
     }
 
+    private fun createAppMetadataTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_tray ON records(tray_code)")
         }
         if (oldVersion < 3) {
-            // v3：records 加库位列（新装直接建在表里，老库 ALTER 补列，默认空串不影响旧数据）
-            db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
+            // v3：老库补齐库位列及台账表；已存在记录和同步流水不动。
+            if (!hasColumn(db, "records", "location")) {
+                db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
+            }
             createLedgerTables(db)
+            createAppMetadataTable(db)
         }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
         super.onOpen(db)
         if (db.isReadOnly) return
-        // 自愈：老库若因版本已是 3（或其它来源的库）而没走 onUpgrade 建表，
-        // 这里用 IF NOT EXISTS 补齐，保证台账表一定存在；已存在的表和数据不受影响。
-        // （真机教训：只靠 onUpgrade 升级的老用户会报 no such table: ledger_stock）
+        // 自愈旧 v3 数据库：缺少哪张新增表/字段就补齐，已存在数据不受影响。
         createLedgerTables(db)
+        createAppMetadataTable(db)
         if (!hasColumn(db, "records", "location")) {
             db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
         }
     }
 
     private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean {
-        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
-            while (c.moveToNext()) {
-                if (c.getString(1) == column) return true
+        db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getString(1) == column) return true
             }
         }
         return false

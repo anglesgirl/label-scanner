@@ -9,6 +9,13 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <com.anglesgirl.labelscanner.camera.UsbCameraPreviewView
+        android:id="@+id/usbCaptureView"
+        android:layout_gravity="center"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <View
         android:id="@+id/captureAlignmentFrame"
         android:layout_width="match_parent"
@@ -24,20 +31,34 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:layout_marginTop="36dp"
+        android:layout_marginTop="12dp"
         android:background="@color/ls_scrim"
+        android:ellipsize="end"
         android:gravity="center"
-        android:padding="12dp"
+        android:maxLines="3"
+        android:padding="10dp"
         android:text="正在启动相机..."
         android:textColor="#FFFFFF"
-        android:textSize="16sp" />
+        android:textSize="14sp" />
+
+    <Button
+        android:id="@+id/btnCaptureSource"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="132dp"
+        android:layout_marginStart="16dp"
+        android:text="切换摄像头"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:backgroundTint="#546E7A" />
 
     <Button
         android:id="@+id/btnTorch"
         android:layout_width="wrap_content"
         android:layout_height="44dp"
         android:layout_gravity="top|end"
-        android:layout_marginTop="96dp"
+        android:layout_marginTop="132dp"
         android:layout_marginEnd="16dp"
         android:backgroundTint="#546E7A"
         android:insetBottom="0dp"
@@ -54,7 +75,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="150dp"
+        android:layout_marginTop="188dp"
         android:layout_marginEnd="16dp"
         android:background="@color/ls_scrim"
         android:paddingStart="8dp"
@@ -66,8 +87,33 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:gravity="center"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvLastSavedSerial"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:background="@color/ls_scrim"
+            android:padding="12dp"
+            android:text="上次保存序列号：正在读取…"
+            android:textColor="#FFEB3B"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnCaptureRetry"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginBottom="8dp"
+            android:text="整页拍照兜底"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
 
         <Button
             android:id="@+id/btnCaptureCancel"
@@ -82,6 +128,7 @@
             android:layout_height="52dp"
             android:layout_marginStart="12dp"
             android:layout_weight="1"
-            android:text="拍照" />
+            android:text="手动拍照" />
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>

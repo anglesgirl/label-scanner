@@ -12,8 +12,9 @@
 
     <!-- USB UVC 摄像头预览层（内窥镜等外接摄像头）：USB 模式显示，
          手机摄像头模式隐藏。与 PreviewView 叠放，互斥可见。 -->
-    <com.serenegiant.usb.widget.UVCCameraTextureView
+    <com.anglesgirl.labelscanner.camera.UsbCameraPreviewView
         android:id="@+id/usbCameraView"
+        android:layout_gravity="center"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
@@ -77,6 +78,23 @@
             android:insetBottom="0dp" />
     </LinearLayout>
 
+    <!-- 独立放在顶栏下方，不压缩提示栏中的灯光/小标签/关闭按钮。 -->
+    <Button
+        android:id="@+id/btnSwitchCamera"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="88dp"
+        android:layout_marginEnd="12dp"
+        android:backgroundTint="#546E7A"
+        android:elevation="8dp"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        android:minWidth="120dp"
+        android:text="🔌 切换 USB"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp" />
+
     <!-- 补光灯亮度条：开灯后显示，0~100 调曝光补偿让画面更亮 -->
     <SeekBar
         android:id="@+id/sbTorchBrightness"
@@ -84,7 +102,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="58dp"
+        android:layout_marginTop="136dp"
         android:layout_marginEnd="16dp"
         android:background="@color/ls_scrim"
         android:paddingStart="8dp"

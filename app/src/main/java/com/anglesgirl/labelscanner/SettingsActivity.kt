@@ -130,14 +130,19 @@ class SettingsActivity : AppCompatActivity() {
                 runOnUiThread {
                     val barcodes = result.barcodes.joinToString("\n").ifEmpty { "（无）" }
                     val ocr = result.ocrText.ifBlank { "（无 OCR 文本）" }
-                    tvStatus.text = "识别完成：条码 ${result.barcodes.size} 个"
+                    val note = result.recognitionNote.ifBlank { "（无）" }
+                    val allText = "已确认条码:\n$barcodes\n\n已确认 OCR:\n$ocr\n\n识别说明:\n$note"
+                    tvStatus.text = if (result.barcodes.isEmpty() && result.ocrText.isBlank()) {
+                        "⚠️ 未识别到稳定结果"
+                    } else {
+                        "识别完成：已确认条码 ${result.barcodes.size} 个"
+                    }
                     androidx.appcompat.app.AlertDialog.Builder(this)
                         .setTitle("🔬 测试识别结果")
-                        .setMessage("【原始条码 ${result.barcodes.size} 个】\n$barcodes\n\n【原始 OCR】\n$ocr")
+                        .setMessage(allText)
                         .setPositiveButton("复制", { _, _ ->
                             val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            cm.setPrimaryClip(android.content.ClipData.newPlainText(
-                                "识别结果", "条码:\n$barcodes\n\nOCR:\n$ocr"))
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("识别结果", allText))
                             Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show()
                         })
                         .setNeutralButton("关闭", null)

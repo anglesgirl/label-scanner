@@ -11,6 +11,51 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 
+/** Camera presentation/analysis varies by workflow, while capture remains shared. */
+enum class CameraCaptureMode(
+    val instruction: String,
+    val usesLiveSampling: Boolean,
+    val showLastSavedSerial: Boolean,
+    val captureButtonText: String,
+) {
+    PHOTO_ONLY(
+        "将目标标签或条码页放入框内，尽量拍全并保持清晰；拍照后识别页面内容。",
+        usesLiveSampling = false,
+        showLastSavedSerial = false,
+        captureButtonText = "拍照识别",
+    ),
+    INBOUND_LABEL(
+        "将入库标签放入框内，重点对准69码下方的序列号、日期和物料编码；读到条码即开始采样。",
+        usesLiveSampling = true,
+        showLastSavedSerial = true,
+        captureButtonText = "手动拍照",
+    ),
+    MULTI_CODE(
+        "对准多码标签或序列号清单，尽量拍全页面所有条码；拍照后一次识别全部条码和文字。",
+        usesLiveSampling = false,
+        showLastSavedSerial = false,
+        captureButtonText = "拍照识别",
+    ),
+    LIST_TRAY(
+        "对准托盘信息页，让托盘/SSCC 条码完整清晰入框；同一候选连续识别 3 帧后自动拍照，也可手动拍照兜底。",
+        usesLiveSampling = true,
+        showLastSavedSerial = false,
+        captureButtonText = "手动拍照",
+    ),
+    LIST_HEADER(
+        "让终端物料编号和生产日期同时清晰入镜；直接识别中英文文字，不要求先读到条码。",
+        usesLiveSampling = true,
+        showLastSavedSerial = false,
+        captureButtonText = "手动拍照",
+    ),
+    LIST_CODES(
+        "从本页最上方开始缓慢向下扫；每个码稳定读到 3 次后加入清单，扫完整页点完成本页，再扫下一张。",
+        usesLiveSampling = true,
+        showLastSavedSerial = false,
+        captureButtonText = "完成本页",
+    ),
+}
+
 /**
  * 统一的取图入口模块。
  *
@@ -24,7 +69,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
  *
  * 用法（各页面只声明一次，并只负责"拿到图之后怎么处理"）：
  * ```
- * private val imageIn by lazy { ImageIn(this) { uri -> recognize(uri) } }
+ * private val imageIn = ImageIn(this) { uri -> recognize(uri) }
  * // 按钮：
  * btnTakePhoto.setOnClickListener { imageIn.takePhoto() }
  * btnScanDoc.setOnClickListener  { imageIn.scanDocument() }
@@ -37,10 +82,11 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
  *  - [pickGallery]  —— 相册导入（走系统文档模式拍完再投喂的兜底）
  *
  * 注意：[ComponentActivity] 要求在 Activity 初始化阶段就注册 launcher，
- * 所以本类要在 `onCreate` 之前或之中构造（用 `by lazy` 或直接赋值均可）。
+ * 所以本类要在 Activity 构造阶段或 onCreate 中构造，不能延迟到点击时初始化。
  */
 class ImageIn(
     private val activity: ComponentActivity,
+    private val defaultCaptureMode: CameraCaptureMode = CameraCaptureMode.PHOTO_ONLY,
     private val onImage: (Uri) -> Unit,
 ) {
 
@@ -65,19 +111,31 @@ class ImageIn(
             uri?.let(onImage)
         }
 
-    /** 自研文档模式拍照。 */
-    fun takePhoto() {
-        takePhoto.launch(Intent(activity, CaptureActivity::class.java))
+    /** 唯一的自研相机入口；调用方只声明当前流程的拍摄目的。 */
+    fun takePhoto(mode: CameraCaptureMode = defaultCaptureMode) {
+        takePhoto.launch(
+            Intent(activity, CaptureActivity::class.java)
+                .putExtra(CaptureActivity.EXTRA_CAPTURE_MODE, mode.name),
+        )
     }
 
     /**
-     * ML Kit 文档扫描。参数只在这里定义，所有页面共用，避免各处走偏。
+     * Google 文档扫描的 SDK 自带取景页不开放相机变焦控制。
+     * 第二个按钮只进入 Google 原版，不再重复提供第一个按钮的自研相机。
+     * 两条路径最终仍由同一个 onImage 回调交给全量扫码/OCR。
+     */
+    fun scanDocument() {
+        scanGoogleDocument()
+    }
+
+    /**
+     * ML Kit 原版文档扫描。参数只在这里定义，所有页面共用，避免各处走偏。
      * - **FULL 模式**：自动找边 + 裁切 + 透视矫正 + 图像增强。
      *   对 PDF417 这类堆叠式二维码至关重要 —— 手机拍照必然有透视变形，
      *   而堆叠码对透视极其敏感，不矫正很难稳定解出。
      * - 页数限 1（一张标签）、允许从相册导入、JPEG 结果。
      */
-    fun scanDocument() {
+    fun scanGoogleDocument() {
         val options = GmsDocumentScannerOptions.Builder()
             .setGalleryImportAllowed(true)
             .setPageLimit(1)

@@ -1,10 +1,8 @@
 package com.anglesgirl.labelscanner
 
-import android.app.Activity
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -25,11 +23,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
-import com.anglesgirl.labelscanner.camera.StaticRecognizer
 import com.anglesgirl.labelscanner.util.BarcodeGenerator
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
-import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.File
 
 /**
@@ -37,7 +31,7 @@ import java.io.File
  * 每个 SN 生成独立【条码】（Code128，下方自带内容文本）→ 保存到
  * 相册供打印贴标。
  *
- * 识别入口与单箱入库一致：拍照 / 文档扫描 / 相册 三选 + 手动粘贴兜底。
+ * 相机只扫集成码，不走库存拍照/OCR；也支持手动粘贴兜底。
  * 拆分规则与 BoxParser 一致：逗号/分号/空白 分隔，去重，短 token 丢弃。
  */
 class SplitCodeActivity : AppCompatActivity() {
@@ -49,18 +43,6 @@ class SplitCodeActivity : AppCompatActivity() {
     /** 已拆分的 SN 列表（有序去重） */
     private val snList = mutableListOf<String>()
 
-    /**
-     * 取图入口：统一走 camera.ImageIn。
-     *
-     * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数。
-     * 这里原来是"系统相机 ACTION_IMAGE_CAPTURE + FileProvider"自己的一套 ——
-     * 同一个"拍照"在采集页和拆分页走的却是不同相机、不同参数。
-     */
-    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**：
-    // registerForActivityResult 要求在当前状态仍为 CREATED 时注册，
-    // 延迟到点击按钮时才初始化会抛异常，表现为"相机入口点不进去"。
-    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
-
     /** 多箱拆模式（每箱一行，全部完成后再出结果）。 */
     /** 多箱模式下每箱的集成码。 */
     private lateinit var llBoxes: LinearLayout
@@ -69,12 +51,7 @@ class SplitCodeActivity : AppCompatActivity() {
     /** 结果区与输入区之间的分隔线。 */
     private lateinit var dividerResult: android.view.View
 
-    /**
-     * 挑码取码：调起 LiveScanActivity 的挑码模式 —— 相机实时扫到多个码后
-     * **列出让用户点选**，而不是像 bulkMode 那样扫到就自动返回。
-     * 集成码常与其它码同框出现，必须让用户点，否则极易取错码。
-     */
-    /** 扫入指定的一箱（用普通单码扫描：扫到即返回，直接填进该行输入框）。 */
+    /** 扫入指定的一箱；回传数据仍会在本页再次校验为集成码。 */
     private val scanInto = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -86,37 +63,33 @@ class SplitCodeActivity : AppCompatActivity() {
             ?: return@registerForActivityResult
         if (list.isEmpty()) return@registerForActivityResult
 
-        // 采集层已"全量收下"。这里的分工是用户明确要求的：
-        //   **自动填是主力**（减轻劳动强度），**手选只是填错时的修补**。
-        // 所以集成码照常自动进目标箱，不因为"可能填错"就改成让用户逐个手点。
+        // 扫描页返回同帧全部码；拆解页只接收集成码，不把普通条码塞进待拆箱。
         val idx = scanTargetRow
-        val integrated = list.filter { it.contains(',') || it.contains('\uFF0C') }
-        val others = list.filterNot { it.contains(',') || it.contains('\uFF0C') }
+        val integrated = list.filter(IntegratedCode::isPayload)
+        val others = list.filterNot(IntegratedCode::isPayload)
+
+        if (integrated.isEmpty()) {
+            tvSplitStatus.text = "扫到 ${list.size} 个码，但没有集成码；请对准集成码重扫"
+            return@registerForActivityResult
+        }
 
         var autoFilled = 0
-        if (integrated.isNotEmpty()) {
-            var first = true
-            for (code in integrated) {
-                if (first && idx >= 0 && idx < rows.size) {
-                    rows[idx].input.setText(code)
-                    rows[idx].check.isChecked = true
-                    first = false
+        var first = true
+        for (code in integrated) {
+            if (first && idx >= 0 && idx < rows.size) {
+                rows[idx].input.setText(code)
+                rows[idx].check.isChecked = true
+                first = false
+            } else {
+                val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
+                if (empty != null) {
+                    empty.input.setText(code); empty.check.isChecked = true
                 } else {
-                    val empty = rows.firstOrNull { it.input.text.isNullOrBlank() }
-                    if (empty != null) {
-                        empty.input.setText(code); empty.check.isChecked = true
-                    } else {
-                        addBoxRow().input.setText(code)
-                        rows.last().check.isChecked = true
-                    }
+                    addBoxRow().input.setText(code)
+                    rows.last().check.isChecked = true
                 }
-                autoFilled++
             }
-        } else if (list.size == 1 && idx >= 0 && idx < rows.size) {
-            // 没集成码、只有一个码：仍然自动填，让用户看着改，而不是空手。
-            rows[idx].input.setText(list[0])
-            rows[idx].check.isChecked = true
-            autoFilled = 1
+            autoFilled++
         }
 
         updateBoxTitle()
@@ -154,9 +127,19 @@ class SplitCodeActivity : AppCompatActivity() {
         )
     }
 
+    /** 单箱扫描也走集成码专用实时相机，不启动库存拍照/OCR流程。 */
+    private fun scanSingleBox() {
+        scanTargetRow = -1
+        scanInto.launch(
+            Intent(this, LiveScanActivity::class.java)
+                .putExtra(LiveScanActivity.EXTRA_TITLE, "扫一箱集成码")
+                .putExtra(LiveScanActivity.EXTRA_WANT_INTEGRATED, true),
+        )
+    }
+
     /**
-     * 粘贴一箱：整箱集成码常是从别处复制来的；支持一次粘贴多箱（一行一箱）。
-     */
+    * 粘贴一箱：整箱集成码常是从别处复制来的；支持一次粘贴多箱（一行一箱）。
+    */
     private fun pasteNewBox() {
         val et = EditText(this).apply {
             hint = "SN1,SN2,SN3"
@@ -331,7 +314,7 @@ class SplitCodeActivity : AppCompatActivity() {
         // 输入只有一个地方：顶部「扫一箱 / 粘贴一箱」。
         // 之前每行箱里还有「扫」、下面又有个独立粘贴框，同一件事三个入口 —— 已统一。
         findViewById<Button>(R.id.btnScanBox).setOnClickListener { scanNewBox() }
-        findViewById<Button>(R.id.btnPhotoBox).setOnClickListener { imageIn.takePhoto() }
+        findViewById<Button>(R.id.btnSingleScanBox).setOnClickListener { scanSingleBox() }
         findViewById<Button>(R.id.btnPasteBox).setOnClickListener { pasteNewBox() }
         findViewById<Button>(R.id.btnSplit).setOnClickListener { splitChecked() }
         findViewById<Button>(R.id.btnSaveAll).setOnClickListener { saveAll() }
@@ -341,42 +324,6 @@ class SplitCodeActivity : AppCompatActivity() {
         tvSplitStatus.text = "每箱扫一个集成码；勾选要拆的箱，点「拆解选中的」一起拆"
     }
 
-    /** 识别图片里的集成码 → 拆成单个序列号 → 填进结果区 */
-    private fun recognizeLabel(uri: Uri) {
-        tvSplitStatus.text = "识别中..."
-        StaticRecognizer.recognizeUri(
-            resolver = contentResolver,
-            uri = uri,
-            lookup69 = null,
-            onResult = { result ->
-                runOnUiThread {
-                    if (result.barcodes.isEmpty()) {
-                        tvSplitStatus.text = "⚠️ 未识别到条码，请换图重试"
-                        return@runOnUiThread
-                    }
-                    val source = result.barcodes.joinToString(",")
-                    val sns = splitCodes(result.barcodes)
-                    if (sns.isEmpty()) {
-                        tvSplitStatus.text = "⚠️ 识别到条码但未拆分出有效 SN：\n$source"
-                        return@runOnUiThread
-                    }
-                    applySplit(source, sns)
-                }
-            },
-            onError = { msg ->
-                runOnUiThread {
-                    tvSplitStatus.text = "识别失败：$msg"
-                    Toast.makeText(this, "识别失败：$msg", Toast.LENGTH_SHORT).show()
-                }
-            }
-        )
-    }
-
-    /**
-     * 拆分：逗号/分号/空白 分隔 → 去重 → 丢弃过短 token。
-     * 与 BoxParser 多值码规则一致；长度下限放宽到 4（SN 可能较短，
-     * 保留给用户人工确认，可在列表里看到全部）。
-     */
     private fun splitCodes(codes: List<String>): List<String> =
         splitText(codes.joinToString(","))
 
