@@ -2,27 +2,53 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginBottom="7dp"
+    android:background="@drawable/bg_section_card"
+    android:gravity="center_vertical"
+    android:minHeight="76dp"
     android:orientation="horizontal"
-    android:background="@color/ls_card"
     android:paddingHorizontal="10dp"
-    android:paddingVertical="6dp"
-    android:layout_marginBottom="6dp">
+    android:paddingVertical="8dp">
 
     <CheckBox
         android:id="@+id/cbCode"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="center_vertical" />
+        android:layout_gravity="center_vertical"
+        android:minWidth="44dp"
+        android:minHeight="48dp" />
 
-    <EditText
-        android:id="@+id/etCode"
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_gravity="center_vertical"
-        android:background="@null"
-        android:textColor="@color/ls_text"
-        android:textSize="14sp"
-        android:inputType="text"
-        android:importantForAutofill="no" />
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvCodeMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="集成码 · 拆分 3 个 SN · 待保存"
+            android:textColor="@color/ls_primary"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etCode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:background="@drawable/bg_code_input"
+            android:gravity="top|start"
+            android:importantForAutofill="no"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:maxLines="3"
+            android:minHeight="42dp"
+            android:minLines="1"
+            android:paddingHorizontal="9dp"
+            android:paddingVertical="7dp"
+            android:scrollHorizontally="false"
+            android:textColor="@color/ls_text"
+            android:textSize="14sp" />
+    </LinearLayout>
 </LinearLayout>

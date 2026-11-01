@@ -1,118 +1,151 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@color/ls_bg"
-    android:padding="20dp">
+    android:clipToPadding="false"
+    android:fillViewport="true"
+    android:scrollbars="none">
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="🏭 标签扫码入库"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:textColor="@color/ls_text" />
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="20dp">
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="识别标签 → 按托盘入库 → 导出 WMS 喂系统"
-        android:textSize="13sp"
-        android:textColor="@color/ls_text_dim" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="标签扫码入库"
+            android:textColor="@color/ls_text"
+            android:textSize="27sp"
+            android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/btnModeSingle"
-        android:layout_width="match_parent"
-        android:layout_height="72dp"
-        android:layout_marginTop="32dp"
-        android:backgroundTint="@color/ls_ok"
-        android:text="📋 单条入库\n一箱一码 / 单品标签 / 可多条序列号"
-        android:textSize="15sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="识别标签 · 按托盘入库 · 导出 WMS"
+            android:textColor="@color/ls_text_dim"
+            android:textSize="14sp" />
 
-    <Button
-        android:id="@+id/btnModeBox"
-        android:layout_width="match_parent"
-        android:layout_height="72dp"
-        android:layout_marginTop="14dp"
-        android:backgroundTint="@color/ls_accent"
-        android:text="📦 单箱入库\n一箱多 SN / 二维码集成 SN / 自动分箱号"
-        android:textSize="15sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:background="@drawable/bg_section_card"
+            android:orientation="vertical"
+            android:padding="14dp">
 
-    <Button
-        android:id="@+id/btnModeMulti"
-        android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:layout_marginTop="14dp"
-        android:backgroundTint="@color/ls_primary"
-        android:text="📄 多码清单\n一张纸多个条码 / 批量序列号入库"
-        android:textSize="15sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="采集与入库"
+                android:textColor="@color/ls_text"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/btnModeListBatch"
-        android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:layout_marginTop="10dp"
-        android:backgroundTint="@color/ls_badge"
-        android:text="🧾 双页清单 / 双页入库\n先识别物料/日期，再录入多条集成码"
-        android:textSize="15sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold" />
+            <Button
+                android:id="@+id/btnModeSingle"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:backgroundTint="@color/ls_ok"
+                android:text="单条入库\n一箱一码 · 单品标签 · 多条序列号"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/btnSplitCode"
-        android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:layout_marginTop="14dp"
-        android:backgroundTint="@color/ls_warn"
-        android:text="🧩 集成码拆分\n扫集成码拆 SN / 每 SN 生成独立条码"
-        android:textSize="15sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold" />
+            <Button
+                android:id="@+id/btnModeBox"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="@color/ls_accent"
+                android:text="单箱入库\n一箱多 SN · 集成码自动拆分"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/btnGotoCenter"
-        android:layout_width="match_parent"
-        android:layout_height="72dp"
-        android:layout_marginTop="14dp"
-        android:backgroundTint="@color/ls_badge"
-        android:text="🗂️ 托盘中心\n多选托盘 / 导出 WMS（一次喂多个托盘）"
-        android:textSize="15sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold" />
+            <Button
+                android:id="@+id/btnModeListBatch"
+                android:layout_width="match_parent"
+                android:layout_height="68dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="@color/ls_primary"
+                android:text="批量清单入库\n托盘 + 物料/日期 + 多页集成码清单"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/btnLedger"
-        android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:layout_marginTop="14dp"
-        android:backgroundTint="@color/ls_primary"
-        android:text="📒 台账管理\n扫码出入库 / 库存结存 / 出入流水"
-        android:textSize="15sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold" />
+            <Button
+                android:id="@+id/btnSplitCode"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="@color/ls_warn"
+                android:text="集成码拆分\n查看 SN 明细 · 生成独立条码"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_section_card"
+            android:orientation="vertical"
+            android:padding="14dp">
 
-    <Button
-        android:id="@+id/btnSettings"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:layout_marginBottom="12dp"
-        android:backgroundTint="@color/ls_text_dim"
-        android:text="⚙️ 设置（69 码反查数据库 / 测试识别）"
-        android:textSize="14sp"
-        android:textColor="#FFFFFF" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="库存管理"
+                android:textColor="@color/ls_text"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
-</LinearLayout>
+            <Button
+                android:id="@+id/btnGotoCenter"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:backgroundTint="@color/ls_badge"
+                android:text="托盘中心\n多选托盘 · 批量导出 WMS"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnLedger"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="@color/ls_neutral"
+                android:text="台账管理\n库存结存 · 出入库登记 · 出入流水"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnSettings"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="12dp"
+            android:backgroundTint="@color/ls_text_dim"
+            android:text="设置 · 69 码反查 · 测试识别"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+    </LinearLayout>
+</ScrollView>

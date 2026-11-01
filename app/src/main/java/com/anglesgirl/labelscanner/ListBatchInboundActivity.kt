@@ -31,7 +31,6 @@ import com.anglesgirl.labelscanner.model.LabelResult
 import com.anglesgirl.labelscanner.model.TrayCodeParser
 import com.anglesgirl.labelscanner.util.LastSavedHint
 import com.anglesgirl.labelscanner.util.TrayPrefs
-import java.util.Locale
 
 /**
  * 双页清单录入：先识别物料/日期页，再逐页收集每个独立集成码。
@@ -172,6 +171,10 @@ class ListBatchInboundActivity : AppCompatActivity() {
     private fun onImage(uri: Uri, stage: CaptureStage) {
         if (recognizing) return
         recognizing = true
+        if (stage == CaptureStage.HEADER) {
+            etMaterial.setText("")
+            etDate.setText("")
+        }
         tvStatus.text = if (stage == CaptureStage.HEADER) {
             "正在识别物料与日期…"
         } else if (stage == CaptureStage.TRAY) {
@@ -183,6 +186,9 @@ class ListBatchInboundActivity : AppCompatActivity() {
             resolver = contentResolver,
             uri = uri,
             onResult = { codes, ocrText -> runOnUiThread { showResult(stage, codes, ocrText) } },
+            onEvidence = { evidence -> runOnUiThread {
+                showResult(stage, evidence.barcodes, evidence.ocrText, evidence.frameCount)
+            } },
             onError = { message -> runOnUiThread {
                 recognizing = false
                 tvStatus.text = "识别失败：$message"
@@ -191,7 +197,12 @@ class ListBatchInboundActivity : AppCompatActivity() {
         )
     }
 
-    private fun showResult(stage: CaptureStage, codes: List<String>, ocrText: String) {
+    private fun showResult(
+        stage: CaptureStage,
+        codes: List<String>,
+        ocrText: String,
+        frameCount: Int? = null,
+    ) {
         recognizing = false
         if (stage == CaptureStage.TRAY) {
             val candidates = TrayCodeParser.candidates(codes, ocrText)
@@ -254,10 +265,12 @@ class ListBatchInboundActivity : AppCompatActivity() {
         }
         adapter.notifyDataSetChanged()
         updateCounts()
+        val sampleNote = frameCount?.takeIf { it > 1 }?.let { "本次依据 $it 帧采样结果" }
         tvCodesStatus.text = if (newCodes.isEmpty()) {
             "本页没有解出条码；可换文档扫描、重新拍照，或用下方扫码枪/手工输入"
         } else {
-            "本页读到 ${newCodes.size} 个不同码，新增 $added 个；清单总数 ${items.size} 个。自动勾选序列号候选，$metadata 个疑似辅助码默认未勾选，请核对。"
+            "本页读到 ${newCodes.size} 个不同码，新增 $added 个；清单总数 ${items.size} 个。自动勾选序列号候选，$metadata 个疑似辅助码默认未勾选，请核对。" +
+                (sampleNote?.let { "\n$it" } ?: "")
         }
         tvStatus.text = if (added > 0) {
             "清单累计 ${items.size} 个码。可继续添加下一页，也可手动补码。"
@@ -315,7 +328,13 @@ class ListBatchInboundActivity : AppCompatActivity() {
             Toast.makeText(this, "没有待保存的已勾选集成码", Toast.LENGTH_SHORT).show()
             return
         }
-        val serialNumbers = checked.flatMap { IntegratedCode.serialNumbers(it.value) }.distinct()
+        val savedSerialNumbers = items.filter { it.saved }
+            .flatMap { IntegratedCode.serialNumbers(it.value) }
+            .toSet()
+        val serialNumbers = IntegratedCode.serialNumbersToSave(
+            values = checked.map { it.value },
+            alreadySaved = savedSerialNumbers,
+        )
         if (serialNumbers.isEmpty()) {
             Toast.makeText(this, "勾选内容中没有可保存的序列号", Toast.LENGTH_SHORT).show()
             return
@@ -388,12 +407,15 @@ class ListBatchInboundActivity : AppCompatActivity() {
             holder.checkBox.isChecked = item.checked
             holder.checkBox.isEnabled = !item.saved
             holder.code.setText(item.value)
-            holder.code.setSingleLine(true)
+            holder.code.setSingleLine(false)
+            holder.code.maxLines = 3
+            holder.meta.text = codeSummary(item)
             holder.code.isEnabled = !item.saved
             holder.itemView.alpha = if (item.saved) 0.58f else 1f
             holder.code.setOnFocusChangeListener { _, hasFocus ->
                 if (!hasFocus) {
                     item.value = holder.code.text.toString().trim()
+                    holder.meta.text = codeSummary(item)
                     updateCounts()
                 }
             }
@@ -406,6 +428,13 @@ class ListBatchInboundActivity : AppCompatActivity() {
         inner class VH(view: View) : RecyclerView.ViewHolder(view) {
             val checkBox: CheckBox = view.findViewById(R.id.cbCode)
             val code: EditText = view.findViewById(R.id.etCode)
+            val meta: TextView = view.findViewById(R.id.tvCodeMeta)
         }
+    }
+
+    private fun codeSummary(item: Item): String {
+        val serialCount = IntegratedCode.serialNumbers(item.value).size
+        val kind = if (IntegratedCode.isPayload(item.value)) "集成码 · 拆分 $serialCount 个 SN" else "单码 · $serialCount 个 SN"
+        return "$kind · ${if (item.saved) "已保存" else "待保存"}"
     }
 }

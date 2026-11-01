@@ -11,4 +11,10 @@ internal object IntegratedCode {
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .distinct()
+
+    /** Expand selected codes once and exclude serials already saved in this list session. */
+    fun serialNumbersToSave(values: List<String>, alreadySaved: Set<String>): List<String> =
+        values.flatMap(::serialNumbers)
+            .distinct()
+            .filterNot(alreadySaved::contains)
 }

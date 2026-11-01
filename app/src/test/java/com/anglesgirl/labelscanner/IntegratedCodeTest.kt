@@ -23,4 +23,15 @@ class IntegratedCodeTest {
             IntegratedCode.serialNumbers(" SN001, SN002，，SN001；SN003 "),
         )
     }
+
+    @Test
+    fun excludesPreviouslySavedSerialsAcrossSelectedCodes() {
+        assertEquals(
+            listOf("SN002", "SN003"),
+            IntegratedCode.serialNumbersToSave(
+                values = listOf("SN001,SN002", "SN002;SN003"),
+                alreadySaved = setOf("SN001"),
+            ),
+        )
+    }
 }

@@ -30,12 +30,6 @@ enum class CameraCaptureMode(
         showLastSavedSerial = true,
         captureButtonText = "手动拍照",
     ),
-    MULTI_CODE(
-        "对准多码标签或序列号清单，尽量拍全页面所有条码；拍照后一次识别全部条码和文字。",
-        usesLiveSampling = false,
-        showLastSavedSerial = false,
-        captureButtonText = "拍照识别",
-    ),
     LIST_TRAY(
         "对准托盘信息页，让托盘/SSCC 条码完整清晰入框；同一候选连续识别 3 帧后自动拍照，也可手动拍照兜底。",
         usesLiveSampling = true,

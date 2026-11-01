@@ -11,16 +11,16 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingTop="8dp"
-        android:text="双页清单录入"
-        android:textSize="20sp"
+        android:text="批量清单入库"
+        android:textSize="22sp"
         android:textStyle="bold"
         android:textColor="@color/ls_text" />
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
-        android:text="先识别物料/生产日期，再逐页拍摄并累计集成码；所有页完成后统一核对保存"
-        android:textSize="12sp"
+        android:text="托盘 + 物料/日期 + 多页集成码；逐码核对，按 SN 独立保存"
+        android:textSize="13sp"
         android:textColor="@color/ls_text_dim" />
     <TextView
         android:id="@+id/tvBatchLastSaved"
@@ -36,7 +36,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="5dp"
-        android:text="1. 托盘信息页：登记栈板条码（WMS 托盘码）"
+        android:text="1  托盘信息 · 登记栈板条码（WMS 托盘码）"
         android:textSize="13sp"
         android:textStyle="bold"
         android:textColor="@color/ls_text" />
@@ -106,7 +106,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="5dp"
-        android:text="2. 基础信息页：核对物料编码和生产日期"
+        android:text="2  基础信息 · 核对物料编码和生产日期"
         android:textSize="13sp"
         android:textStyle="bold"
         android:textColor="@color/ls_text" />
@@ -185,7 +185,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="3dp"
-        android:text="3. 集成码页：从上往下实时扫，一页完成后再扫下一页；查看集成码和拆分后的序列号数量（识别不到可拍照/扫码补录）"
+        android:text="3  集成码清单 · 逐页扫描并累计；核对完整集成码和拆分后的 SN 数量"
         android:textSize="13sp"
         android:textStyle="bold"
         android:textColor="@color/ls_text" />
@@ -229,9 +229,12 @@
         android:id="@+id/tvBatchCodeCounts"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:text="已识别集成码 0 个 · 拆分后 0 个序列号\n已保存 0 个序列号 · 待保存 0 个"
-        android:textSize="11sp"
+        android:layout_marginTop="4dp"
+        android:background="@drawable/bg_section_card"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="7dp"
+        android:text="已识别集成码 0 个 · 拆分后 0 个 SN\n已保存 0 个 SN · 待保存 0 个"
+        android:textSize="12sp"
         android:textStyle="bold"
         android:textColor="@color/ls_primary" />
 
@@ -245,7 +248,7 @@
             android:layout_height="48dp"
             android:layout_weight="1"
             android:layout_marginEnd="6dp"
-            android:hint="扫码枪扫描或手工输入一个集成码"
+            android:hint="扫码枪 / 手工补录一个码"
             android:imeOptions="actionDone"
             android:inputType="textNoSuggestions"
             android:singleLine="true"
