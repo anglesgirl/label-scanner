@@ -38,17 +38,21 @@ class LocalDatabase private constructor(context: Context) :
                 updated_at INTEGER NOT NULL
             )"""
         )
+        db.execSQL("CREATE TABLE app_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_tray ON records(tray_code)")
         }
+        if (oldVersion < 3) {
+            db.execSQL("CREATE TABLE app_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+        }
     }
 
     companion object {
         private const val DB_NAME = "label_scanner.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
 
         @Volatile private var instance: LocalDatabase? = null
 

@@ -59,10 +59,16 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnModeMulti).setOnClickListener {
             startActivity(Intent(this, MultiCodeActivity::class.java))
         }
+        findViewById<Button>(R.id.btnModeListBatch).setOnClickListener {
+            startActivity(Intent(this, ListBatchInboundActivity::class.java))
+        }
         findViewById<Button>(R.id.btnSplitCode).setOnClickListener {
             startActivity(Intent(this, SplitCodeActivity::class.java))
         }
         findViewById<Button>(R.id.btnGotoCenter).setOnClickListener {
+            startActivity(Intent(this, RecordListActivity::class.java))
+        }
+        findViewById<Button>(R.id.btnLedgerManagement).setOnClickListener {
             startActivity(Intent(this, RecordListActivity::class.java))
         }
         findViewById<Button>(R.id.btnSettings).setOnClickListener {

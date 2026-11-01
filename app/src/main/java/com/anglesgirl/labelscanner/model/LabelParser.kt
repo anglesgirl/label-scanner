@@ -1,5 +1,7 @@
 package com.anglesgirl.labelscanner.model
 
+import java.time.DateTimeException
+import java.time.LocalDate
 import java.util.regex.Pattern
 
 /**
@@ -16,12 +18,11 @@ import java.util.regex.Pattern
  */
 object LabelParser {
 
-    private val DATE8 = Pattern.compile("^\\d{8}$")
-    // 分隔符覆盖：- / . _ 空格 全角横线－ 中点· 全角点． （OCR 常把 - 识别成这些）
-    private val DATE_SEP = Pattern.compile("^\\d{4}[-/. _－·．]\\d{1,2}[-/. _－·．]\\d{1,2}$")
-    private val DATE_CN = Pattern.compile("^\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日$")
-    /** 行内日期提取：不要求整行是日期，从行中抠出"带分隔符的日期"子串（物料/SN 混排时也能救回日期） */
-    private val DATE_INLINE = Pattern.compile("\\d{4}[-/. _－·．]\\d{1,2}[-/. _－·．]\\d{1,2}")
+    /** 日期字段分隔符；数字间允许 OCR 插入空白（如 2026-08-2 9）。 */
+    private val DATE_SEP = Regex("^\\s*(\\d(?:\\s*\\d){3})\\s*[-/. _－·．]\\s*(\\d(?:\\s*\\d){0,1})\\s*[-/. _－·．]\\s*(\\d(?:\\s*\\d){0,1})\\s*$")
+    private val DATE_CN = Regex("^\\s*(\\d(?:\\s*\\d){3})\\s*年\\s*(\\d(?:\\s*\\d){0,1})\\s*月\\s*(\\d(?:\\s*\\d){0,1})\\s*日\\s*$")
+    /** 行内日期提取，分隔符之间及数字内部均可有 OCR 空白。 */
+    private val DATE_INLINE = Regex("\\d(?:\\s*\\d){3}\\s*[-/. _－·．]\\s*\\d(?:\\s*\\d){0,1}\\s*[-/. _－·．]\\s*\\d(?:\\s*\\d){0,1}")
     private val EAN13 = Pattern.compile("^69\\d{11}$")
     private val MAT10 = Pattern.compile("^\\d{10}$")
     private val MAT12 = Pattern.compile("^\\d{12}$")
@@ -37,39 +38,57 @@ object LabelParser {
         return input.replace(Regex("(?<=\\d)\\s+(?=\\d)"), "")
     }
 
-    /** 解析单个值，返回 (字段名, 规范化值)，无法判断返回 null */
-    fun classify(value: String): Pair<String, String>? {
-        val v = collapseDigitSpaces(value.trim())
-        if (v.isEmpty()) return null
-
-        // 日期：8 位纯数字（yyyymmdd）、带符号（2025-05-08 / 2025.05.08 / 2025_05_08）、
-        //       中文（2025年05月08日）、月日无前导0（2025 6 22）
-        //       → 统一归一为 8 位 yyyymmdd；OCR 易把 0 认成 O，先规整
-        // OCR 字符容错：O/o→0、I/l/|→1、S→5、g→9、B→8（日期语境下最常见混淆）
-        val vNorm = v
+    /** OCR 字符容错 + 严格日历校验，输出 yyyyMMdd；非日期或不可能日期返回 null。 */
+    private fun normalizeDateCandidate(raw: String): String? {
+        val value = raw.trim()
             .replace('O', '0').replace('o', '0')
             .replace('I', '1').replace('l', '1').replace('|', '1')
             .replace('S', '5').replace('s', '5')
             .replace('g', '9')
             .replace('B', '8')
-        if (DATE8.matcher(vNorm).matches() || DATE_SEP.matcher(vNorm).matches() || DATE_CN.matcher(vNorm).matches()) {
-            val digits = vNorm.replace(Regex("[^0-9]"), "")
-            if (digits.length == 8) {
-                val y = digits.substring(0, 4).toInt()
-                val m = digits.substring(4, 6).toInt()
-                val d = digits.substring(6, 8).toInt()
-                // 年份校验：生产日期应在合理范围内（2000-2050），
-                // 避免 "24001024"（年=2400）这类无效日期被误认
-                if (y in 2000..2050 && m in 1..12 && d in 1..31) return "date" to digits
-            } else if (digits.length in 6..7 && DATE_SEP.matcher(vNorm).matches()) {
-                // 月日无前导0：2026 6 2（去符号 6 位）→ 20260602；
-                //             2026 6 22（去符号 7 位）→ 20260622
-                val y = digits.substring(0, 4)
-                val m = digits.substring(4, 5).toInt()
-                val d = digits.substring(5).toInt()
-                if (m in 1..12 && d in 1..31) return "date" to String.format("%s%02d%02d", y, m, d)
+
+        val digits = when {
+            Regex("^\\d(?:\\s*\\d){7}$").matches(value) -> value.replace(Regex("\\s+"), "")
+            else -> {
+                val separated = DATE_SEP.matchEntire(value) ?: DATE_CN.matchEntire(value)
+                if (separated != null) {
+                    val year = separated.groupValues[1].replace(Regex("\\s+"), "")
+                    val month = separated.groupValues[2].replace(Regex("\\s+"), "")
+                    val day = separated.groupValues[3].replace(Regex("\\s+"), "")
+                    val y = year.toIntOrNull() ?: return null
+                    val m = month.toIntOrNull() ?: return null
+                    val d = day.toIntOrNull() ?: return null
+                    return validDate(y, m, d)
+                }
+                return null
             }
         }
+        if (digits.length != 8) return null
+        val y = digits.substring(0, 4).toIntOrNull() ?: return null
+        val m = digits.substring(4, 6).toIntOrNull() ?: return null
+        val d = digits.substring(6, 8).toIntOrNull() ?: return null
+        return validDate(y, m, d)
+    }
+
+    private fun validDate(year: Int, month: Int, day: Int): String? {
+        if (year !in 2000..2050) return null
+        return try {
+            LocalDate.of(year, month, day)
+            "%04d%02d%02d".format(year, month, day)
+        } catch (_: DateTimeException) {
+            null
+        }
+    }
+
+    /** 解析单个值，返回 (字段名, 规范化值)，无法判断返回 null */
+    fun classify(value: String): Pair<String, String>? {
+        val raw = value.trim()
+        val v = collapseDigitSpaces(raw)
+        if (v.isEmpty()) return null
+
+        // 日期先基于原始空白结构判定：直接 collapse 会把 `2026 08-29`
+        // 粘成 `202608-29`，导致年份/月日边界丢失。
+        normalizeDateCandidate(raw)?.let { return "date" to it }
 
         // EAN13 商品码（69 开头）
         if (EAN13.matcher(v).matches()) return "ean" to v
@@ -114,14 +133,15 @@ object LabelParser {
 
         // 2. 条码通道：69 码 / SN / 物料 / 日期
         for (code in barcodes) {
-            when (classify(code)?.first) {
+            val cls = classify(code) ?: continue
+            when (cls.first) {
                 "ean" -> if (result.ean69.isEmpty()) result.ean69 = code
                 "box" -> if (result.boxCode.isEmpty()) result.boxCode = code
                 "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = code
                 "material10", "material12" -> if (result.materialCode.isEmpty()) {
                     result.materialCode = normalizeMaterial(code)
                 }
-                "date" -> if (result.productionDate.isEmpty()) result.productionDate = code
+                "date" -> if (result.productionDate.isEmpty()) result.productionDate = cls.second
             }
         }
 
@@ -175,9 +195,7 @@ object LabelParser {
         val ocrTextLines = ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val isTimeLine = { l: String -> Regex("^\\d{1,2}:\\d{2}$").matches(l) }
         val isWeekLine = { l: String -> Regex("^星期[一二三四五六日天]$").matches(l) }
-        val isDateLikeLine = { l: String ->
-            DATE8.matcher(l).matches() || DATE_SEP.matcher(l).matches() || DATE_CN.matcher(l).matches()
-        }
+        val isDateLikeLine = { l: String -> normalizeDateCandidate(l) != null }
         val hasWeekLine = ocrTextLines.any { isWeekLine(it) }
         val lines = ocrTextLines.filterIndexed { i, l ->
             if (isTimeLine(l) || isWeekLine(l)) false
@@ -220,6 +238,10 @@ object LabelParser {
 
     /** OCR 单行处理：补缺字段 + 提取附加信息 */
     private fun applyOcrLine(result: LabelResult, line: String, lookup69: ((String) -> String?)?) {
+        // 字段间空格不能被 collapseDigitSpaces 当成数字内部空格吞掉。
+        // 连体文本则必须有本帧真实条码作边界证据，不能按尾部长度猜切 SN。
+        if (applyAdjacentSerialMaterial(result, line)) return
+
         // 带标签的行：产品型号/颜色/商品硒鼓/供应商
         when {
             line.contains("型号") -> {
@@ -285,6 +307,52 @@ object LabelParser {
     }
 
     /**
+     * 先保留字段边界，再做字段内部容错。只接受唯一的 SN/物料组合。
+     * 有空格时依赖明确的字母数字 SN + 10/12 位数字；完全连体时依赖条码 SN。
+     * 不修改原始 OCR/条码证据，不覆盖条码已填字段，也不推断任意长 SN 的后缀。
+     */
+    private fun applyAdjacentSerialMaterial(result: LabelResult, line: String): Boolean {
+        val value = line.trim().replace(
+            Regex("^(?:S/N|SN|序列号)(?:\\s*[:：]\\s*|\\s+)", RegexOption.IGNORE_CASE), ""
+        )
+        val candidates = linkedSetOf<Pair<String, String>>()
+        fun addCandidate(serial: String, material: String) {
+            val sn = classify(serial)
+            val mat = classify(material)
+            if (sn?.first == "sn" && mat?.first in setOf("material10", "material12")) {
+                candidates += sn.second to normalizeMaterial(mat!!.second)
+            }
+        }
+
+        // Keep a real inter-field whitespace boundary. The material itself may contain OCR spaces.
+        Regex("^([A-Za-z0-9]{6,30})\\s+(\\d(?:\\s*\\d){9,11})$")
+            .matchEntire(value)?.let { addCandidate(it.groupValues[1], it.groupValues[2]) }
+        Regex("^(\\d(?:\\s*\\d){9,11})\\s+([A-Za-z0-9]{6,30})$")
+            .matchEntire(value)?.let { addCandidate(it.groupValues[2], it.groupValues[1]) }
+
+        // ML Kit can omit the gap entirely (or insert gaps inside either field).
+        // Only the exact decoded SN establishes a safe split; never strip a numeric tail blindly.
+        val compact = value.replace(Regex("\\s+"), "")
+        for (barcode in result.barcodes) {
+            val serial = barcode.trim()
+            if (classify(serial)?.first != "sn") continue
+            if (compact.startsWith(serial, ignoreCase = true)) {
+                addCandidate(serial, compact.substring(serial.length))
+            }
+            if (compact.endsWith(serial, ignoreCase = true)) {
+                addCandidate(serial, compact.substring(0, compact.length - serial.length))
+            }
+        }
+        // Distinct possible boundaries are ambiguous: leave the existing/manual path in charge.
+        val unique = candidates.distinctBy { it.first.uppercase(java.util.Locale.ROOT) to it.second }
+        if (unique.size != 1) return false
+        val (serial, material) = unique.single()
+        if (result.serialNumber.isEmpty()) result.serialNumber = serial
+        if (result.materialCode.isEmpty()) result.materialCode = material
+        return true
+    }
+
+    /**
      * 一行里并排两个字段（OCR 把左右两段合成一行）时的兜底拆分。
      *
      * 现象（用户实测）：标签同一行印着两个值、中间留白，OCR 把它们合成一行文本，
@@ -318,22 +386,8 @@ object LabelParser {
      * 整行/分段流程里识别，避免把 SN/物料里的数字串当日期。
      */
     fun extractDateInline(line: String): String? {
-        val m = DATE_INLINE.matcher(collapseDigitSpaces(line))
-        if (!m.find()) return null
-        val hit = m.group()
-        val raw = hit
-            .replace('O', '0').replace('o', '0')
-            .replace('I', '1').replace('l', '1').replace('|', '1')
-            .replace('S', '5').replace('s', '5')
-            .replace('g', '9')
-            .replace('B', '8')
-        val digits = raw.replace(Regex("[^0-9]"), "")
-        if (digits.length != 8) return null
-        val year = digits.substring(0, 4).toInt()
-        val month = digits.substring(4, 6).toInt()
-        val day = digits.substring(6, 8).toInt()
-        if (year !in 2000..2050 || month !in 1..12 || day !in 1..31) return null
-        return digits
+        val hit = DATE_INLINE.find(line)?.value ?: return null
+        return normalizeDateCandidate(hit)
     }
 
     /** 物料编码规范化：10 位补 01；12 位原样；69 开头保留（自有数据） */
@@ -342,9 +396,8 @@ object LabelParser {
         return if (c.length == 10) c + "01" else c
     }
 
-    /** 日期规范化：带符号日期 → 8 位无符号 yyyymmdd；已是 8 位数字原样 */
+    /** 日期规范化：有效日期 → 8 位无符号 yyyymmdd；非日期仍原样返回。 */
     fun normalizeDate(date: String): String {
-        val digits = date.replace(Regex("[^0-9]"), "")
-        return if (digits.length == 8) digits else date
+        return normalizeDateCandidate(date) ?: date
     }
 }

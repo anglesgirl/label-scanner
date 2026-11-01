@@ -17,13 +17,17 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.anglesgirl.labelscanner.camera.CameraCaptureMode
 import com.anglesgirl.labelscanner.camera.ImageIn
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
+import com.anglesgirl.labelscanner.camera.BurstConsensus
+import com.anglesgirl.labelscanner.camera.LiveSampleConsensus
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.data.DbExecutor
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.model.LabelResult
+import com.anglesgirl.labelscanner.util.LastSavedHint
 
 /**
  * 多码清单模式：一张纸多个条码 → 批量独立入库。
@@ -79,7 +83,7 @@ class MultiCodeActivity : AppCompatActivity() {
         }
 
         // 取图入口必须在 Activity 构造/onCreate 阶段创建（registerForActivityResult 约束）
-        imageIn = ImageIn(this) { uri -> onImage(uri) }
+        imageIn = ImageIn(this, CameraCaptureMode.MULTI_CODE) { uri -> onImage(uri) }
 
         tvStatus = findViewById(R.id.tvStatus)
         etMaterial = findViewById(R.id.etMaterial)
@@ -88,6 +92,7 @@ class MultiCodeActivity : AppCompatActivity() {
         rvCodes = findViewById(R.id.rvCodes)
         btnSave = findViewById(R.id.btnSave)
         btnSelectAll = findViewById(R.id.btnSelectAll)
+        LastSavedHint.bind(this, findViewById(R.id.tvLastSavedSn))
         rvCodes.layoutManager = LinearLayoutManager(this)
         rvCodes.adapter = adapter
 
@@ -111,20 +116,40 @@ class MultiCodeActivity : AppCompatActivity() {
     private fun onImage(uri: Uri) {
         if (recognizing) return
         recognizing = true
+        // 先清空上一张图的确认字段和清单，避免旧值看起来像本次识别结果。
+        etMaterial.setText("")
+        etDate.setText("")
+        etEan.setText("")
+        items.clear()
+        adapter.notifyDataSetChanged()
         tvStatus.text = "识别中（解出全部条码 + 读文字）…"
         btnSave.isEnabled = false
         StaticRecognizer.recognizeUriMulti(
             resolver = contentResolver,
             uri = uri,
-            onResult = { codes, ocrText -> runOnUiThread { showResult(codes, ocrText) } },
+            onResult = { codes, ocrText -> runOnUiThread { showResult(codes, ocrText, null) } },
+            onEvidence = { evidence -> runOnUiThread {
+                showResult(evidence.barcodes, evidence.ocrText, evidence.frameCount)
+            } },
             onError = { msg -> runOnUiThread { fail("识别失败：$msg") } },
         )
     }
 
-    private fun showResult(codes: List<String>, ocrText: String) {
+    private fun showResult(
+        codes: List<String>,
+        ocrText: String,
+        frameCount: Int?,
+    ) {
         recognizing = false
+        // 只用已确认内容预填；每次都先清空，避免上张图字段残留。
+        etMaterial.setText("")
+        etDate.setText("")
+        etEan.setText("")
         // 用现有归类逻辑预填物料/日期/69（LabelParser 只提取字段，不改条码列表）
-        val parsed = LabelParser.parse(codes, ocrText) { ean -> lookup69().lookup(ean) }
+        val parsed = LabelParser.parse(codes, ocrText)
+        if (parsed.materialCode.isBlank() && parsed.ean69.isNotBlank()) {
+            lookup69().lookup(parsed.ean69)?.let { parsed.materialCode = it }
+        }
         if (parsed.materialCode.isNotBlank()) etMaterial.setText(parsed.materialCode)
         if (parsed.productionDate.isNotBlank() && parsed.productionDate != "19000101") {
             etDate.setText(parsed.productionDate)
@@ -135,11 +160,11 @@ class MultiCodeActivity : AppCompatActivity() {
         codes.forEach { c ->
             // 过滤掉集成码整串（含逗号的多 SN）—— 那是一条"汇总"，不是单序列号；
             // 里面拆出来的单码如果也在列表里，用户直接勾选即可。
-            if (!c.contains(',') && !c.contains('，')) items.add(Item(c))
+            if (!c.contains(',') && !c.contains('，') && !c.contains(';') && !c.contains('；')) items.add(Item(c))
         }
         // 集成码里逗号分隔的单码也摊开列出（用户要的是"12 个序列号"，不想要整串）
         codes.forEach { c ->
-            if (c.contains(',') || c.contains('，')) {
+            if (c.contains(',') || c.contains('，') || c.contains(';') || c.contains('；')) {
                 c.split(Regex("[,，;；\\s]+")).map { it.trim() }.filter { it.isNotBlank() }.forEach { part ->
                     if (items.none { it.value == part }) items.add(Item(part))
                 }
@@ -147,7 +172,11 @@ class MultiCodeActivity : AppCompatActivity() {
         }
         adapter.notifyDataSetChanged()
 
-        tvStatus.text = "✅ 识别 ${codes.size} 个码 → 展开 ${items.size} 条（可勾选/编辑），确认后保存"
+        val note = buildList {
+            if (frameCount != null && frameCount > 1) add("已完成 ${frameCount} 次采样；同一标签完整数据连续 ${LiveSampleConsensus.REQUIRED_MATCHES} 次一致后确认")
+        }.joinToString("\n")
+        tvStatus.text = if (items.isEmpty()) "⚠️ 未识别到稳定结果" else "✅ 已确认 ${codes.size} 个码 → 展开 ${items.count { it.checked }} 条已确认项" +
+            (note.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: "")
         updateSaveState()
         if (items.isEmpty()) Toast.makeText(this, "没有解出条码，可换文档扫描或重拍", Toast.LENGTH_LONG).show()
     }
@@ -186,6 +215,7 @@ class MultiCodeActivity : AppCompatActivity() {
         // 增量追加（按 SN upsert）+ 后台执行：批量入库不卡主线程
         DbExecutor.run({ RecordStore.append(this@MultiCodeActivity, records) }) { result ->
             result.onSuccess {
+                LastSavedHint.refresh(this@MultiCodeActivity, findViewById(R.id.tvLastSavedSn))
                 Toast.makeText(this@MultiCodeActivity, "已保存 ${records.size} 条（序列号已入账）", Toast.LENGTH_LONG).show()
                 tvStatus.text = "已保存 ${records.size} 条，可继续拍照或选图"
             }.onFailure {
@@ -214,7 +244,9 @@ class MultiCodeActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val it = items[position]
+            holder.cb.setOnCheckedChangeListener(null)
             holder.cb.isChecked = it.checked
+            holder.cb.text = ""
             holder.et.setText(it.value)
             holder.cb.setOnCheckedChangeListener { _, checked ->
                 it.checked = checked

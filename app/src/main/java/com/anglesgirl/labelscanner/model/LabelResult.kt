@@ -35,6 +35,9 @@ data class LabelResult(
     var tonerModel: String = "",
     var trayCode: String = "",       // 托盘码：整个托盘，一个托盘多箱（WMS DATA13）
     var boxCode: String = "",        // 箱号/LPN：一个箱子内多个序列号（与托盘不同层级）
+    val unconfirmedBarcodes: List<String> = emptyList(),
+    val unconfirmedOcrText: String = "",
+    val recognitionNote: String = "",
 ) {
     /** 是否有任何可用数据 */
     val hasData: Boolean

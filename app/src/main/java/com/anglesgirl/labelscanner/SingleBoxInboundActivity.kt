@@ -20,12 +20,14 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.anglesgirl.labelscanner.camera.StaticRecognizer
+import com.anglesgirl.labelscanner.camera.LiveSampleEvidence
 import com.anglesgirl.labelscanner.data.Barcode69Lookup
 import com.anglesgirl.labelscanner.data.DbExecutor
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.model.BoxParser
 import com.anglesgirl.labelscanner.model.LabelResult
 import com.anglesgirl.labelscanner.util.AmbiguousChar
+import com.anglesgirl.labelscanner.util.LastSavedHint
 import com.anglesgirl.labelscanner.util.TrayPrefs
 import java.io.File
 
@@ -113,7 +115,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
      * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数。
      */
     // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**。
-    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(this) { uri -> recognizeLabel(uri) }
+    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(
+        this,
+        com.anglesgirl.labelscanner.camera.CameraCaptureMode.INBOUND_LABEL,
+    ) { uri -> recognizeLabel(uri) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -136,6 +141,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         llSnList = findViewById(R.id.llSnList)
         llCodeCandidates = findViewById(R.id.llCodeCandidates)
         tvBoxStatus = findViewById(R.id.tvBoxStatus)
+        LastSavedHint.bind(this, findViewById(R.id.tvLastSavedSn))
 
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
         findViewById<Button>(R.id.btnScanDoc).setOnClickListener { imageIn.scanDocument() }
@@ -205,13 +211,50 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             lookup69 = null,
             onResult = { result ->
                 runOnUiThread {
-                    val box = BoxParser.parse(
+                    // Per-label caches must not turn an uncertain new field into an old value.
+                    lastKnownEan69 = ""
+                    lastKnownMaterial = ""
+                    recognizedEan69 = ""
+                    showingEan69 = false
+                    findViewById<Button>(R.id.btnToggle69).text = "69"
+                    val parsedBox = BoxParser.parse(
                         result.barcodes,
                         result.ocrText,
                         lookup69 = { ean -> lookup69().lookup(ean) },
                     )
+                    val box = if (LiveSampleEvidence.isVerified(uri)) parsedBox.copy(
+                        materialCode = result.materialCode,
+                        productionDate = result.productionDate,
+                        materialFromEan69 = false,
+                    ) else parsedBox
+                    codeCandidates.clear()
+                    codeCandidateSources.clear()
+                    for (b in result.barcodes) {
+                        val v = b.trim()
+                        if (v.isNotEmpty() && v !in codeCandidates) {
+                            codeCandidates.add(v)
+                            codeCandidateSources[v] = "条码"
+                        }
+                    }
+                    result.ocrText.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
+                        if (line !in codeCandidates) {
+                            codeCandidates.add(line)
+                            codeCandidateSources[line] = "OCR"
+                        }
+                    }
+                    rebuildCodeCandidates()
                     if (!box.hasData) {
-                        tvBoxStatus.text = "⚠️ 未识别到内容，请换图重试"
+                        // 本次没有稳定确认结果时，清空旧图字段，避免旧值被误认为本次识别结果。
+                        etMaterial.setText("")
+                        etBox.setText("")
+                        etDate.setText("")
+                        snList.clear()
+                        snFromOcr.clear()
+                        recognizedEan69 = ""
+                        materialFromEan69 = false
+                        rebuildSnList()
+                        tvBoxStatus.text = "⚠️ 未识别到稳定结果，请换图重试" +
+                            (result.recognitionNote.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: "")
                         return@runOnUiThread
                     }
                     // 互补互查：OCR 读到的物料 ↔ 条码扫到的 69 码，哪边有就补另一边
@@ -234,23 +277,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     snList.addAll(box.serialNumbers)
                     snFromOcr.addAll(box.ocrFallbackSns)
                     rebuildSnList()
-                    codeCandidates.clear()
-                    codeCandidateSources.clear()
-                    for (b in result.barcodes) {
-                        val v = b.trim()
-                        if (v.isNotEmpty() && v !in codeCandidates) {
-                            codeCandidates.add(v)
-                            codeCandidateSources[v] = "条码"
-                        }
-                    }
-                    result.ocrText.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
-                        if (line !in codeCandidates) {
-                            codeCandidates.add(line)
-                            codeCandidateSources[line] = "OCR"
-                        }
-                    }
-                    rebuildCodeCandidates()
-
                     val tips = mutableListOf<String>()
                     if (box.materialFromEan69) tips.add("🔴 商品码提供的补码：${box.materialCode}")
                     if (box.materialCode.isBlank()) tips.add("⚠️ 未识别到物料(SAP)，请手动输入")
@@ -258,7 +284,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     if (box.productionDate.isBlank()) tips.add("⚠️ 未识别到日期，请手动输入")
                     if (snList.isEmpty()) tips.add("⚠️ 未识别到序列号，请手动添加")
                     tvBoxStatus.setTextColor(if (box.materialFromEan69) cc(R.color.ls_err) else cc(R.color.ls_primary))
-                    tvBoxStatus.text = "✅ 识别完成：物料=${box.materialCode.ifBlank { "?" }} 箱号=${box.boxCode.ifBlank { "?" }} SN×${snList.size}\n${tips.joinToString("\n")}"
+                    tvBoxStatus.text = "✅ 识别完成：物料=${box.materialCode.ifBlank { "?" }} 箱号=${box.boxCode.ifBlank { "?" }} SN×${snList.size}\n${tips.joinToString("\n")}" +
+                        (result.recognitionNote.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: "")
 
                     // 物料空但有条码 → 远程反查（Turso 库）
                     if (box.materialCode.isBlank()) {
@@ -271,7 +298,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                                         etMaterial.setText(material)
                                         materialFromEan69 = true
                                         tvBoxStatus.setTextColor(cc(R.color.ls_err))
-                                        tvBoxStatus.text = "🔴 商品码提供的补码：$material（可修改）"
+                                        tvBoxStatus.text = "🔴 商品码提供的补码：$material（可修改）" +
+                                            (result.recognitionNote.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: "")
                                     }
                                 }
                             }
@@ -354,6 +382,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             if (recognizedEan69.isNotBlank()) lookup69().learn(recognizedEan69, material)
         }) { result ->
             result.onSuccess {
+                LastSavedHint.refresh(this@SingleBoxInboundActivity, findViewById(R.id.tvLastSavedSn))
                 tvBoxStatus.text = "✅ 已保存 ${records.size} 条（物料 $material / 箱号 $box）" +
                     if (dropped > 0) "\n（自动去重 $dropped 个重复序列号）" else ""
                 Toast.makeText(this@SingleBoxInboundActivity, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
@@ -524,7 +553,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             tv.text = if (src == null) code
             else android.text.TextUtils.concat("[$src] ", code)
             tv.setTextColor(
-                if (src == "OCR") cc(R.color.ls_neutral) else cc(R.color.ls_primary)
+                if (src?.contains("OCR") == true) cc(R.color.ls_neutral) else cc(R.color.ls_primary)
             )
             row.findViewById<Button>(R.id.btnDelSn).text = "选"
             row.findViewById<Button>(R.id.btnDelSn).setOnClickListener { showCodeActionDialog(code) }

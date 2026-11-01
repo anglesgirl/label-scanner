@@ -16,6 +16,7 @@ object RecordStore {
     private const val EXT_DIR = "Download/LabelScanner"
     private const val PREFS = "local_database_migration"
     private const val IMPORTED = "records_imported"
+    private const val LAST_SAVED_SERIAL_KEY = "last_saved_serial_number"
 
     fun load(context: Context): MutableList<LabelResult> {
         ensureImported(context)
@@ -43,6 +44,18 @@ object RecordStore {
         ensureImported(context)
         LocalDatabase.get(context).readableDatabase
             .rawQuery("SELECT COUNT(*) FROM records WHERE tray_code = ?", arrayOf(trayCode)).use { c ->
+                return if (c.moveToFirst()) c.getInt(0) else 0
+            }
+    }
+
+    /** 当前托盘的有效序列号数；排除没有序列号的辅助记录。 */
+    fun countSerialNumbersByTrayCode(context: Context, trayCode: String): Int {
+        ensureImported(context)
+        LocalDatabase.get(context).readableDatabase
+            .rawQuery(
+                "SELECT COUNT(*) FROM records WHERE tray_code = ? AND TRIM(serial_number) <> ''",
+                arrayOf(trayCode),
+            ).use { c ->
                 return if (c.moveToFirst()) c.getInt(0) else 0
             }
     }
@@ -91,6 +104,7 @@ object RecordStore {
         val database = LocalDatabase.get(context).writableDatabase
         database.beginTransaction()
         try {
+            var lastSavedSerial: String? = null
             // 批内重码防护：同 SN（trim 后）只保留第一条，避免 update 兜不住
             // （如 "SN123 " 与 "SN123" 判为不同码 → insertOrThrow 冲突崩溃）
             newRecords.distinctBy { it.serialNumber.trim() }.forEach { record ->
@@ -101,10 +115,38 @@ object RecordStore {
                     "records", values, "serial_number = ?", arrayOf(serial)
                 )
                 if (updated == 0) database.insertOrThrow("records", null, values)
+                // 只记本次成功执行过 upsert 的 SN；空值跳过，批内重复仍为 first wins。
+                lastSavedSerial = serial
+            }
+            lastSavedSerial?.let { serial ->
+                database.execSQL(
+                    "INSERT OR REPLACE INTO app_metadata (key, value) VALUES (?, ?)",
+                    arrayOf(LAST_SAVED_SERIAL_KEY, serial),
+                )
             }
             database.setTransactionSuccessful()
         } finally {
             database.endTransaction()
+        }
+    }
+
+    /** 最近一次成功 append 实际保存的 SN；旧库回退只查询 id 最大的一条有效记录。 */
+    fun getLastSavedSerialNumber(context: Context): String? {
+        ensureImported(context)
+        val db = LocalDatabase.get(context).readableDatabase
+        db.rawQuery(
+            "SELECT value FROM app_metadata WHERE key = ? LIMIT 1",
+            arrayOf(LAST_SAVED_SERIAL_KEY),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(0)?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+            }
+        }
+        db.rawQuery(
+            "SELECT serial_number FROM records WHERE TRIM(serial_number) <> '' ORDER BY id DESC LIMIT 1",
+            null,
+        ).use { cursor ->
+            return if (cursor.moveToFirst()) cursor.getString(0)?.trim()?.takeIf { it.isNotEmpty() } else null
         }
     }
 

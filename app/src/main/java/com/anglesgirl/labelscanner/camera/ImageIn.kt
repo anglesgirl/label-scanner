@@ -11,6 +11,51 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 
+/** Camera presentation/analysis varies by workflow, while capture remains shared. */
+enum class CameraCaptureMode(
+    val instruction: String,
+    val usesLiveSampling: Boolean,
+    val showLastSavedSerial: Boolean,
+    val captureButtonText: String,
+) {
+    PHOTO_ONLY(
+        "将目标标签或条码页放入框内，尽量拍全并保持清晰；拍照后识别页面内容。",
+        usesLiveSampling = false,
+        showLastSavedSerial = false,
+        captureButtonText = "拍照识别",
+    ),
+    INBOUND_LABEL(
+        "将入库标签放入框内，重点对准69码下方的序列号、日期和物料编码；读到条码即开始采样。",
+        usesLiveSampling = true,
+        showLastSavedSerial = true,
+        captureButtonText = "手动拍照",
+    ),
+    MULTI_CODE(
+        "对准多码标签或序列号清单，尽量拍全页面所有条码；拍照后一次识别全部条码和文字。",
+        usesLiveSampling = false,
+        showLastSavedSerial = false,
+        captureButtonText = "拍照识别",
+    ),
+    LIST_TRAY(
+        "对准托盘信息页，让托盘/SSCC 条码完整清晰入框；同一候选连续识别 3 帧后自动拍照，也可手动拍照兜底。",
+        usesLiveSampling = true,
+        showLastSavedSerial = false,
+        captureButtonText = "手动拍照",
+    ),
+    LIST_HEADER(
+        "让终端物料编号和生产日期同时清晰入镜；直接识别中英文文字，不要求先读到条码。",
+        usesLiveSampling = true,
+        showLastSavedSerial = false,
+        captureButtonText = "手动拍照",
+    ),
+    LIST_CODES(
+        "从本页最上方开始缓慢向下扫；每个码稳定读到 3 次后加入清单，扫完整页点完成本页，再扫下一张。",
+        usesLiveSampling = true,
+        showLastSavedSerial = false,
+        captureButtonText = "完成本页",
+    ),
+}
+
 /**
  * 统一的取图入口模块。
  *
@@ -41,6 +86,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
  */
 class ImageIn(
     private val activity: ComponentActivity,
+    private val defaultCaptureMode: CameraCaptureMode = CameraCaptureMode.PHOTO_ONLY,
     private val onImage: (Uri) -> Unit,
 ) {
 
@@ -65,24 +111,21 @@ class ImageIn(
             uri?.let(onImage)
         }
 
-    /** 自研文档模式拍照。 */
-    fun takePhoto() {
-        takePhoto.launch(Intent(activity, CaptureActivity::class.java))
+    /** 唯一的自研相机入口；调用方只声明当前流程的拍摄目的。 */
+    fun takePhoto(mode: CameraCaptureMode = defaultCaptureMode) {
+        takePhoto.launch(
+            Intent(activity, CaptureActivity::class.java)
+                .putExtra(CaptureActivity.EXTRA_CAPTURE_MODE, mode.name),
+        )
     }
 
     /**
      * Google 文档扫描的 SDK 自带取景页不开放相机变焦控制。
-     * 明确提供可控相机与原版 Google 两条路径，而非冒充 Google 自动变焦。
-     * 这两条路径最终仍由同一个 onImage 回调交给全量扫码/OCR。
+     * 第二个按钮只进入 Google 原版，不再重复提供第一个按钮的自研相机。
+     * 两条路径最终仍由同一个 onImage 回调交给全量扫码/OCR。
      */
     fun scanDocument() {
-        androidx.appcompat.app.AlertDialog.Builder(activity)
-            .setTitle("文档扫描方式")
-            .setItems(arrayOf("自动放大拍标签（推荐）", "Google 文档扫描（原版）")) { _, which ->
-                if (which == 0) takePhoto() else scanGoogleDocument()
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        scanGoogleDocument()
     }
 
     /**

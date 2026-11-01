@@ -53,7 +53,7 @@ object StaticRecognizer {
      * 用系统自带的 `android.media.ExifInterface`（API 24+，本项目 minSdk 26），
      * 不额外引依赖。
      */
-    private fun applyExifRotation(
+    internal fun applyExifRotation(
         resolver: ContentResolver,
         uri: Uri,
         bmp: Bitmap,
@@ -91,6 +91,32 @@ object StaticRecognizer {
         onResult: (LabelResult) -> Unit,
         onError: (String) -> Unit,
     ) {
+        if (LiveSampleEvidence.isVerified(uri)) {
+            recognitionPool.execute {
+                try {
+                    val evidence = LiveSampleEvidence.read(resolver, uri)
+                    // Repeated matching physical observations outrank a possibly stale 69-code lookup.
+                    val parsed = LabelParser.parse(evidence.barcodes, evidence.ocrText)
+                    onResult(parsed.copy(
+                        unconfirmedBarcodes = emptyList(),
+                        unconfirmedOcrText = "",
+                        recognitionNote = "同一标签完整数据累计 ${LiveSampleConsensus.REQUIRED_MATCHES} 次一致，已确认；手抖或单帧失败不清空采样",
+                    ))
+                } catch (e: Exception) { onError("已确认的采样数据无法读取，请重新扫描") }
+            }
+            return
+        }
+        if (BurstRecognition.isBurst(uri)) {
+            BurstRecognition.recognize(resolver, uri, onResult = { evidence ->
+                val parsed = LabelParser.parse(evidence.barcodes, evidence.ocrText, lookup69)
+                onResult(parsed.copy(
+                    unconfirmedBarcodes = emptyList(),
+                    unconfirmedOcrText = "",
+                    recognitionNote = "已比对 ${evidence.frameCount} 帧，至少 3 帧一致才自动采用；仅采用稳定结果，后续可人工核对",
+                ))
+            }, onError = onError)
+            return
+        }
         val raw = decodeSampledBitmap(resolver, uri)
         if (raw == null) {
             onError("无法读取图片")
@@ -116,7 +142,33 @@ object StaticRecognizer {
         uri: Uri,
         onResult: (codes: List<String>, ocrText: String) -> Unit,
         onError: (String) -> Unit,
+        onEvidence: ((BurstConsensus.Result) -> Unit)? = null,
     ) {
+        if (LiveCodePageEvidence.isPage(uri)) {
+            recognitionPool.execute {
+                runCatching { LiveCodePageEvidence.read(resolver, uri) }
+                    .onSuccess { onResult(it, "") }
+                    .onFailure { onError("实时采集的本页码无法读取，请重新扫描") }
+            }
+            return
+        }
+        if (LiveSampleEvidence.isVerified(uri)) {
+            recognitionPool.execute {
+                try {
+                    val evidence = LiveSampleEvidence.read(resolver, uri)
+                    if (onEvidence != null) onEvidence(evidence)
+                    else onResult(evidence.barcodes, evidence.ocrText)
+                } catch (e: Exception) { onError("已确认的采样数据无法读取，请重新扫描") }
+            }
+            return
+        }
+        if (BurstRecognition.isBurst(uri)) {
+            BurstRecognition.recognize(resolver, uri, onResult = { evidence ->
+                if (onEvidence != null) onEvidence(evidence)
+                else onResult(evidence.barcodes, evidence.ocrText)
+            }, onError = onError)
+            return
+        }
         val raw = decodeSampledBitmap(resolver, uri)
         if (raw == null) {
             onError("无法读取图片")
@@ -254,7 +306,7 @@ object StaticRecognizer {
     }
 
     /** 缩放解码：目标边 ≤ 4096（密集小条码保真）。FileDescriptor 方式（content URI 最可靠） */
-    private fun decodeSampledBitmap(resolver: ContentResolver, uri: Uri): Bitmap? {
+    internal fun decodeSampledBitmap(resolver: ContentResolver, uri: Uri): Bitmap? {
         // 方式一：FileDescriptor（bounds 和解码各开一次 fd）
         try {
             var sample = 1
@@ -262,8 +314,7 @@ object StaticRecognizer {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, bounds)
                 if (bounds.outWidth > 0 && bounds.outHeight > 0) {
-                    val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
-                    while (maxDim / (sample * 2) >= 4096) sample *= 2
+                    sample = ImageDecodePolicy.sampleSize(bounds.outWidth, bounds.outHeight)
                 }
             }
             if (sample > 0) {
@@ -284,9 +335,7 @@ object StaticRecognizer {
                 BitmapFactory.decodeStream(ins, null, bounds)
                 if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
-                var sample = 1
-                val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
-                while (maxDim / (sample * 2) >= 4096) sample *= 2
+                val sample = ImageDecodePolicy.sampleSize(bounds.outWidth, bounds.outHeight)
 
                 resolver.openInputStream(uri)?.use { ins2 ->
                     val opts = BitmapFactory.Options().apply { inSampleSize = sample }

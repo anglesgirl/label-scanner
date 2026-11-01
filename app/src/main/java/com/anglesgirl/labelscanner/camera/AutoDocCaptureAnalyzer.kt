@@ -3,6 +3,7 @@ package com.anglesgirl.labelscanner.camera
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PointF
+import android.os.SystemClock
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -36,6 +37,10 @@ class AutoDocCaptureAnalyzer(
         val geometryStable: Boolean,
         val adjusting: Boolean,
         val status: Status,
+        // Content bounds are NOT paper corners: use for AF/stability only, never zoom/crop to them.
+        val contentOnly: Boolean = false,
+        val coreFields: Boolean = false,
+        val sampledAt: Long = SystemClock.elapsedRealtime(),
     )
 
     enum class Status { FOUND, ADJUSTING_ZOOM, WAITING_FOR_STABILITY, WAITING_FOR_SHARPNESS, READY }
@@ -64,15 +69,13 @@ class AutoDocCaptureAnalyzer(
         val y: PlaneBytes,
         val u: PlaneBytes,
         val v: PlaneBytes,
+        val sampledAt: Long,
     )
 
     companion object {
         private const val TAG = "AutoDocCapture"
         private const val ANALYZE_MAX_EDGE = 480
         private const val DETECT_EVERY_N_FRAMES = 3
-        private const val REQUIRED_STABLE_FRAMES = 8
-        private const val GEOMETRY_THRESHOLD = 0.022f
-        private const val SHARPNESS_THRESHOLD = 120.0
         private val background = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "label-frame-analysis").apply { isDaemon = true }
         }
@@ -88,9 +91,7 @@ class AutoDocCaptureAnalyzer(
 
     // Accessed by the single background executor only.
     private var appliedResetGeneration = 0L
-    private var frameCount = 0
-    private var stableFrames = 0
-    private var lastCorners: List<PointF>? = null
+    private val captureGate = HandheldCaptureGate()
 
     /** Publish camera state confirmed by CameraX; safe to call from the UI thread. */
     fun updateCameraState(currentZoom: Float, minZoom: Float, maxZoom: Float, adjusting: Boolean) {
@@ -157,16 +158,13 @@ class AutoDocCaptureAnalyzer(
         val generation = resetGeneration.get()
         if (generation != appliedResetGeneration) {
             appliedResetGeneration = generation
-            frameCount = 0
-            stableFrames = 0
-            lastCorners = null
+            captureGate.reset()
         }
     }
 
     private fun process(frame: Frame) {
         if (closed.get()) return
         val generation = resetGeneration.get()
-        frameCount++
         val bitmap = frame.toSmallUprightBitmap() ?: run {
             loseDetection()
             return
@@ -174,28 +172,53 @@ class AutoDocCaptureAnalyzer(
         try {
             // LabelRectifier returns corners in the source bitmap's coordinate system; here that
             // source is the already upright, crop-only, <=480px image (not the full sensor frame).
-            val pixels = LabelRectifier.detectCorners(bitmap, liveDetection = true)
-            if (pixels == null || pixels.size != 4) {
-                loseDetection()
+            val pixels = LabelRectifier.detectCorners(bitmap, liveDetection = true)?.takeIf { points ->
+                AutoDocGeometry.hasCompleteOutline(points.map { it.x / bitmap.width to it.y / bitmap.height })
+            }
+            val argb = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(argb, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            val core = LabelContentLocator.locateCore(argb, bitmap.width, bitmap.height)
+            val contentOnly = core != null || pixels == null || pixels.size != 4
+            val corners = if (core != null) {
+                listOf(PointF(core.left, core.top), PointF(core.right, core.top),
+                    PointF(core.right, core.bottom), PointF(core.left, core.bottom))
+            } else if (!contentOnly) {
+                pixels!!.map { p ->
+                    PointF((p.x / bitmap.width).coerceIn(0f, 1f), (p.y / bitmap.height).coerceIn(0f, 1f))
+                }
+            } else {
+                // Low-contrast labels on white boxes/film have no separable bright outer edge.
+                // Detect ink texture without running OCR or decoding barcodes in the preview.
+                LabelContentLocator.locate(argb, bitmap.width, bitmap.height)?.let { b ->
+                    listOf(PointF(b.left, b.top), PointF(b.right, b.top),
+                        PointF(b.right, b.bottom), PointF(b.left, b.bottom))
+                }
+            }
+            if (corners == null) {
+                if (!closed.get() && resetGeneration.get() == generation) loseDetection()
                 return
             }
-            val corners = pixels.map { p ->
-                PointF((p.x / bitmap.width).coerceIn(0f, 1f), (p.y / bitmap.height).coerceIn(0f, 1f))
-            }
+            if (closed.get() || resetGeneration.get() != generation) return
             val normalized = corners.map { it.x to it.y }
-            val geometricStable = AutoDocGeometry.geometryStable(normalized, lastCorners?.map { it.x to it.y }, GEOMETRY_THRESHOLD)
-            val bounds = bounds(corners)
+            // Core fields guide AF/sharpness only. Zoom still needs a complete paper envelope;
+            // never magnify using the smaller field rectangle and clip surrounding data.
+            val paper = pixels?.map { PointF(it.x / bitmap.width, it.y / bitmap.height) }
+            val paperBounds = paper?.let { bounds(it) }
+            val safePaper = paperBounds?.takeIf { b ->
+                core == null || (core.left >= b.left && core.right <= b.right &&
+                    core.top >= b.top && core.bottom <= b.bottom)
+            }
             val state = cameraState.get()
-            val targetZoom = AutoDocGeometry.targetZoom(
-                bounds.left, bounds.right, bounds.top, bounds.bottom,
+            val targetZoom = if (safePaper == null) state.currentZoom else AutoDocGeometry.targetZoom(
+                safePaper.left, safePaper.right, safePaper.top, safePaper.bottom,
                 state.currentZoom, state.minZoom, state.maxZoom,
             )
             val zoomSettled = AutoDocGeometry.zoomSettled(targetZoom, state.currentZoom)
-            // Do not accumulate stable frames during zoom, even if the image happens not to move.
-            stableFrames = if (geometricStable && zoomSettled && !state.adjusting) stableFrames + 1 else 0
             val sharpness = sharpnessWithinLabel(bitmap, corners)
-            val ready = stableFrames >= REQUIRED_STABLE_FRAMES && sharpness >= SHARPNESS_THRESHOLD &&
-                zoomSettled && !state.adjusting
+            val gate = captureGate.observe(SystemClock.elapsedRealtime(), normalized, sharpness,
+                cameraAdjusting = !zoomSettled || state.adjusting)
+            val geometricStable = gate.geometryStable
+            val ready = gate.ready
             val center = PointF(
                 corners.map { it.x }.average().toFloat(),
                 corners.map { it.y }.average().toFloat(),
@@ -203,25 +226,25 @@ class AutoDocCaptureAnalyzer(
             val status = when {
                 state.adjusting || !zoomSettled -> Status.ADJUSTING_ZOOM
                 ready -> Status.READY
-                stableFrames < REQUIRED_STABLE_FRAMES -> Status.WAITING_FOR_STABILITY
-                sharpness < SHARPNESS_THRESHOLD -> Status.WAITING_FOR_SHARPNESS
+                sharpness < HandheldCaptureGate.SHARPNESS_THRESHOLD -> Status.WAITING_FOR_SHARPNESS
+                !ready -> Status.WAITING_FOR_STABILITY
                 else -> Status.FOUND
             }
             if (closed.get() || resetGeneration.get() != generation) return
-            onDetection(Detection(corners, center, targetZoom, sharpness, ready, geometricStable, state.adjusting, status))
-            lastCorners = corners
+            onDetection(Detection(corners, center, targetZoom, sharpness, ready, geometricStable,
+                state.adjusting, status, contentOnly, core != null, frame.sampledAt))
             if (ready && captureTriggered.compareAndSet(false, true)) onReadyToCapture()
         } catch (e: Exception) {
             Log.e(TAG, "analyze failed", e)
-            loseDetection()
+            if (!closed.get() && resetGeneration.get() == generation) loseDetection()
         } finally {
             bitmap.recycle()
         }
     }
 
     private fun loseDetection() {
-        stableFrames = 0
-        lastCorners = null
+        if (closed.get()) return
+        captureGate.miss(SystemClock.elapsedRealtime())
         // Null is intentionally emitted on every sampled miss: consumers can clear stale UI state.
         onDetection(null)
     }
@@ -297,6 +320,7 @@ class AutoDocCaptureAnalyzer(
             image.width, image.height, left, top, right - left, bottom - top,
             ((image.imageInfo.rotationDegrees % 360) + 360) % 360,
             copyPlane(0), copyPlane(1), copyPlane(2),
+            SystemClock.elapsedRealtime(),
         )
     }
 

@@ -57,6 +57,17 @@
         android:textStyle="bold" />
 
     <Button
+        android:id="@+id/btnModeListBatch"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="10dp"
+        android:backgroundTint="@color/ls_badge"
+        android:text="🧾 双页清单 / 双页入库\n先识别物料/日期，再录入多条集成码"
+        android:textSize="15sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
+
+    <Button
         android:id="@+id/btnSplitCode"
         android:layout_width="match_parent"
         android:layout_height="64dp"
@@ -74,6 +85,17 @@
         android:layout_marginTop="14dp"
         android:backgroundTint="@color/ls_badge"
         android:text="🗂️ 托盘中心\n多选托盘 / 导出 WMS（一次喂多个托盘）"
+        android:textSize="15sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
+
+    <Button
+        android:id="@+id/btnLedgerManagement"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="14dp"
+        android:backgroundTint="@color/ls_primary"
+        android:text="📒 台账管理\n扫码出入库 / 库存结存 / 出入流水"
         android:textSize="15sp"
         android:textColor="#FFFFFF"
         android:textStyle="bold" />

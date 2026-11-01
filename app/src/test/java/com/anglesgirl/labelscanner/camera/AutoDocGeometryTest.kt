@@ -6,6 +6,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AutoDocGeometryTest {
+    @Test fun fullWhiteBackgroundIsNotACompleteLabelOutline() {
+        assertFalse(AutoDocGeometry.hasCompleteOutline(
+            listOf(0f to 0f, 1f to 0f, 1f to 1f, 0f to 1f)))
+        assertFalse(AutoDocGeometry.hasCompleteOutline(
+            listOf(0.169f to 0f, 0.994f to 0f, 0.997f to 1f, 0.023f to 1f)))
+    }
+
+    @Test fun finiteInteriorCornersCanDriveSafeZoom() {
+        assertTrue(AutoDocGeometry.hasCompleteOutline(
+            listOf(0.2f to 0.2f, 0.8f to 0.2f, 0.8f to 0.8f, 0.2f to 0.8f)))
+        assertFalse(AutoDocGeometry.hasCompleteOutline(
+            listOf(Float.NaN to 0.2f, 0.8f to 0.2f, 0.8f to 0.8f, 0.2f to 0.8f)))
+        assertFalse(AutoDocGeometry.hasCompleteOutline(emptyList()))
+    }
+
+    @Test fun largeLabelDoesNotZoomOutToUltraWide() {
+        assertEquals(1f, AutoDocGeometry.targetZoom(0.01f, 0.99f, 0.1f, 0.9f, 1f, 0.5f, 4f), 0.002f)
+    }
+
+    @Test fun movingCloserAfterZoomDoesNotReverseZoom() {
+        assertEquals(2f, AutoDocGeometry.targetZoom(0.02f, 0.98f, 0.1f, 0.9f, 2f, 0.5f, 4f), 0.002f)
+    }
+
+    @Test fun repeatedDetectionsDoNotReverseAfterOvershoot() {
+        val zoom = AutoDocGeometry.targetZoom(0.3f, 0.7f, 0.3f, 0.7f, 1f, 0.5f, 4f)
+        assertEquals(2f, zoom, 0.002f)
+        assertEquals(zoom, AutoDocGeometry.targetZoom(0.07f, 0.93f, 0.07f, 0.93f, zoom, 0.5f, 4f), 0.002f)
+    }
+
+    @Test fun recoversFromSubOneZoomWithoutRequestingUltraWide() {
+        assertEquals(1f, AutoDocGeometry.targetZoom(0.01f, 0.99f, 0.1f, 0.9f, 0.5f, 0.5f, 4f), 0.002f)
+    }
+
     @Test fun usesCurrentAbsoluteZoom() {
         assertEquals(3f, AutoDocGeometry.targetZoom(0.3f, 0.7f, 0.3f, 0.7f, 1.5f, 1f, 4f), 0.002f)
     }

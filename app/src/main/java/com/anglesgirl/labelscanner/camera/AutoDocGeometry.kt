@@ -10,10 +10,18 @@ internal object AutoDocGeometry {
     const val ZOOM_DEADBAND_RATIO = 0.04f
     const val ZOOM_DEADBAND_ABSOLUTE = 0.06f
 
+    /** An edge on the image border is not evidence that the whole paper was segmented. */
+    fun hasCompleteOutline(corners: List<Pair<Float, Float>>): Boolean =
+        corners.size == 4 && corners.all { (x, y) ->
+            x.isFinite() && y.isFinite() && x in 0.008f..0.992f && y in 0.008f..0.992f
+        }
+
     /**
      * Computes an absolute camera zoom ratio, not a zoom multiplier. The requested magnification
      * is applied to [currentZoom], then capped so a centered camera zoom cannot clip any side of
      * the detected label's axis-aligned envelope (including labels away from image center).
+     * This is zoom-IN assistance: never zoom out because the label is already large, and never
+     * request the sub-1x ultra-wide lens. Reopening the camera starts a fresh 1x session.
      */
     fun targetZoom(
         minX: Float,
@@ -36,17 +44,17 @@ internal object AutoDocGeometry {
         val height = bottom - top
         if (width <= 0f || height <= 0f) return currentZoom.coerceIn(minZoom, maxZoom)
 
-        val wantedScale = targetFill.coerceIn(0.05f, 0.95f) / max(width, height)
+        val wantedScale = (targetFill.coerceIn(0.05f, 0.95f) / max(width, height)).coerceAtLeast(1f)
         val safeScale = min(
             min(edgeSafeScale(left, right), edgeSafeScale(top, bottom)),
             Float.MAX_VALUE,
         ).coerceAtLeast(1f)
-        val lower = minZoom.coerceAtLeast(0.1f)
+        val lower = max(minZoom, min(1f, maxZoom)).coerceAtLeast(0.1f)
         val upper = maxZoom.coerceAtLeast(lower)
         val current = currentZoom.coerceIn(lower, upper)
         val capped = (current * min(wantedScale, safeScale)).coerceIn(lower, upper)
         val deadband = max(ZOOM_DEADBAND_ABSOLUTE, current * ZOOM_DEADBAND_RATIO)
-        return if (abs(capped - current) <= deadband) current else capped
+        return if (abs(capped - currentZoom) <= deadband) currentZoom else capped
     }
 
     /** Maximum multiplier that keeps an interval wholly within the frame while zooming at center. */
