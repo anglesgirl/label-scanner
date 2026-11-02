@@ -94,6 +94,18 @@
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnSlip"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="@color/ls_accent"
+                android:text="📷 拍单据\n送货单/退货单拍照 · 编号跟单"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout

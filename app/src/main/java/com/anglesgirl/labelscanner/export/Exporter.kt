@@ -23,7 +23,7 @@ import java.util.zip.ZipOutputStream
  *   DATA04 箱号           -> boxCode（旧数据/单条模式 boxCode 空 → 回退 serialNumber，
  *                            因为以前一箱一个 SN，箱号=SN；一箱多 SN 后真正分开）
  *   DATA05 数量           -> 1 (固定)
- *   DATA06 工厂           -> 留空
+ *   DATA06 工厂           -> 固定 "6012"
  *   DATA07 库存地         -> 留空
  *   DATA08 生产日期-yyyymmdd -> productionDate
  *   DATA09 销售公司       -> 留空
@@ -59,7 +59,87 @@ object Exporter {
         }
     }
 
-    /** WMS 模板：第 1 行 DATA 编码行（1, DATA01..DATA14），第 2 行中文说明行 */
+    /** WMS 导出打包成 ZIP：WMS 表 + 单据照片（有照片时），“单号+托盘一起发”用。 */
+    fun exportWmsZip(
+        context: Context,
+        records: List<LabelResult>,
+        zipName: String,
+        slipNo: String,
+        photoFile: File?,
+    ): Uri? {
+        val fileName = "$zipName.zip"
+        return if (Build.VERSION.SDK_INT >= 29) {
+            exportZipViaMediaStore(context, records, fileName, slipNo, photoFile)
+        } else {
+            exportZipViaLegacyDir(context, records, fileName, slipNo, photoFile)
+        }
+    }
+
+    private fun exportZipViaMediaStore(
+        context: Context,
+        records: List<LabelResult>,
+        fileName: String,
+        slipNo: String,
+        photoFile: File?,
+    ): Uri? = runCatching {
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        context.contentResolver.delete(
+            collection,
+            "${MediaStore.Downloads.DISPLAY_NAME} = ?",
+            arrayOf(fileName)
+        )
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "application/zip")
+            put(MediaStore.Downloads.RELATIVE_PATH, EXT_DIR)
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = context.contentResolver.insert(collection, values)
+            ?: error("无法创建导出文件")
+        context.contentResolver.openOutputStream(uri)?.use { writeZip(it, records, slipNo, photoFile) }
+            ?: error("无法打开导出文件")
+        values.clear()
+        values.put(MediaStore.Downloads.IS_PENDING, 0)
+        context.contentResolver.update(uri, values, null, null)
+        uri
+    }.getOrNull()
+
+    private fun exportZipViaLegacyDir(
+        context: Context,
+        records: List<LabelResult>,
+        fileName: String,
+        slipNo: String,
+        photoFile: File?,
+    ): Uri? = runCatching {
+        val dir = File(context.getExternalFilesDir(null), "LabelScanner").apply { mkdirs() }
+        val file = File(dir, fileName)
+        FileOutputStream(file).use { writeZip(it, records, slipNo, photoFile) }
+        androidx.core.content.FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", file
+        )
+    }.getOrNull()
+
+    /** ZIP 内容：WMS 表（文件名带单号）+ 单据照片（有照片时，文件名带单号）。 */
+    private fun writeZip(
+        output: java.io.OutputStream,
+        records: List<LabelResult>,
+        slipNo: String,
+        photoFile: File?,
+    ) {
+        ZipOutputStream(output).use { zip ->
+            val xlsxBytes = java.io.ByteArrayOutputStream()
+                .also { writeWmsWorkbook(it, records) }.toByteArray()
+            zip.putNextEntry(ZipEntry("WMS导入_$slipNo.xlsx"))
+            zip.write(xlsxBytes)
+            zip.closeEntry()
+            if (photoFile != null && photoFile.exists()) {
+                val ext = photoFile.name.substringAfterLast('.', "jpg")
+                zip.putNextEntry(ZipEntry("单据_$slipNo.$ext"))
+                photoFile.inputStream().use { it.copyTo(zip) }
+                zip.closeEntry()
+            }
+        }
+    }
     private val WMS_DATA_HEADERS = arrayOf(
         "DATA01", "DATA02", "DATA03", "DATA04", "DATA05",
         "DATA06", "DATA07", "DATA08", "DATA09", "DATA10",
@@ -86,7 +166,7 @@ object Exporter {
             r.materialCode,       // DATA03 物料编码
             boxCode,              // DATA04 箱号
             "1",                  // DATA05 数量
-            "",                   // DATA06 工厂
+            "6012",               // DATA06 工厂（固定）
             "",                   // DATA07 库存地
             r.productionDate,     // DATA08 生产日期-yyyymmdd
             "",                   // DATA09 销售公司

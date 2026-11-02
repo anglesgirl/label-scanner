@@ -101,6 +101,12 @@ object RecordStore {
      */
     fun append(context: Context, newRecords: List<LabelResult>) {
         ensureImported(context)
+        // 采集跟单：没带单号的新记录，自动带上当前单据（拍单后采集即跟单）；
+        // 已有单号的不动（重扫同一 SN 时保留第一次的单号）。
+        val currentSlip = SlipStore.getCurrent(context)
+        if (currentSlip.isNotBlank()) {
+            newRecords.forEach { if (it.slipNo.isBlank()) it.slipNo = currentSlip }
+        }
         val database = LocalDatabase.get(context).writableDatabase
         database.beginTransaction()
         try {
@@ -178,6 +184,7 @@ object RecordStore {
         put("material_from_ean69", if (r.materialFromEan69) 1 else 0)
         put("model", r.model); put("color", r.color); put("toner_model", r.tonerModel)
         put("tray_code", r.trayCode); put("box_code", r.boxCode)
+        put("slip_no", r.slipNo)
     }
 
     private fun fromCursor(c: android.database.Cursor) = LabelResult(
@@ -188,7 +195,8 @@ object RecordStore {
         productionDate = c.string("production_date"), ean69 = c.string("ean69"),
         materialFromEan69 = c.getInt(c.getColumnIndexOrThrow("material_from_ean69")) != 0,
         model = c.string("model"), color = c.string("color"), tonerModel = c.string("toner_model"),
-        trayCode = c.string("tray_code"), boxCode = c.string("box_code")
+        trayCode = c.string("tray_code"), boxCode = c.string("box_code"),
+        slipNo = try { c.string("slip_no") } catch (_: Exception) { "" }
     )
 
     private fun android.database.Cursor.string(name: String): String =
@@ -243,6 +251,7 @@ object RecordStore {
             put("serialNumber", r.serialNumber); put("materialCode", r.materialCode); put("quantity", r.quantity)
             put("productionDate", r.productionDate); put("ean69", r.ean69); put("materialFromEan69", r.materialFromEan69)
             put("model", r.model); put("color", r.color); put("tonerModel", r.tonerModel); put("trayCode", r.trayCode); put("boxCode", r.boxCode)
+            put("slipNo", r.slipNo)
         }) }
     }.toString()
 
@@ -252,7 +261,16 @@ object RecordStore {
             supplier = o.optString("supplier", "NA"), serialNumber = o.optString("serialNumber"), materialCode = o.optString("materialCode"),
             quantity = o.optInt("quantity", 1), productionDate = o.optString("productionDate"), ean69 = o.optString("ean69"),
             materialFromEan69 = o.optBoolean("materialFromEan69"), model = o.optString("model"), color = o.optString("color"),
-            tonerModel = o.optString("tonerModel"), trayCode = o.optString("trayCode"), boxCode = o.optString("boxCode")
+            tonerModel = o.optString("tonerModel"), trayCode = o.optString("trayCode"), boxCode = o.optString("boxCode"),
+            slipNo = o.optString("slipNo")
         ) } }.toMutableList()
+    }
+
+    /** 整托补/改单号：该托盘全部记录改成指定单号（托盘中心长按、导出时绑定都走这里）。 */
+    fun updateTraySlipNo(context: Context, trayCode: String, slipNo: String) {
+        ensureImported(context)
+        val db = LocalDatabase.get(context).writableDatabase
+        val values = ContentValues().apply { put("slip_no", slipNo) }
+        db.update("records", values, "tray_code = ?", arrayOf(trayCode))
     }
 }

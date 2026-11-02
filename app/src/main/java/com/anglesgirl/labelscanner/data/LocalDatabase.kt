@@ -26,11 +26,13 @@ class LocalDatabase private constructor(context: Context) :
                 toner_model TEXT NOT NULL DEFAULT '',
                 tray_code TEXT NOT NULL DEFAULT '',
                 box_code TEXT NOT NULL DEFAULT '',
+                slip_no TEXT NOT NULL DEFAULT '',
                 location TEXT NOT NULL DEFAULT ''
             )"""
         )
         db.execSQL("CREATE UNIQUE INDEX records_serial_index ON records(serial_number) WHERE serial_number <> ''")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_tray ON records(tray_code)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_slip ON records(slip_no)")
         db.execSQL(
             """CREATE TABLE barcode69_lookup (
                 ean69 TEXT PRIMARY KEY NOT NULL,
@@ -40,6 +42,18 @@ class LocalDatabase private constructor(context: Context) :
         )
         createAppMetadataTable(db)
         createLedgerTables(db)
+        createSlipTable(db)
+    }
+
+    /** 单据表：送货单/退货单照片 + 编号；导出 ZIP 时按单号归集托盘。 */
+    private fun createSlipTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS slips (
+                slip_no TEXT PRIMARY KEY NOT NULL,
+                photo_path TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL DEFAULT 0
+            )"""
+        )
     }
 
     /** v3 台账本地镜像：库存按（物料、库位、托盘）定位，流水按 client_id 去重。 */
@@ -96,9 +110,14 @@ class LocalDatabase private constructor(context: Context) :
         // 自愈旧 v3 数据库：缺少哪张新增表/字段就补齐，已存在数据不受影响。
         createLedgerTables(db)
         createAppMetadataTable(db)
+        createSlipTable(db)
         if (!hasColumn(db, "records", "location")) {
             db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
         }
+        if (!hasColumn(db, "records", "slip_no")) {
+            db.execSQL("ALTER TABLE records ADD COLUMN slip_no TEXT NOT NULL DEFAULT ''")
+        }
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_records_slip ON records(slip_no)")
     }
 
     private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean {
