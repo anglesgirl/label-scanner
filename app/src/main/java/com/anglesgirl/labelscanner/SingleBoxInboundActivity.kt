@@ -209,6 +209,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             resolver = contentResolver,
             uri = uri,
             lookup69 = null,
+            // 单箱一箱多个 SN：条码必须并集解码，否则某一尺度解出 2 个就提前返回、剩下全丢。
+            multiCode = true,
             onResult = { result ->
                 runOnUiThread {
                     // Per-label caches must not turn an uncertain new field into an old value.

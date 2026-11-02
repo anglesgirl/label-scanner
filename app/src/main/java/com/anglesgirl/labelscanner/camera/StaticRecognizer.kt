@@ -90,6 +90,8 @@ object StaticRecognizer {
         lookup69: ((String) -> String?)?,
         onResult: (LabelResult) -> Unit,
         onError: (String) -> Unit,
+        /** 多码场景（如单箱一箱多 SN）：条码走并集解码，不提前返回。单码场景默认关（快）。 */
+        multiCode: Boolean = false,
     ) {
         if (LiveSampleEvidence.isVerified(uri)) {
             recognitionPool.execute {
@@ -126,7 +128,7 @@ object StaticRecognizer {
         val bmp = applyExifRotation(resolver, uri, raw)
         // 相册路径保持原有的安全识别流程；拍照路径的增强已在 CropActivity 中完成。
         // 不在这里逐像素处理 4096 边长图片，避免主线程卡死/OOM。
-        recognize(bmp, lookup69, onResult, onError)
+        recognize(bmp, lookup69, onResult, onError, multiCode)
     }
 
     /**
@@ -176,23 +178,30 @@ object StaticRecognizer {
         recognizeMulti(bmp, onResult, onError)
     }
 
-    /** 识别单张 Bitmap：**条码全走 zxing-cpp**，**ML Kit 只做 OCR**（各司其职）。 */
+    /** 识别单张 Bitmap：**条码全走 zxing-cpp**，**ML Kit 只做 OCR**（各司其职）。
+     *
+     * multiCode=true 时条码走 [ZxingDecoder.decodeUnion]（1x/2x/3x 全跑取并集）：
+     * 单箱标签一箱多个 SN 时，提前返回的 decode() 会在某一尺度解出 2 个就停，
+     * 剩下 7 个永远没机会（2026-11-02 CTL-2300HK 标签实测：9 个 SN 只出 2 个，
+     * 箱号 CA 码也丢了；多码清单 2026-10-01 已是同一教训）。单码场景保持默认关。
+     */
     fun recognize(
         bitmap: Bitmap,
         lookup69: ((String) -> String?)?,
         onResult: (LabelResult) -> Unit,
         onError: (String) -> Unit,
+        multiCode: Boolean = false,
     ) {
         val input = InputImage.fromBitmap(bitmap, 0)
         val zxingFuture = zxingPool.submit<List<String>> {
-            Log.i(TAG, "[ZXING_STATIC] start ${bitmap.width}x${bitmap.height}")
-            ZxingDecoder.decode(bitmap).also {
+            Log.i(TAG, "[ZXING_STATIC] start ${bitmap.width}x${bitmap.height} multiCode=$multiCode")
+            (if (multiCode) ZxingDecoder.decodeUnion(bitmap) else ZxingDecoder.decode(bitmap)).also {
                 Log.i(TAG, "[ZXING_STATIC] complete count=${it.size}")
             }
         }
         // 条码/二维码一律交给 zxing-cpp（ML Kit 扫码能力弱：高密度 2D 码解不出，
         // 还会用旁边的 1D 结果干扰）。ML Kit 在本流程里**只负责 OCR**。
-        finishWithBarcodes(input, emptyList(), zxingFuture, lookup69, onResult, onError)
+        finishWithBarcodes(input, emptyList(), zxingFuture, lookup69, onResult, onError, multiCode)
     }
 
     /**
@@ -259,10 +268,13 @@ object StaticRecognizer {
         lookup69: ((String) -> String?)?,
         onResult: (LabelResult) -> Unit,
         onError: (String) -> Unit,
+        multiCode: Boolean = false,
     ) {
         recognitionPool.submit {
             val mergedBarcodes = try {
-                (mlBarcodes + zxingFuture.get(15, TimeUnit.SECONDS))
+                // 并集要跑 1x/2x/3x 三遍，大图上比单次解码慢，给足 25 秒（多码清单同款 20 秒+余量）；
+                // 单次解码保持 15 秒，超时不拖界面。
+                (mlBarcodes + zxingFuture.get(if (multiCode) 25 else 15, TimeUnit.SECONDS))
                     .map { it.trim() }
                     .filter(String::isNotBlank)
                     .distinct()
