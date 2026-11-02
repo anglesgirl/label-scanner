@@ -19,95 +19,110 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <!-- 顶部提示条 -->
+    <!-- 顶部区域：垂直流式布局。提示栏变高（多行提示）时，下方的切换按钮
+         与亮度条自动下移；旧写法用固定 marginTop（88dp/136dp）假定提示栏
+         只有一行，多行提示一高就必然重叠（2026-11-02 扫整箱实测：提示 3 行时
+         切换 USB 按钮与亮度条直接压在提示文字与小标签按钮上）。 -->
     <LinearLayout
-        android:id="@+id/scanTopBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="@color/ls_scrim"
-        android:paddingStart="16dp"
-        android:paddingEnd="8dp"
-        android:paddingBottom="8dp">
-
-        <TextView
-            android:id="@+id/tvScanHint"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="对准条码，自动识别"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp" />
-
-        <Button
-            android:id="@+id/btnTorch"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
-            android:backgroundTint="#546E7A"
-            android:insetBottom="0dp"
-            android:insetTop="0dp"
-            android:minWidth="72dp"
-            android:text="💡 灯光"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:visibility="gone" />
-
-        <Button
-            android:id="@+id/btnSmallLabel"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
-            android:backgroundTint="#546E7A"
-            android:insetBottom="0dp"
-            android:insetTop="0dp"
-            android:minWidth="72dp"
-            android:text="🔍 小标签"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp" />
-
-        <Button
-            android:id="@+id/btnCloseScan"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
-            android:backgroundTint="@color/ls_err"
-            android:text="✕ 关闭"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:minWidth="72dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp" />
-    </LinearLayout>
-
-    <!-- 独立放在顶栏下方，不压缩提示栏中的灯光/小标签/关闭按钮。 -->
-    <Button
-        android:id="@+id/btnSwitchCamera"
-        android:layout_width="wrap_content"
-        android:layout_height="40dp"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="88dp"
-        android:layout_marginEnd="12dp"
-        android:backgroundTint="#546E7A"
-        android:elevation="8dp"
-        android:insetTop="0dp"
-        android:insetBottom="0dp"
-        android:minWidth="120dp"
-        android:text="🔌 切换 USB"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp" />
-
-    <!-- 补光灯亮度条：开灯后显示，0~100 调曝光补偿让画面更亮 -->
-    <SeekBar
-        android:id="@+id/sbTorchBrightness"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="136dp"
-        android:layout_marginEnd="16dp"
-        android:background="@color/ls_scrim"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:visibility="gone" />
+        android:orientation="vertical">
+
+        <!-- 顶部提示条 -->
+        <LinearLayout
+            android:id="@+id/scanTopBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@color/ls_scrim"
+            android:paddingStart="16dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/tvScanHint"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="对准条码，自动识别"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnTorch"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:backgroundTint="#546E7A"
+                android:insetBottom="0dp"
+                android:insetTop="0dp"
+                android:minWidth="72dp"
+                android:text="💡 灯光"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/btnSmallLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:backgroundTint="#546E7A"
+                android:insetBottom="0dp"
+                android:insetTop="0dp"
+                android:minWidth="72dp"
+                android:text="🔍 小标签"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnCloseScan"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:backgroundTint="@color/ls_err"
+                android:text="✕ 关闭"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:minWidth="72dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp" />
+        </LinearLayout>
+
+        <!-- 切换摄像头：仍独立放在顶栏下方，不压缩提示栏里的按钮；右对齐。 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:paddingTop="8dp"
+            android:paddingEnd="12dp">
+
+            <Button
+                android:id="@+id/btnSwitchCamera"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:backgroundTint="#546E7A"
+                android:elevation="8dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="120dp"
+                android:text="🔌 切换 USB"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- 补光灯亮度条：开灯后显示，0~100 调曝光补偿让画面更亮 -->
+        <SeekBar
+            android:id="@+id/sbTorchBrightness"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="16dp"
+            android:background="@color/ls_scrim"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <!-- 扫描框指示 -->
     <View
