@@ -30,11 +30,43 @@ object BoxScanClassifier {
     private val EAN13 = Regex("^69\\d{11}$")
     private val SAP_NUM = Regex("^\\d{10,12}$")
     private val SAP_LABELED = Regex("(?i)SAP[^0-9]{0,3}(\\d{10,12})")
-    private val QTY_INLINE = Regex("(?i)QTY[^0-9]{0,3}(\\d{1,3})")
+    /**
+     * QTY 三档判定（2026-11-02 TL-413 标签教训）：
+     * 表格是两列，ML Kit 经常把标签列和值列拆成两组行——"QTY." 和 "10 PCS"
+     * 未必相邻，只看下一行必然漏读（实测：列优先顺序下旧逻辑 QTY=0，
+     * 导致 10 个 SN 已齐却显示"未读到 QTY"、不自动回）。
+     * ① 同行 "QTY. 10 PCS"；② 全文有 QTY 标签 + 有 "N PCS" 值行（不要求相邻，
+     * 大小写不敏感）；③ 裸 "QTY." 行后 6 行内找裸数字/PCS 值。
+     * ① 的后瞻 (?![0-9A-Za-z]) 防 OCR 把 0 读成 O："QTY. 1O PCS" 不能
+     * 误判成 1（错目标比没目标更糟：1 个就自动回了）。
+     */
+    private val QTY_INLINE = Regex("(?i)QTY[^0-9]{0,3}(\\d{1,3})(?![0-9A-Za-z])")
     private val QTY_BARE = Regex("(?i)^QTY\\.?$")
+    private val QTY_PCS_ANY = Regex("^(\\d{1,3})\\s*PCS\\.?$", RegexOption.IGNORE_CASE)
     private val QTY_VALUE = Regex("^(\\d{1,3})\\s*(PCS|PC)?\\.?$")
     private val DATE_SEP = Regex("(\\d{4})[-/. ](\\d{1,2})[-/. ](\\d{1,2})")
     private val DATE8 = Regex("^\\d{8}$")
+
+    private fun parseQty(lines: List<String>): Int {
+        for (line in lines) {
+            val v = QTY_INLINE.find(line)?.groupValues?.get(1)?.toIntOrNull()
+            if (v != null && v in 1..999) return v
+        }
+        val hasLabel = lines.any { it.contains("QTY", ignoreCase = true) }
+        if (!hasLabel) return 0
+        for (line in lines) {
+            val v = QTY_PCS_ANY.find(line)?.groupValues?.get(1)?.toIntOrNull()
+            if (v != null && v in 1..999) return v
+        }
+        for (i in lines.indices) {
+            if (!QTY_BARE.matches(lines[i])) continue
+            for (next in lines.subList(i + 1, minOf(i + 7, lines.size))) {
+                val v = QTY_VALUE.find(next)?.groupValues?.get(1)?.toIntOrNull()
+                if (v != null && v in 1..999) return v
+            }
+        }
+        return 0
+    }
 
     /**
      * 累计一步：新条码 + 新 OCR 行并入状态，返回新状态。
@@ -53,17 +85,13 @@ object BoxScanClassifier {
         // 物料只认两种：整行纯数字，或 "SAP" 后跟的数字 —— SN 条码下方的人读数
         // （如 201220700301V005GN）里截一段 12 位数字不能算物料，UPC 13 位
         // 的前 12 位也不能算，所以不用 find 直接取数字串。
+        // QTY 整批判定一次（标签列与值列可能不相邻，见 parseQty），不在逐行里只看下一行。
+        if (qty <= 0) {
+            qty = parseQty(ocrLines.map { it.trim() }.filter { it.isNotEmpty() })
+        }
         for (i in ocrLines.indices) {
             val line = ocrLines[i].trim()
             if (line.isEmpty()) continue
-            if (qty <= 0) {
-                QTY_INLINE.find(line)?.groupValues?.get(1)?.toIntOrNull()
-                    ?.takeIf { it in 1..999 }?.let { qty = it }
-                if (qty <= 0 && QTY_BARE.matches(line) && i + 1 < ocrLines.size) {
-                    QTY_VALUE.find(ocrLines[i + 1].trim())?.groupValues?.get(1)?.toIntOrNull()
-                        ?.takeIf { it in 1..999 }?.let { qty = it }
-                }
-            }
             if (material.isEmpty()) {
                 if (SAP_NUM.matches(line)) material = line
                 else SAP_LABELED.find(line)?.groupValues?.get(1)?.let { material = it }
