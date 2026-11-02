@@ -11,8 +11,8 @@ android {
         applicationId = "com.anglesgirl.labelscanner"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.1.12-box-union"
+        versionCode = 20
+        versionName = "0.1.13-box-live"
         ndk {
             abiFilters += setOf("arm64-v8a")
         }

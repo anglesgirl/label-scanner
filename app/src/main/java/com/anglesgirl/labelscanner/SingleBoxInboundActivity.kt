@@ -94,6 +94,28 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         }
     }
 
+    /** 整箱直播：相机累计扫完整箱（SN 够 QTY 自动回），直接填字段 + 换整批 SN。 */
+    private val boxScan = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val data = result.data ?: return@registerForActivityResult
+        val sns = data.getStringArrayListExtra(LiveScanActivity.EXTRA_RESULT_CODES).orEmpty()
+        val boxCode = data.getStringExtra(LiveScanActivity.EXTRA_BOX_CODE).orEmpty()
+        val material = data.getStringExtra(LiveScanActivity.EXTRA_BOX_MATERIAL).orEmpty()
+        val date = data.getStringExtra(LiveScanActivity.EXTRA_BOX_DATE).orEmpty()
+        val qty = data.getIntExtra(LiveScanActivity.EXTRA_BOX_QTY, 0)
+        if (material.isNotBlank()) etMaterial.setText(material)
+        if (boxCode.isNotBlank()) etBox.setText(boxCode)
+        if (date.isNotBlank()) etDate.setText(date)
+        // 整箱扫描返回的是这一箱的完整 SN 集，直接替换（旧 SN 属于上一箱，混着会错）。
+        snList.clear()
+        snFromOcr.clear()
+        snList.addAll(sns)
+        rebuildSnList()
+        val qtyPart = if (qty > 0) "（目标 $qty）" else ""
+        tvBoxStatus.text = "✅ 整箱扫完：${sns.size} 个序列号$qtyPart" +
+            (if (boxCode.isNotBlank()) "，箱号 $boxCode" else "")
+    }
+
     private fun onScannedCode(code: String) {
         if (scanAppendToSn) {
             if (code !in snList) {
@@ -146,6 +168,14 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
         findViewById<Button>(R.id.btnScanDoc).setOnClickListener { imageIn.scanDocument() }
         findViewById<Button>(R.id.btnPickGallery).setOnClickListener { imageIn.pickGallery() }
+        // 整箱直播：一箱多 SN 时不用拍照碰运气，相机累计扫满 QTY 自动回。
+        findViewById<Button>(R.id.btnBoxScan).setOnClickListener {
+            boxScan.launch(
+                Intent(this, LiveScanActivity::class.java)
+                    .putExtra(LiveScanActivity.EXTRA_TITLE, "扫整箱")
+                    .putExtra(LiveScanActivity.EXTRA_BOX_SCAN, true)
+            )
+        }
         findViewById<Button>(R.id.btnAddSn).setOnClickListener { addManualSn() }
         findViewById<Button>(R.id.btnSaveBox).setOnClickListener { saveBox() }
         findViewById<Button>(R.id.btnResetBox).setOnClickListener { resetBox() }

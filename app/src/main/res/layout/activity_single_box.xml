@@ -77,6 +77,17 @@
                 android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
         </LinearLayout>
 
+        <!-- 整箱直播：一箱多 SN 时，相机累计扫满 QTY 自动回，不用拍照碰运气 -->
+        <Button
+            android:id="@+id/btnBoxScan"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/ls_accent"
+            android:text="📷 扫整箱（直播累计，够 QTY 自动回）"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
+
         <!-- 已识别的条码（点击可选择用途修正） -->
         <TextView
             android:layout_width="match_parent"

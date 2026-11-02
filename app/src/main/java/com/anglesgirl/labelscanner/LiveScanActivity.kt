@@ -85,6 +85,17 @@ class LiveScanActivity : AppCompatActivity() {
         const val EXTRA_EXPECTED_COUNT = "extra_expected_count"
         const val EXTRA_INITIAL_CODES = "extra_initial_codes"
 
+        /**
+         * 整箱直播模式（单箱入库「扫整箱」）：相机一直开着，条码边扫边累计分类，
+         * SN 够 QTY 才自动回；没够数绝不弹框、不关闭，用户继续移动相机扫完。
+         * 结果：EXTRA_RESULT_CODES = 序列号列表，另附箱号/物料/日期/QTY。
+         */
+        const val EXTRA_BOX_SCAN = "extra_box_scan"
+        const val EXTRA_BOX_CODE = "extra_box_code"
+        const val EXTRA_BOX_MATERIAL = "extra_box_material"
+        const val EXTRA_BOX_DATE = "extra_box_date"
+        const val EXTRA_BOX_QTY = "extra_box_qty"
+
         /** true = 使用 USB UVC 外接摄像头（内窥镜）作为取景源，交互与手机摄像头完全一致。
          *  由设置页「摄像头来源」决定（旧参数 EXTRA_USB_CAMERA 兼容保留）。 */
         const val EXTRA_USB_CAMERA = "extra_usb_camera"
@@ -159,6 +170,13 @@ class LiveScanActivity : AppCompatActivity() {
     /** 连续扫模式（拆码页多箱）：扫到集成码自动记录、继续扫，点「完成」一次性带回。 */
     private var continuousMode = false
 
+    /** 整箱直播模式：累计分类 SN/箱号，够 QTY 才自动回（见 BoxScanClassifier）。 */
+    private var boxScanMode = false
+    private var boxState = com.anglesgirl.labelscanner.model.BoxScanState()
+    /** 整箱直播 OCR 节流：每 2 秒最多跑一次（QTY/SAP/日期靠它，条码没有这些信息）。 */
+    private var boxLastOcrAt = 0L
+    private val boxOcrBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+
     // 挑码模式：预览浮层 + 底部「已选/填入」栏
     private lateinit var pickOverlay: BarcodePickOverlay
     private lateinit var ivSnapshot: android.widget.ImageView
@@ -206,13 +224,22 @@ class LiveScanActivity : AppCompatActivity() {
         // 本页是否为扫集成码：识别到多个码时优先取 2D / 含逗号的那个
         wantIntegrated = intent.getBooleanExtra(EXTRA_WANT_INTEGRATED, false)
         continuousMode = intent.getBooleanExtra(EXTRA_CONTINUOUS, false)
+        boxScanMode = intent.getBooleanExtra(EXTRA_BOX_SCAN, false)
         expectedCount = intent.getIntExtra(EXTRA_EXPECTED_COUNT, 0)
         initialCodes += intent.getStringArrayListExtra(EXTRA_INITIAL_CODES).orEmpty()
         usbMode = com.anglesgirl.labelscanner.util.CameraPrefs.isUsb(this)
         updateCameraModeUi()
         // 连续扫：右上角按钮变成「完成」，已扫 N 箱会显示在按钮上；没扫到直接退出即取消
         findViewById<Button>(R.id.btnCloseScan).setOnClickListener {
-            if (continuousMode) finishContinuous() else finish()
+            if (boxScanMode) finishBoxScan()
+            else if (continuousMode) finishContinuous()
+            else finish()
+        }
+        if (boxScanMode) {
+            // 整箱直播：右上角常驻「完成」手动结束（QTY 读不到、标签破损时用）；
+            // 够 QTY 时自动回，不用等用户点。
+            findViewById<Button>(R.id.btnCloseScan).text = "✓ 完成"
+            tvScanHint.text = "对准整箱标签，靠近条码列慢慢移动：序列号会累计，够 QTY 自动回"
         }
         findViewById<Button>(R.id.btnSwitchCamera).setOnClickListener { switchCameraSource() }
 
@@ -626,6 +653,21 @@ class LiveScanActivity : AppCompatActivity() {
 
     private fun onCodesCollected(codes: List<TypedCode>) {
         if (codes.isEmpty() || paused.get()) return
+        // 整箱直播：只累计、不弹框、不关闭。确认过的每批码并入累计状态，
+        // 边扫边分类（SN 批 / 箱号 / 物料 / QTY），够 QTY 才自动回。
+        if (boxScanMode) {
+            boxState = com.anglesgirl.labelscanner.model.BoxScanClassifier.accumulate(
+                boxState,
+                codes.map { it.value },
+                emptyList(),
+            )
+            updateBoxHint()
+            if (boxState.isComplete) {
+                beep()
+                finishBoxScan()
+            }
+            return
+        }
         val ordered = if (wantField.isNotEmpty()) {
             // 补扫模式：按目标字段的格式特征排序。
             // ⚠️ 只是**排序**：同帧所有码照样全部带回上层（采集层不取舍是硬规定）。
@@ -865,6 +907,9 @@ class LiveScanActivity : AppCompatActivity() {
         zxingPool.execute {
             try {
                 if (generation != cameraGeneration) return@execute
+                // 整箱直播：节流 OCR（QTY/SAP/日期只有印字里有，条码给不出），
+                // 与条码解码并行跑，不阻塞、不暂停预览。
+                if (boxScanMode) maybeRunBoxOcr(bmp, generation)
                 // 放大倍数按模式区分（见 ZxingDecoder.decode 的注释）：
                 // 普通模式用 1x —— 分析帧已是 1920×1080，一维条码像素充足；放大 3x
                 // 到 5760×3240 会让单次解码 1~3 秒（实测"要举很久"就是这个原因），
@@ -966,17 +1011,20 @@ class LiveScanActivity : AppCompatActivity() {
                     // 有条码时**一次都不跑 OCR** —— 既保住条码的准确率，也不拖慢正常扫码。
                     // 集成码模式例外：集成码是 2D 码（DataMatrix/PDF417），OCR 读不出，
                     // 跑了只会拿文本行凑数当候选，纯属噪音，直接跳过。
-                    if (wantIntegrated) {
-                        zxingBusy.set(false)
-                        return@execute
-                    }
-                    noCodeStreak += 1
-                    if (noCodeStreak >= ocrAfterRounds()) {
-                        noCodeStreak = 0
-                        val ocrFrame = runCatching {
-                            bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
-                        }.getOrNull()
-                        if (ocrFrame != null) runOcrFallback(ocrFrame, rotationDegrees, generation)
+                    // 整箱直播不走这条：它自带节流 OCR（maybeRunBoxOcr），无码时也照跑。
+                    if (!boxScanMode) {
+                        if (wantIntegrated) {
+                            zxingBusy.set(false)
+                            return@execute
+                        }
+                        noCodeStreak += 1
+                        if (noCodeStreak >= ocrAfterRounds()) {
+                            noCodeStreak = 0
+                            val ocrFrame = runCatching {
+                                bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
+                            }.getOrNull()
+                            if (ocrFrame != null) runOcrFallback(ocrFrame, rotationDegrees, generation)
+                        }
                     }
                 }
             } catch (t: Throwable) {
@@ -1269,6 +1317,91 @@ class LiveScanActivity : AppCompatActivity() {
                 .setOnDismissListener { paused.set(false) }
                 .show()
         }
+    }
+
+    /** 整箱直播顶部提示：物料 · SN n/m · 箱号；没读到 QTY 时说明手动完成。 */
+    private fun updateBoxHint() {
+        val s = boxState
+        val snPart = if (s.targetKnown) "序列号 ${s.serialNumbers.size}/${s.qty}"
+            else "序列号 ${s.serialNumbers.size} 个（未读到 QTY，点完成结束）"
+        val boxPart = if (s.boxCode.isNotBlank()) " · 箱号 ${s.boxCode}" else ""
+        val matPart = if (s.materialCode.isNotBlank()) "物料 ${s.materialCode} · " else ""
+        tvScanHint.text = "$matPart$snPart$boxPart"
+    }
+
+    /** 整箱直播结束：有累计内容就带回（SN 列表 + 箱号/物料/日期/QTY），空手 = 取消。 */
+    private fun finishBoxScan() {
+        val s = boxState
+        if (s.serialNumbers.isEmpty() && s.boxCode.isBlank() && s.materialCode.isBlank()) {
+            finish()
+            return
+        }
+        beep()
+        setResult(
+            RESULT_OK,
+            Intent()
+                .putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(s.serialNumbers))
+                .putExtra(EXTRA_BOX_CODE, s.boxCode)
+                .putExtra(EXTRA_BOX_MATERIAL, s.materialCode)
+                .putExtra(EXTRA_BOX_DATE, s.productionDate)
+                .putExtra(EXTRA_BOX_QTY, s.qty),
+        )
+        finish()
+    }
+
+    /**
+     * 整箱直播的节流 OCR：最多每 2 秒跑一次，读 QTY / SAP / 日期。
+     * 与 runOcrFallback 的区别：那条是"无码才跑"的兜底；这里有码也要跑，
+     * 因为 QTY/SAP/日期只在印字里，不在条码里。结果直接并入累计状态，
+     * 不经过 onCodesCollected（OCR 行不是条码，不能进条码集合）。
+     * 旋转处理与现有 OCR 兜底一致（InputImage 传 0）。
+     */
+    private fun maybeRunBoxOcr(bmp: Bitmap, generation: Int) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - boxLastOcrAt < 2000L) return
+        if (!boxOcrBusy.compareAndSet(false, true)) return
+        boxLastOcrAt = now
+        val ocrBmp = runCatching {
+            val copy = bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
+            if (smallLabelMode) {
+                com.anglesgirl.labelscanner.camera.ImageEnhance.upscale2x(copy).also {
+                    if (it !== copy && !copy.isRecycled) copy.recycle()
+                }
+            } else copy
+        }.getOrNull()
+        if (ocrBmp == null) {
+            boxOcrBusy.set(false)
+            return
+        }
+        runCatching { ocrRecognizer.process(InputImage.fromBitmap(ocrBmp, 0)) }
+            .onSuccess { task ->
+                task
+                    .addOnSuccessListener { text ->
+                        boxOcrBusy.set(false)
+                        if (generation != cameraGeneration || !activityResumed || paused.get()) return@addOnSuccessListener
+                        val lines = text.textBlocks.flatMap { it.lines }
+                            .map { it.text.trim() }.filter { it.isNotEmpty() }
+                        if (lines.isEmpty()) return@addOnSuccessListener
+                        // 累计状态只在主线程改：条码分支（onCodesCollected）也在主线程，
+                        // 避免两路 read-modify-write 互相覆盖丢数据。
+                        runOnUiThread {
+                            boxState = com.anglesgirl.labelscanner.model.BoxScanClassifier.accumulate(
+                                boxState, emptyList(), lines
+                            )
+                            updateBoxHint()
+                            if (boxState.isComplete) {
+                                beep()
+                                finishBoxScan()
+                            }
+                        }
+                    }
+                    .addOnFailureListener { boxOcrBusy.set(false) }
+                    .addOnCompleteListener { if (!ocrBmp.isRecycled) ocrBmp.recycle() }
+            }
+            .onFailure {
+                boxOcrBusy.set(false)
+                if (!ocrBmp.isRecycled) ocrBmp.recycle()
+            }
     }
 
     /** 连续扫模式：把已记录的集成码一次性带回（点右上「完成」触发）。 */
