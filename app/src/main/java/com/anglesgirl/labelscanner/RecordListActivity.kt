@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import com.anglesgirl.labelscanner.camera.SlipOcrRunner
 import com.anglesgirl.labelscanner.data.DbExecutor
 import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.data.SlipStore
@@ -52,10 +53,15 @@ class RecordListActivity : AppCompatActivity() {
             val pending = pendingExportRecords
             pendingExportRecords = null
             if (success && tmp != null && tmp.exists() && pending != null) {
-                SlipUi.showSlipNumberDialog(this, SlipStore.generateSlipNo()) { slipNo ->
-                    val path = SlipStore.storePhoto(this, tmp, slipNo)
-                    SlipStore.saveSlip(this, slipNo, path)
-                    bindTraysAndShareZip(pending, slipNo)
+                // 单据 OCR：读数量/箱数/物料，读完再弹确认框（四项都能改）。
+                Toast.makeText(this, "正在识别单据…", Toast.LENGTH_SHORT).show()
+                SlipOcrRunner.run(tmp) { ocr ->
+                    if (isFinishing || isDestroyed) return@run
+                    SlipUi.showSlipOcrDialog(this, SlipStore.generateSlipNo(), ocr) { slipNo, qty, boxes, mat ->
+                        val path = SlipStore.storePhoto(this, tmp, slipNo)
+                        SlipStore.saveSlip(this, slipNo, path, qty, boxes, mat)
+                        bindTraysAndShareZip(pending, slipNo)
+                    }
                 }
             } else {
                 tmp?.delete()

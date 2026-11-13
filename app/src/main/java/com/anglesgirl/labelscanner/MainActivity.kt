@@ -12,6 +12,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.updatePadding
+import com.anglesgirl.labelscanner.camera.SlipOcrRunner
 import com.anglesgirl.labelscanner.data.SlipStore
 import com.anglesgirl.labelscanner.data.SlipUi
 import com.anglesgirl.labelscanner.util.CrashHandler
@@ -87,13 +88,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    /** 拍照/相册共用：输单号 → 归档 → 设为当前单据。 */
+    /** 拍照/相册共用：先 OCR 读数量/箱数/物料，再弹确认框（四项都能改）→ 归档 → 设为当前单据。 */
     private fun confirmSlipPhoto(tmp: java.io.File) {
-        SlipUi.showSlipNumberDialog(this, SlipStore.generateSlipNo()) { slipNo ->
-            val path = SlipStore.storePhoto(this, tmp, slipNo)
-            SlipStore.saveSlip(this, slipNo, path)
-            Toast.makeText(this, "已设为当前单据：$slipNo，之后采集自动跟单", Toast.LENGTH_SHORT).show()
-            refreshSlipButton()
+        Toast.makeText(this, "正在识别单据…", Toast.LENGTH_SHORT).show()
+        SlipOcrRunner.run(tmp) { ocr ->
+            if (isFinishing || isDestroyed) return@run
+            SlipUi.showSlipOcrDialog(this, SlipStore.generateSlipNo(), ocr) { slipNo, qty, boxes, mat ->
+                val path = SlipStore.storePhoto(this, tmp, slipNo)
+                SlipStore.saveSlip(this, slipNo, path, qty, boxes, mat)
+                Toast.makeText(this, "已设为当前单据：$slipNo，之后采集自动跟单", Toast.LENGTH_SHORT).show()
+                refreshSlipButton()
+            }
         }
     }
 

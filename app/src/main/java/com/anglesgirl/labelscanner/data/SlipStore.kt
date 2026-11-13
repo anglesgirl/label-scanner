@@ -2,10 +2,14 @@ package com.anglesgirl.labelscanner.data
 
 import android.content.ContentValues
 import android.content.Context
+import android.text.InputType
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.anglesgirl.labelscanner.model.SlipOcrParser
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -20,7 +24,15 @@ import java.util.Locale
  */
 object SlipStore {
 
-    data class Slip(val slipNo: String, val photoPath: String, val createdAt: Long)
+    data class Slip(
+        val slipNo: String,
+        val photoPath: String,
+        val createdAt: Long,
+        /** 进仓单 OCR 读到的数量 / 箱数 / 物料编码（0/空 = 没读到）。 */
+        val quantity: Int = 0,
+        val boxCount: Int = 0,
+        val materialCode: String = "",
+    )
 
     private const val PREFS = "slip_prefs"
     private const val CURRENT_SLIP_KEY = "current_slip_no"
@@ -35,13 +47,23 @@ object SlipStore {
             .putString(CURRENT_SLIP_KEY, slipNo).apply()
     }
 
-    /** 保存单据（同号重拍 = 替换照片），并设为当前单据。 */
-    fun saveSlip(context: Context, slipNo: String, photoPath: String) {
+    /** 保存单据（同号重拍 = 替换照片），并设为当前单据。OCR 值 0/空 = 没读到，不覆盖已有值时传 0/空即可。 */
+    fun saveSlip(
+        context: Context,
+        slipNo: String,
+        photoPath: String,
+        quantity: Int = 0,
+        boxCount: Int = 0,
+        materialCode: String = "",
+    ) {
         val db = LocalDatabase.get(context).writableDatabase
         val values = ContentValues().apply {
             put("slip_no", slipNo)
             put("photo_path", photoPath)
             put("created_at", System.currentTimeMillis())
+            put("quantity", quantity)
+            put("box_count", boxCount)
+            put("material_code", materialCode)
         }
         db.insertWithOnConflict("slips", null, values, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE)
         setCurrent(context, slipNo)
@@ -50,14 +72,17 @@ object SlipStore {
     fun getSlip(context: Context, slipNo: String): Slip? {
         val db = LocalDatabase.get(context).readableDatabase
         db.rawQuery(
-            "SELECT slip_no, photo_path, created_at FROM slips WHERE slip_no = ? LIMIT 1",
+            "SELECT slip_no, photo_path, created_at, quantity, box_count, material_code FROM slips WHERE slip_no = ? LIMIT 1",
             arrayOf(slipNo)
         ).use { c ->
             if (!c.moveToFirst()) return null
             return Slip(
                 slipNo = c.getString(0) ?: "",
                 photoPath = c.getString(1) ?: "",
-                createdAt = c.getLong(2)
+                createdAt = c.getLong(2),
+                quantity = c.getInt(3),
+                boxCount = c.getInt(4),
+                materialCode = c.getString(5) ?: "",
             )
         }
     }
@@ -164,6 +189,57 @@ object SlipUi {
                     return@setPositiveButton
                 }
                 onConfirm(no)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /**
+     * 拍单据后确认弹窗：单号 + OCR 读到的数量 / 箱数 / 物料编码，四个都能改；
+     * OCR 没读到的留空手填。数量/箱数只认数字，物料是文本。
+     */
+    fun showSlipOcrDialog(
+        activity: AppCompatActivity,
+        initialSlipNo: String,
+        ocr: SlipOcrParser.Result,
+        onConfirm: (slipNo: String, quantity: Int, boxCount: Int, materialCode: String) -> Unit,
+    ) {
+        val pad = (16 * activity.resources.displayMetrics.density).toInt()
+        val layout = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        if (!ocr.hasAny) {
+            layout.addView(TextView(activity).apply {
+                text = "OCR 没读到数量 / 箱数 / 物料，请手填（或重拍清楚一点）"
+            })
+        }
+        fun labeled(label: String, initial: String, inputType: Int): EditText {
+            layout.addView(TextView(activity).apply { text = label })
+            return EditText(activity).apply {
+                setText(initial)
+                this.inputType = inputType
+            }.also { layout.addView(it) }
+        }
+        val etNo = labeled("单据编号", initialSlipNo, InputType.TYPE_CLASS_TEXT)
+        val etQty = labeled("数量", ocr.quantity?.toString() ?: "", InputType.TYPE_CLASS_NUMBER)
+        val etBoxes = labeled("箱数", ocr.boxCount?.toString() ?: "", InputType.TYPE_CLASS_NUMBER)
+        val etMat = labeled("物料编码", ocr.materialCode ?: "", InputType.TYPE_CLASS_TEXT)
+        AlertDialog.Builder(activity)
+            .setTitle("单据信息")
+            .setView(layout)
+            .setPositiveButton("保存") { _, _ ->
+                val no = etNo.text.toString().trim()
+                if (no.isEmpty()) {
+                    Toast.makeText(activity, "单号不能为空", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                onConfirm(
+                    no,
+                    etQty.text.toString().trim().toIntOrNull() ?: 0,
+                    etBoxes.text.toString().trim().toIntOrNull() ?: 0,
+                    etMat.text.toString().trim(),
+                )
             }
             .setNegativeButton("取消", null)
             .show()

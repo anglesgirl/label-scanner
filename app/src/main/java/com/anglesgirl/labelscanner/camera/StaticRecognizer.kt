@@ -315,6 +315,36 @@ object StaticRecognizer {
         }
     }
 
+    /**
+     * 单据 OCR 专用：只跑 ML Kit 文字识别，返回全文（按行拼，\n 分隔）。
+     * 单据（进仓单）没有条码要解，不走 zxing，省时间；调用方在后台线程等
+     * 回调，onResult/onError 都在 recognitionPool 线程上跑，UI 操作自行切主线程。
+     */
+    fun recognizeText(
+        bitmap: Bitmap,
+        onResult: (String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        if (bitmap.width < 10 || bitmap.height < 10) {
+            onError("图片尺寸过小")
+            return
+        }
+        val input = InputImage.fromBitmap(bitmap, 0)
+        recognitionPool.submit {
+            var ocrText = ""
+            val latch = java.util.concurrent.CountDownLatch(1)
+            getRecognizer().process(input)
+                .addOnSuccessListener { t ->
+                    t.text?.trim()?.takeIf { it.isNotEmpty() }?.let { ocrText = it }
+                }
+                .addOnFailureListener { e -> Log.w(TAG, "[SLIP_OCR] failed", e) }
+                .addOnCompleteListener { latch.countDown() }
+            latch.await(25, TimeUnit.SECONDS)
+            Log.i(TAG, "[SLIP_OCR] done chars=${ocrText.length}")
+            if (ocrText.isNotEmpty()) onResult(ocrText) else onError("单据上没有读到文字")
+        }
+    }
+
     /** 缩放解码：目标边 ≤ 4096（密集小条码保真）。FileDescriptor 方式（content URI 最可靠） */
     internal fun decodeSampledBitmap(resolver: ContentResolver, uri: Uri): Bitmap? {
         // 方式一：FileDescriptor（bounds 和解码各开一次 fd）

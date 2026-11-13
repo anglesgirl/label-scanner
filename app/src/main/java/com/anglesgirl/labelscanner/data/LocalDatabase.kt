@@ -52,7 +52,10 @@ class LocalDatabase private constructor(context: Context) :
             """CREATE TABLE IF NOT EXISTS slips (
                 slip_no TEXT PRIMARY KEY NOT NULL,
                 photo_path TEXT NOT NULL DEFAULT '',
-                created_at INTEGER NOT NULL DEFAULT 0
+                created_at INTEGER NOT NULL DEFAULT 0,
+                quantity INTEGER NOT NULL DEFAULT 0,
+                box_count INTEGER NOT NULL DEFAULT 0,
+                material_code TEXT NOT NULL DEFAULT ''
             )"""
         )
     }
@@ -127,6 +130,15 @@ class LocalDatabase private constructor(context: Context) :
         createAppMetadataTable(db)
         createSlipTable(db)
         createSlipFilesTable(db)
+        if (!hasColumn(db, "slips", "quantity")) {
+            db.execSQL("ALTER TABLE slips ADD COLUMN quantity INTEGER NOT NULL DEFAULT 0")
+        }
+        if (!hasColumn(db, "slips", "box_count")) {
+            db.execSQL("ALTER TABLE slips ADD COLUMN box_count INTEGER NOT NULL DEFAULT 0")
+        }
+        if (!hasColumn(db, "slips", "material_code")) {
+            db.execSQL("ALTER TABLE slips ADD COLUMN material_code TEXT NOT NULL DEFAULT ''")
+        }
         if (!hasColumn(db, "records", "location")) {
             db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
         }
