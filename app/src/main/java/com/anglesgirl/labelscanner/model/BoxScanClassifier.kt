@@ -20,6 +20,8 @@ data class BoxScanState(
     val productionDate: String = "",
     val serialNumbers: List<String> = emptyList(),
     val allCodes: List<String> = emptyList(),
+    /** 箱号是否由单台机器规则（箱号 = 序列号）推得，见 accumulate。 */
+    val boxFromSn: Boolean = false,
 ) {
     val targetKnown: Boolean get() = qty > 0
     val isComplete: Boolean get() = targetKnown && serialNumbers.size >= qty
@@ -31,7 +33,7 @@ object BoxScanClassifier {
     private val SAP_NUM = Regex("^\\d{10,12}$")
     private val SAP_LABELED = Regex("(?i)SAP[^0-9]{0,3}(\\d{10,12})")
     /**
-     * QTY 三档判定（2026-11-02 TL-413 标签教训）：
+     * QTY 三档判定（2026-11-02 TL-413 标签教训；2026-11-13 PCS 后缀教训）：
      * 表格是两列，ML Kit 经常把标签列和值列拆成两组行——"QTY." 和 "10 PCS"
      * 未必相邻，只看下一行必然漏读（实测：列优先顺序下旧逻辑 QTY=0，
      * 导致 10 个 SN 已齐却显示"未读到 QTY"、不自动回）。
@@ -39,11 +41,15 @@ object BoxScanClassifier {
      * 大小写不敏感）；③ 裸 "QTY." 行后 6 行内找裸数字/PCS 值。
      * ① 的后瞻 (?![0-9A-Za-z]) 防 OCR 把 0 读成 O："QTY. 1O PCS" 不能
      * 误判成 1（错目标比没目标更糟：1 个就自动回了）。
+     * 2026-11-13：数量后面跟 PCS 时①会漏——"QTY 10PCS" 里数字后紧跟 P，
+     * 后瞻把 P 当字母拦掉。改法：数字后先消费可选单位（PCS/PC5/PC/EA，
+     * PC5 是 PCS 被 OCR 读成 5 的常见误读），再做后瞻；"1O" 仍被拦住，
+     * 因为 O 不是单位开头。
      */
-    private val QTY_INLINE = Regex("(?i)QTY[^0-9]{0,3}(\\d{1,3})(?![0-9A-Za-z])")
+    private val QTY_INLINE = Regex("(?i)QTY[^0-9]{0,3}(\\d{1,3})\\s*(?:PCS|PC5|PC|EA)?(?![0-9A-Za-z])")
     private val QTY_BARE = Regex("(?i)^QTY\\.?$")
-    private val QTY_PCS_ANY = Regex("^(\\d{1,3})\\s*PCS\\.?$", RegexOption.IGNORE_CASE)
-    private val QTY_VALUE = Regex("^(\\d{1,3})\\s*(PCS|PC)?\\.?$")
+    private val QTY_PCS_ANY = Regex("^(\\d{1,3})\\s*(?:PCS|PC5|PC|EA)\\.?\\s*$", RegexOption.IGNORE_CASE)
+    private val QTY_VALUE = Regex("^(\\d{1,3})\\s*(PCS|PC5|PC|EA)?\\.?$")
     private val DATE_SEP = Regex("(\\d{4})[-/. ](\\d{1,2})[-/. ](\\d{1,2})")
     private val DATE8 = Regex("^\\d{8}$")
 
@@ -123,15 +129,48 @@ object BoxScanClassifier {
         }
         // 混合码：排除 EAN69 与物料码，剩下的才参与 SN/箱号之分。
         val mixed = codes.filter { !EAN13.matches(it) && !SAP_NUM.matches(it) }
-        val sns = when {
+        var sns = when {
             material.isNotEmpty() -> {
                 val prefixed = mixed.filter { it.startsWith(material) }
                 if (prefixed.isNotEmpty()) prefixed else clusterSn(mixed)
             }
             else -> clusterSn(mixed)
         }
-        // 箱号：第一个不属于 SN 批的混合码，定下后不再换。
-        val box = state.boxCode.ifEmpty { mixed.firstOrNull { it !in sns } ?: "" }
+        // 箱号（2026-11-13 用户实测纠正：箱号扫不到时绝不拿 SN 顶替）。
+        // 旧逻辑是“第一个不在 SN 批里的混合码就是箱号”，但 SN 批没确立时
+        // sns 为空，第一个混合码（往往是 SN）就被当成箱号填进去，之后还
+        // 锁死不再改。改成三档，只在有把握时才定箱号：
+        //  ① SN 批已确立（≥2 个）：批外的第一个混合码就是箱号；
+        //  ② 单台机器：唯一的 SN 就是箱号（业务规则“箱号=SN”，与 BoxParser 一致）；
+        //  ③ 只有一个混合码、SN 批没确立、QTY=1：不像箱号的码就是 SN（单台），
+        //     像箱号（CA/PA 长码）的码就是箱号本身，SN 还没扫到；
+        //  其余情况（SN 批没确立）：箱号留空，等扫到再说，绝不猜。
+        var box = state.boxCode
+        var boxFromSn = state.boxFromSn
+        if (box.isEmpty()) {
+            val hasIntegrated = codes.any { it.contains(',') || it.contains(';') }
+            when {
+                sns.size >= 2 -> {
+                    box = mixed.firstOrNull { it !in sns } ?: ""
+                }
+                sns.size == 1 && qty == 1 && !hasIntegrated -> {
+                    box = sns.first()
+                    boxFromSn = true
+                }
+                sns.isEmpty() && mixed.size == 1 && qty == 1 -> {
+                    val only = mixed.first()
+                    val looksBox = only.length >= 14 &&
+                        (only.startsWith("CA", ignoreCase = true) || only.startsWith("PA", ignoreCase = true))
+                    if (looksBox) {
+                        box = only
+                    } else {
+                        sns = listOf(only)
+                        box = only
+                        boxFromSn = true
+                    }
+                }
+            }
+        }
 
         return BoxScanState(
             materialCode = material,
@@ -140,6 +179,7 @@ object BoxScanClassifier {
             productionDate = date,
             serialNumbers = sns,
             allCodes = codes,
+            boxFromSn = boxFromSn,
         )
     }
 
