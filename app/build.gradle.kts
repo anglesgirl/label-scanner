@@ -11,8 +11,8 @@ android {
         applicationId = "com.anglesgirl.labelscanner"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "0.1.17-slip-files"
+        versionCode = 25
+        versionName = "0.1.18-slip-workbook"
         ndk {
             abiFilters += setOf("arm64-v8a")
         }

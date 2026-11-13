@@ -19,7 +19,7 @@ package com.anglesgirl.labelscanner.model
  * @param color 附加字段：产品颜色（自有数据保留）
  * @param tonerModel 附加字段：商品硒鼓/耗材型号（自有数据保留）
  * @param trayCode 托盘码（WMS 托盘关联，不修改原始标签数据）
- * @param slipNo 单据编号（送货单/退货单号；采集时跟当前单据自动带上，导出 ZIP 时按单号归集）
+ * @param slipNo 单据编号（送货单/退货单号；采集时跟当前单据自动带上，导出 Excel 时按单号归集）
  */
 data class LabelResult(
     val barcodes: List<String> = emptyList(),
@@ -36,7 +36,7 @@ data class LabelResult(
     var tonerModel: String = "",
     var trayCode: String = "",       // 托盘码：整个托盘，一个托盘多箱（WMS DATA13）
     var boxCode: String = "",        // 箱号/LPN：一个箱子内多个序列号（与托盘不同层级）
-    var slipNo: String = "",         // 单据编号：送货单/退货单号（采集跟单、导出 ZIP 归集用）
+    var slipNo: String = "",         // 单据编号：送货单/退货单号（采集跟单、导出 Excel 归集用）
     val unconfirmedBarcodes: List<String> = emptyList(),
     val unconfirmedOcrText: String = "",
     val recognitionNote: String = "",

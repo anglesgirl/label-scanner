@@ -26,7 +26,7 @@ import java.io.File
 /**
  * 🗂️ 托盘中心：按托盘分组 → 多选 → 合并导出 WMS（DATA02 每行标托盘）。
  * 最终目的：查询托盘号获得数据，一次可导出多个托盘号喂 WMS 系统。
- * 单据：勾选的托盘按单号归集，打包成 ZIP（WMS 表 + 单据照片）一起发过去。
+ * 单据：勾选的托盘按单号归集，导出成单个 Excel（WMS 表 + 单据照片 + 附件表）一起发过去。
  */
 class RecordListActivity : AppCompatActivity() {
 
@@ -44,7 +44,7 @@ class RecordListActivity : AppCompatActivity() {
     private var pendingSlipPhoto: File? = null
     private var pendingExportRecords: List<LabelResult>? = null // 导出时拍单据：相机返回后继续打包的记录
 
-    /** 导出时补拍单据：拍完输单号 → 绑定勾选托盘 → 打包 ZIP 分享。 */
+    /** 导出时补拍单据：拍完输单号 → 绑定勾选托盘 → 导出 Excel 分享。 */
     private val takeSlipPhoto =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             val tmp = pendingSlipPhoto
@@ -365,7 +365,7 @@ class RecordListActivity : AppCompatActivity() {
         rebuildDetail()
     }
 
-    /** 导出选中托盘：按单号归集打包 ZIP（WMS 表 + 单据照片），多单号就提示分开导。 */
+    /** 导出选中托盘：按单号归集导出 Excel（WMS 表 + 单据照片 + 附件），多单号就提示分开导。 */
     private fun exportSelected() {
         val selected = groups.filter { it.trayCode in checked }.flatMap { it.items }
         if (selected.isEmpty()) {
@@ -386,44 +386,44 @@ class RecordListActivity : AppCompatActivity() {
         }
     }
 
-    /** ZIP 名默认单号，可改；文件名里的单号不变（老板按单号核对）。 */
+    /** 文件名默认单号，可改；文件名里的单号不变（老板按单号核对）。 */
     private fun showZipNameDialog(slipNo: String, selected: List<LabelResult>) {
         val input = android.widget.EditText(this).apply {
             setText(slipNo)
             if (text.isNotEmpty()) setSelection(text.length)
-            hint = "压缩包名"
+            hint = "文件名"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("导出 ZIP（单号 $slipNo）")
+            .setTitle("导出 Excel（单号 $slipNo）")
             .setView(input)
-            .setPositiveButton("打包分享") { _, _ ->
-                val zipName = input.text.toString().trim()
-                if (zipName.isEmpty()) {
-                    Toast.makeText(this, "压缩包名不能为空", Toast.LENGTH_SHORT).show()
+            .setPositiveButton("导出分享") { _, _ ->
+                val fileName = input.text.toString().trim()
+                if (fileName.isEmpty()) {
+                    Toast.makeText(this, "文件名不能为空", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                shareZip(selected, slipNo, zipName)
+                shareZip(selected, slipNo, fileName)
             }
             .setNegativeButton("取消", null)
             .show()
     }
 
-    /** 打包分享 ZIP：WMS 表 + 该单号的单据照片（有照片时）+ 单据附件（表格等单独文件）。 */
-    private fun shareZip(selected: List<LabelResult>, slipNo: String, zipName: String) {
+    /** 导出分享 Excel：WMS 表 + 该单号的单据照片（嵌进工作表）+ 单据附件（表格拷成工作表/图片嵌进工作表）。 */
+    private fun shareZip(selected: List<LabelResult>, slipNo: String, fileName: String) {
         val photoFile = SlipStore.getSlip(this, slipNo)
             ?.photoPath?.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
         val extraFiles = SlipStore.getFiles(this, slipNo)
             .map { File(it.filePath) }
             .filter { it.exists() }
-        val uri = Exporter.exportWmsZip(this, selected, zipName, slipNo, photoFile, extraFiles)
+        val uri = Exporter.exportSlipWorkbook(this, selected, fileName, slipNo, photoFile, extraFiles)
         if (uri == null) {
-            Toast.makeText(this, "ZIP 导出失败", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Excel 导出失败", Toast.LENGTH_SHORT).show()
             return
         }
         val trayCount = selected.map { it.trayCode }.distinct().size
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/zip"
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(
                 Intent.EXTRA_SUBJECT,
@@ -431,7 +431,7 @@ class RecordListActivity : AppCompatActivity() {
             )
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivity(Intent.createChooser(intent, "导出 WMS 数据（ZIP）"))
+        startActivity(Intent.createChooser(intent, "导出 WMS 数据（Excel）"))
     }
 
     /** 勾选的托盘还没单号：输单号打包 / 现拍单据 / 直接导旧格式 xlsx。 */
@@ -463,7 +463,7 @@ class RecordListActivity : AppCompatActivity() {
             .show()
     }
 
-    /** 勾选托盘绑定单号（并设为当前单据），再弹 ZIP 名确认打包。 */
+    /** 勾选托盘绑定单号（并设为当前单据），再弹文件名确认导出。 */
     private fun bindTraysAndShareZip(selected: List<LabelResult>, slipNo: String) {
         val trayCodes = selected.map { it.trayCode }.distinct()
         DbExecutor.run({

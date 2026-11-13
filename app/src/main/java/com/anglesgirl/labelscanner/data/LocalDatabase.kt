@@ -46,7 +46,7 @@ class LocalDatabase private constructor(context: Context) :
         createSlipFilesTable(db)
     }
 
-    /** 单据表：送货单/退货单照片 + 编号；导出 ZIP 时按单号归集托盘。 */
+    /** 单据表：送货单/退货单照片 + 编号；导出 Excel 时按单号归集托盘。 */
     private fun createSlipTable(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE IF NOT EXISTS slips (
@@ -57,7 +57,7 @@ class LocalDatabase private constructor(context: Context) :
         )
     }
 
-    /** 单据附件表：一张单据可附多个单独文件（表格/图片等），导出 ZIP 时一并打包。 */
+    /** 单据附件表：一张单据可附多个单独文件（表格/图片等），导出 Excel 时一并拷入工作表。 */
     private fun createSlipFilesTable(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE IF NOT EXISTS slip_files (
