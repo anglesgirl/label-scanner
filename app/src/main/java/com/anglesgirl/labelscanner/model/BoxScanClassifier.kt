@@ -47,8 +47,13 @@ object BoxScanClassifier {
      * 后瞻把 P 当字母拦掉。改法：数字后先消费可选单位（PCS/PC5/PC/EA，
      * PC5 是 PCS 被 OCR 读成 5 的常见误读），再做后瞻；"1O" 仍被拦住，
      * 因为 O 不是单位开头。
+     * 2026-11-13（成品标签 QTY:144 下面跟 0200）：`\s*` 不能放在单位组外面——
+     * "QTY:144 0200" 被 OCR 并成一行时，`\s*` 吃掉空格、后瞻看到 0200 的 0
+     * 就把 144 否了。改法：`\s*` 收进可选单位组里，后瞻永远只看数字（无单位时）
+     * 或单位（有单位时）后面紧跟的那个字符；数字后面是空格就放行（下一个是
+     * 独立 token），是字母数字才拦。
      */
-    private val QTY_INLINE = Regex("(?i)QTY[^0-9]{0,3}(\\d{1,3})\\s*(?:PCS|PC5|PC|EA)?(?![0-9A-Za-z])")
+    private val QTY_INLINE = Regex("(?i)QTY[^0-9]{0,3}(\\d{1,3})(?:\\s*(?:PCS|PC5|PC|EA))?(?![0-9A-Za-z])")
     private val QTY_BARE = Regex("(?i)^QTY\\.?$")
     private val QTY_PCS_ANY = Regex("^(\\d{1,3})\\s*(?:PCS|PC5|PC|EA)\\.?\\s*$", RegexOption.IGNORE_CASE)
     private val QTY_VALUE = Regex("^(\\d{1,3})\\s*(PCS|PC5|PC|EA)?\\.?$")
