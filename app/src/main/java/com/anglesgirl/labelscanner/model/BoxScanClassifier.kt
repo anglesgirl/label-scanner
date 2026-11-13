@@ -33,12 +33,14 @@ object BoxScanClassifier {
     private val SAP_NUM = Regex("^\\d{10,12}$")
     private val SAP_LABELED = Regex("(?i)SAP[^0-9]{0,3}(\\d{10,12})")
     /**
-     * QTY 三档判定（2026-11-02 TL-413 标签教训；2026-11-13 PCS 后缀教训）：
+     * QTY 四档判定（2026-11-02 TL-413 标签教训；2026-11-13 PCS 后缀教训）：
      * 表格是两列，ML Kit 经常把标签列和值列拆成两组行——"QTY." 和 "10 PCS"
      * 未必相邻，只看下一行必然漏读（实测：列优先顺序下旧逻辑 QTY=0，
      * 导致 10 个 SN 已齐却显示"未读到 QTY"、不自动回）。
      * ① 同行 "QTY. 10 PCS"；② 全文有 QTY 标签 + 有 "N PCS" 值行（不要求相邻，
-     * 大小写不敏感）；③ 裸 "QTY." 行后 6 行内找裸数字/PCS 值。
+     * 大小写不敏感）；③ 裸 "QTY." 行后 6 行内找裸数字/PCS 值；
+     * ④ 兜底：直接拿 PCS 定位——PCS 前面的数字就是数量，不要求先找到 QTY 标签
+     * （用户 2026-11-13：QTY 标签本身经常认不出来，绕开它直接找 PCS 更稳）。
      * ① 的后瞻 (?![0-9A-Za-z]) 防 OCR 把 0 读成 O："QTY. 1O PCS" 不能
      * 误判成 1（错目标比没目标更糟：1 个就自动回了）。
      * 2026-11-13：数量后面跟 PCS 时①会漏——"QTY 10PCS" 里数字后紧跟 P，
@@ -50,6 +52,8 @@ object BoxScanClassifier {
     private val QTY_BARE = Regex("(?i)^QTY\\.?$")
     private val QTY_PCS_ANY = Regex("^(\\d{1,3})\\s*(?:PCS|PC5|PC|EA)\\.?\\s*$", RegexOption.IGNORE_CASE)
     private val QTY_VALUE = Regex("^(\\d{1,3})\\s*(PCS|PC5|PC|EA)?\\.?$")
+    /** ④ 兜底：行内任意位置的 "N PCS"，数字前面不能是字母数字（防 "ABC10PCS" 这种码内数字）。 */
+    private val QTY_PCS_BEFORE = Regex("(?<![0-9A-Za-z])(\\d{1,3})\\s*(?:PCS|PC5|PC|EA)(?![0-9A-Za-z])")
     private val DATE_SEP = Regex("(\\d{4})[-/. ](\\d{1,2})[-/. ](\\d{1,2})")
     private val DATE8 = Regex("^\\d{8}$")
 
@@ -59,17 +63,23 @@ object BoxScanClassifier {
             if (v != null && v in 1..999) return v
         }
         val hasLabel = lines.any { it.contains("QTY", ignoreCase = true) }
-        if (!hasLabel) return 0
-        for (line in lines) {
-            val v = QTY_PCS_ANY.find(line)?.groupValues?.get(1)?.toIntOrNull()
-            if (v != null && v in 1..999) return v
-        }
-        for (i in lines.indices) {
-            if (!QTY_BARE.matches(lines[i])) continue
-            for (next in lines.subList(i + 1, minOf(i + 7, lines.size))) {
-                val v = QTY_VALUE.find(next)?.groupValues?.get(1)?.toIntOrNull()
+        if (hasLabel) {
+            for (line in lines) {
+                val v = QTY_PCS_ANY.find(line)?.groupValues?.get(1)?.toIntOrNull()
                 if (v != null && v in 1..999) return v
             }
+            for (i in lines.indices) {
+                if (!QTY_BARE.matches(lines[i])) continue
+                for (next in lines.subList(i + 1, minOf(i + 7, lines.size))) {
+                    val v = QTY_VALUE.find(next)?.groupValues?.get(1)?.toIntOrNull()
+                    if (v != null && v in 1..999) return v
+                }
+            }
+        }
+        // ④ 兜底：QTY 标签找不到时，直接拿 PCS 定位——PCS 前面的数字就是数量。
+        for (line in lines) {
+            val v = QTY_PCS_BEFORE.find(line)?.groupValues?.get(1)?.toIntOrNull()
+            if (v != null && v in 1..999) return v
         }
         return 0
     }
