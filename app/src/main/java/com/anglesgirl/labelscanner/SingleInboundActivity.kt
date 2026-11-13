@@ -51,9 +51,19 @@ class SingleInboundActivity : AppCompatActivity() {
     /** 最近识别/输入到的 69 码。切到物料视图时它不显示，但保存时仍要用。 */
     private var recognizedEan69 = ""
 
-    /** 当前有效的 69 码值（69 视图下取框内容，否则取暂存值）。 */
+    /**
+     * 当前有效的 69 码值。
+     *
+     * 框里本身就是 13 位 69 码时直接认（OCR/手输进物料视图也会这样）——
+     * 之前只认暂存值，框里明明有 69 码，点「查」却报“先输入/扫描 69 商品码”，
+     * 保存时 ean69 也是空的，对照表也学不到这条。
+     */
     private val currentEan69: String
-        get() = if (showingEan69) etMaterial.text.toString().trim() else recognizedEan69
+        get() {
+            val field = etMaterial.text.toString().trim()
+            if (field.length == 13 && field.startsWith("69")) return field
+            return if (showingEan69) field else recognizedEan69
+        }
     private lateinit var llSnList: LinearLayout
     private lateinit var llCodeCandidates: LinearLayout
     private lateinit var tvStatus: TextView

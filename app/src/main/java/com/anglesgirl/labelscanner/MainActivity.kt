@@ -32,17 +32,39 @@ class MainActivity : AppCompatActivity() {
             val tmp = pendingSlipPhoto
             pendingSlipPhoto = null
             if (success && tmp != null && tmp.exists()) {
-                SlipUi.showSlipNumberDialog(this, SlipStore.generateSlipNo()) { slipNo ->
-                    val path = SlipStore.storePhoto(this, tmp, slipNo)
-                    SlipStore.saveSlip(this, slipNo, path)
-                    Toast.makeText(this, "已设为当前单据：$slipNo，之后采集自动跟单", Toast.LENGTH_SHORT).show()
-                    refreshSlipButton()
-                }
+                confirmSlipPhoto(tmp)
             } else {
                 tmp?.delete()
                 Toast.makeText(this, "拍照已取消", Toast.LENGTH_SHORT).show()
             }
         }
+
+    /** 单据从相册选本地图片：拷到临时文件后走同一套“输单号 → 归档”流程。 */
+    private val pickSlipGallery =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            val tmp = SlipStore.newTempPhotoFile(this)
+            try {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    tmp.outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (_: Exception) {
+                Toast.makeText(this, "读取图片失败", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            if (tmp.exists() && tmp.length() > 0) confirmSlipPhoto(tmp)
+            else Toast.makeText(this, "读取图片失败", Toast.LENGTH_SHORT).show()
+        }
+
+    /** 拍照/相册共用：输单号 → 归档 → 设为当前单据。 */
+    private fun confirmSlipPhoto(tmp: java.io.File) {
+        SlipUi.showSlipNumberDialog(this, SlipStore.generateSlipNo()) { slipNo ->
+            val path = SlipStore.storePhoto(this, tmp, slipNo)
+            SlipStore.saveSlip(this, slipNo, path)
+            Toast.makeText(this, "已设为当前单据：$slipNo，之后采集自动跟单", Toast.LENGTH_SHORT).show()
+            refreshSlipButton()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,10 +119,19 @@ class MainActivity : AppCompatActivity() {
         }
         btnSlip = findViewById(R.id.btnSlip)
         btnSlip.setOnClickListener {
-            val tmp = SlipStore.newTempPhotoFile(this)
-            pendingSlipPhoto = tmp
-            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", tmp)
-            takeSlipPhoto.launch(uri)
+            AlertDialog.Builder(this)
+                .setTitle("添加单据")
+                .setItems(arrayOf("📷 拍照", "🖼️ 相册选本地图片")) { _, which ->
+                    if (which == 0) {
+                        val tmp = SlipStore.newTempPhotoFile(this)
+                        pendingSlipPhoto = tmp
+                        val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", tmp)
+                        takeSlipPhoto.launch(uri)
+                    } else {
+                        pickSlipGallery.launch("image/*")
+                    }
+                }
+                .show()
         }
 
         // 防误触提示：托盘中心是唯一的 WMS 批量导出入口。

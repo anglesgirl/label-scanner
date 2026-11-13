@@ -23,6 +23,9 @@
   Gradle 9.4.1 / AGP 8.11.1 / compileSdk 36 / minSdk 26
 - 本机无 Android SDK，构建靠 GitHub Actions（assembleDebug → artifact）
 - 别升级 OkHttp 之类的传递依赖导致 R8 问题（参照 Han1meViewer 教训）
+- **顶部悬浮控件勿用固定 marginTop**：提示栏文字变多行会撑高，写死的
+  88dp/136dp 偏移必然压住提示与按钮（2026-11-02 扫整箱实测）。顶部多件套
+  用垂直流式布局排布，让下方控件随提示栏高度自动下移。
 
 
 ## 特殊情况与已知限制（勿重复投入）
