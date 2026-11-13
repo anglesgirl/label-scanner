@@ -56,6 +56,37 @@ class MainActivity : AppCompatActivity() {
             else Toast.makeText(this, "读取图片失败", Toast.LENGTH_SHORT).show()
         }
 
+    /** 单据附加本地文件（表格等单独文件，跟图片一样归进单据）：拷临时文件后输单号归档登记。 */
+    private val pickSlipFile =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            val displayName = contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+            } ?: "file_${System.currentTimeMillis()}"
+            val tmp = SlipStore.newTempFile(this, displayName)
+            try {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    tmp.outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (_: Exception) {
+                Toast.makeText(this, "读取文件失败", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            if (!tmp.exists() || tmp.length() <= 0) {
+                Toast.makeText(this, "读取文件失败", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            val initial = SlipStore.getCurrent(this).ifBlank { SlipStore.generateSlipNo() }
+            SlipUi.showSlipNumberDialog(this, initial) { slipNo ->
+                val path = SlipStore.storeFile(this, tmp, slipNo, displayName)
+                SlipStore.addFile(this, slipNo, path, displayName)
+                SlipStore.setCurrent(this, slipNo)
+                Toast.makeText(this, "已附加到单据 $slipNo：$displayName", Toast.LENGTH_SHORT).show()
+                refreshSlipButton()
+            }
+        }
+
     /** 拍照/相册共用：输单号 → 归档 → 设为当前单据。 */
     private fun confirmSlipPhoto(tmp: java.io.File) {
         SlipUi.showSlipNumberDialog(this, SlipStore.generateSlipNo()) { slipNo ->
@@ -121,14 +152,16 @@ class MainActivity : AppCompatActivity() {
         btnSlip.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("添加单据")
-                .setItems(arrayOf("📷 拍照", "🖼️ 相册选本地图片")) { _, which ->
-                    if (which == 0) {
-                        val tmp = SlipStore.newTempPhotoFile(this)
-                        pendingSlipPhoto = tmp
-                        val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", tmp)
-                        takeSlipPhoto.launch(uri)
-                    } else {
-                        pickSlipGallery.launch("image/*")
+                .setItems(arrayOf("📷 拍照", "🖼️ 相册选本地图片", "📄 文件（表格等单独文件）")) { _, which ->
+                    when (which) {
+                        0 -> {
+                            val tmp = SlipStore.newTempPhotoFile(this)
+                            pendingSlipPhoto = tmp
+                            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", tmp)
+                            takeSlipPhoto.launch(uri)
+                        }
+                        1 -> pickSlipGallery.launch("image/*")
+                        else -> pickSlipFile.launch(arrayOf("*/*"))
                     }
                 }
                 .show()

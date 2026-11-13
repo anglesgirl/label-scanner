@@ -59,19 +59,20 @@ object Exporter {
         }
     }
 
-    /** WMS 导出打包成 ZIP：WMS 表 + 单据照片（有照片时），“单号+托盘一起发”用。 */
+    /** WMS 导出打包成 ZIP：WMS 表 + 单据照片（有照片时）+ 单据附件（表格等单独文件），“单号+托盘一起发”用。 */
     fun exportWmsZip(
         context: Context,
         records: List<LabelResult>,
         zipName: String,
         slipNo: String,
         photoFile: File?,
+        extraFiles: List<File> = emptyList(),
     ): Uri? {
         val fileName = "$zipName.zip"
         return if (Build.VERSION.SDK_INT >= 29) {
-            exportZipViaMediaStore(context, records, fileName, slipNo, photoFile)
+            exportZipViaMediaStore(context, records, fileName, slipNo, photoFile, extraFiles)
         } else {
-            exportZipViaLegacyDir(context, records, fileName, slipNo, photoFile)
+            exportZipViaLegacyDir(context, records, fileName, slipNo, photoFile, extraFiles)
         }
     }
 
@@ -81,6 +82,7 @@ object Exporter {
         fileName: String,
         slipNo: String,
         photoFile: File?,
+        extraFiles: List<File> = emptyList(),
     ): Uri? = runCatching {
         val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         context.contentResolver.delete(
@@ -96,7 +98,7 @@ object Exporter {
         }
         val uri = context.contentResolver.insert(collection, values)
             ?: error("无法创建导出文件")
-        context.contentResolver.openOutputStream(uri)?.use { writeZip(it, records, slipNo, photoFile) }
+        context.contentResolver.openOutputStream(uri)?.use { writeZip(it, records, slipNo, photoFile, extraFiles) }
             ?: error("无法打开导出文件")
         values.clear()
         values.put(MediaStore.Downloads.IS_PENDING, 0)
@@ -110,21 +112,23 @@ object Exporter {
         fileName: String,
         slipNo: String,
         photoFile: File?,
+        extraFiles: List<File> = emptyList(),
     ): Uri? = runCatching {
         val dir = File(context.getExternalFilesDir(null), "LabelScanner").apply { mkdirs() }
         val file = File(dir, fileName)
-        FileOutputStream(file).use { writeZip(it, records, slipNo, photoFile) }
+        FileOutputStream(file).use { writeZip(it, records, slipNo, photoFile, extraFiles) }
         androidx.core.content.FileProvider.getUriForFile(
             context, "${context.packageName}.fileprovider", file
         )
     }.getOrNull()
 
-    /** ZIP 内容：WMS 表（文件名带单号）+ 单据照片（有照片时，文件名带单号）。 */
+    /** ZIP 内容：WMS 表（文件名带单号）+ 单据照片（有照片时，文件名带单号）+ 单据附件（原文件名）。 */
     private fun writeZip(
         output: java.io.OutputStream,
         records: List<LabelResult>,
         slipNo: String,
         photoFile: File?,
+        extraFiles: List<File> = emptyList(),
     ) {
         ZipOutputStream(output).use { zip ->
             val xlsxBytes = java.io.ByteArrayOutputStream()
@@ -136,6 +140,22 @@ object Exporter {
                 val ext = photoFile.name.substringAfterLast('.', "jpg")
                 zip.putNextEntry(ZipEntry("单据_$slipNo.$ext"))
                 photoFile.inputStream().use { it.copyTo(zip) }
+                zip.closeEntry()
+            }
+            // 单据附件（表格等单独文件）：原文件名进包，同名时加序号避免覆盖。
+            val usedNames = mutableSetOf<String>()
+            for (file in extraFiles) {
+                if (!file.exists()) continue
+                var entryName = file.name
+                var n = 2
+                while (!usedNames.add(entryName)) {
+                    val base = file.name.substringBeforeLast('.', file.name)
+                    val ext = file.name.substringAfterLast('.', "")
+                    entryName = if (ext.isEmpty()) "${base}_$n" else "${base}_$n.$ext"
+                    n++
+                }
+                zip.putNextEntry(ZipEntry(entryName))
+                file.inputStream().use { it.copyTo(zip) }
                 zip.closeEntry()
             }
         }

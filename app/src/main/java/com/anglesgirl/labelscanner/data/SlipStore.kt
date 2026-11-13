@@ -86,6 +86,59 @@ object SlipStore {
     /** 默认单号：年月日时分秒（纸单有印号时用户在弹窗里改成印号）。 */
     fun generateSlipNo(): String =
         SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault()).format(Date())
+
+    // ---------- 单据附件：表格/图片等单独文件，跟照片一样归进单据 ----------
+
+    data class SlipFile(val id: Long, val slipNo: String, val filePath: String, val fileName: String, val createdAt: Long)
+
+    /** 外部文件临时落盘（FileProvider 只覆盖 cache/captures，归档时再挪到私有 slips 目录）。 */
+    fun newTempFile(context: Context, displayName: String): File {
+        val dir = File(context.cacheDir, "captures").apply { mkdirs() }
+        val safe = displayName.replace(Regex("[^A-Za-z0-9_\\-.\\u4e00-\\u9fa5]"), "_").takeIf { it.isNotBlank() } ?: "file"
+        return File(dir, "tmp_file_${System.currentTimeMillis()}_$safe")
+    }
+
+    /** 把外部文件归档到 files/slips（保留原文件名），返回归档路径。 */
+    fun storeFile(context: Context, tmpFile: File, slipNo: String, displayName: String): String {
+        val dir = File(context.filesDir, "slips").apply { mkdirs() }
+        val safeNo = slipNo.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val safeName = displayName.replace(Regex("[^A-Za-z0-9_\\-.\\u4e00-\\u9fa5]"), "_").takeIf { it.isNotBlank() } ?: "file"
+        val dest = File(dir, "${safeNo}_${System.currentTimeMillis()}_$safeName")
+        try {
+            tmpFile.copyTo(dest, overwrite = true)
+            tmpFile.delete()
+        } catch (_: Exception) {
+            return tmpFile.absolutePath
+        }
+        return dest.absolutePath
+    }
+
+    /** 登记一个附件（文件已归档）。 */
+    fun addFile(context: Context, slipNo: String, filePath: String, fileName: String) {
+        val db = LocalDatabase.get(context).writableDatabase
+        val values = ContentValues().apply {
+            put("slip_no", slipNo)
+            put("file_path", filePath)
+            put("file_name", fileName)
+            put("created_at", System.currentTimeMillis())
+        }
+        db.insert("slip_files", null, values)
+    }
+
+    /** 取某单号的全部附件（按添加顺序）。 */
+    fun getFiles(context: Context, slipNo: String): List<SlipFile> {
+        val db = LocalDatabase.get(context).readableDatabase
+        db.rawQuery(
+            "SELECT id, slip_no, file_path, file_name, created_at FROM slip_files WHERE slip_no = ? ORDER BY created_at",
+            arrayOf(slipNo)
+        ).use { c ->
+            val out = mutableListOf<SlipFile>()
+            while (c.moveToNext()) {
+                out += SlipFile(c.getLong(0), c.getString(1) ?: "", c.getString(2) ?: "", c.getString(3) ?: "", c.getLong(4))
+            }
+            return out
+        }
+    }
 }
 
 /** 单据编号输入弹窗（共用）：初始值可改，空号不保存。 */

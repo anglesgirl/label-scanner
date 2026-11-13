@@ -43,6 +43,7 @@ class LocalDatabase private constructor(context: Context) :
         createAppMetadataTable(db)
         createLedgerTables(db)
         createSlipTable(db)
+        createSlipFilesTable(db)
     }
 
     /** 单据表：送货单/退货单照片 + 编号；导出 ZIP 时按单号归集托盘。 */
@@ -54,6 +55,20 @@ class LocalDatabase private constructor(context: Context) :
                 created_at INTEGER NOT NULL DEFAULT 0
             )"""
         )
+    }
+
+    /** 单据附件表：一张单据可附多个单独文件（表格/图片等），导出 ZIP 时一并打包。 */
+    private fun createSlipFilesTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS slip_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slip_no TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0
+            )"""
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_slip_files_slip ON slip_files(slip_no)")
     }
 
     /** v3 台账本地镜像：库存按（物料、库位、托盘）定位，流水按 client_id 去重。 */
@@ -111,6 +126,7 @@ class LocalDatabase private constructor(context: Context) :
         createLedgerTables(db)
         createAppMetadataTable(db)
         createSlipTable(db)
+        createSlipFilesTable(db)
         if (!hasColumn(db, "records", "location")) {
             db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
         }

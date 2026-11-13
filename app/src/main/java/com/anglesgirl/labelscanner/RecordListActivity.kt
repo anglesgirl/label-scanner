@@ -409,11 +409,14 @@ class RecordListActivity : AppCompatActivity() {
             .show()
     }
 
-    /** 打包分享 ZIP：WMS 表 + 该单号的单据照片（有照片时）。 */
+    /** 打包分享 ZIP：WMS 表 + 该单号的单据照片（有照片时）+ 单据附件（表格等单独文件）。 */
     private fun shareZip(selected: List<LabelResult>, slipNo: String, zipName: String) {
         val photoFile = SlipStore.getSlip(this, slipNo)
             ?.photoPath?.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
-        val uri = Exporter.exportWmsZip(this, selected, zipName, slipNo, photoFile)
+        val extraFiles = SlipStore.getFiles(this, slipNo)
+            .map { File(it.filePath) }
+            .filter { it.exists() }
+        val uri = Exporter.exportWmsZip(this, selected, zipName, slipNo, photoFile, extraFiles)
         if (uri == null) {
             Toast.makeText(this, "ZIP 导出失败", Toast.LENGTH_SHORT).show()
             return
