@@ -137,7 +137,8 @@ class ListBatchInboundActivity : AppCompatActivity() {
         }
         tvTraySerialCount.text = "托盘 $trayCode：正在查询已保存箱数 / 序列号…"
         DbExecutor.run({
-            val boxes = RecordStore.countByTrayCode(this, trayCode)
+            // 箱数按箱号去重计（每 SN 一行，一箱多 SN 时记录条数等于 SN 数，不能当箱数）。
+            val boxes = RecordStore.countDistinctBoxesByTrayCode(this, trayCode)
             val sns = RecordStore.countSerialNumbersByTrayCode(this, trayCode)
             boxes to sns
         }) { result ->

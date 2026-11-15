@@ -60,6 +60,23 @@ object RecordStore {
             }
     }
 
+    /**
+     * 当前托盘的箱数：去重后的箱号个数。
+     * 注意：保存是「每 SN 一行」，一箱多个 SN 会产生多行，所以不能拿记录条数当箱数——
+     * 记录条数等于 SN 数（用户 2026-11-15 实测：托盘 TP36277469 箱数与 SN 数同为 144）。
+     * 箱号为空的记录不计入（没箱号不算一箱）。
+     */
+    fun countDistinctBoxesByTrayCode(context: Context, trayCode: String): Int {
+        ensureImported(context)
+        LocalDatabase.get(context).readableDatabase
+            .rawQuery(
+                "SELECT COUNT(DISTINCT box_code) FROM records WHERE tray_code = ? AND TRIM(box_code) <> ''",
+                arrayOf(trayCode),
+            ).use { c ->
+                return if (c.moveToFirst()) c.getInt(0) else 0
+            }
+    }
+
     /** 托盘列表：SQL DISTINCT，不再全表加载后 distinct。 */
     fun getAllTrayCodes(context: Context): List<String> {
         ensureImported(context)

@@ -450,8 +450,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             tvTrayCount.text = "当前托盘已保存：已存箱数 0 条 · 已存 SN 数 0 个"
             return
         }
-        // SQL COUNT 走 tray_code 索引，毫秒级；不用全量加载该托盘再取 size
-        val boxCount = com.anglesgirl.labelscanner.data.RecordStore.countByTrayCode(this, tray)
+        // SQL COUNT 走 tray_code 索引，毫秒级；不用全量加载该托盘再取 size。
+        // 箱数按箱号去重计（每 SN 一行，一箱多 SN 时记录条数等于 SN 数，不能当箱数）。
+        val boxCount = com.anglesgirl.labelscanner.data.RecordStore.countDistinctBoxesByTrayCode(this, tray)
         val snCount = com.anglesgirl.labelscanner.data.RecordStore.countSerialNumbersByTrayCode(this, tray)
         tvTrayCount.text = "当前托盘已保存：已存箱数 $boxCount 条 · 已存 SN 数 $snCount 个"
     }
