@@ -11,8 +11,9 @@ object BatchHeaderParser {
     )
     private val materialNumberToken = Regex("(?<!\\d)\\d(?:\\s*\\d){9,11}(?!\\d)")
     private val unlabeledTwelveDigitToken = Regex("(?<!\\d)\\d(?:\\s*\\d){11}(?!\\d)")
+    private val unlabeledElevenDigitToken = Regex("(?<!\\d)\\d(?:\\s*\\d){8}01(?!\\d)")
     private val dateToken = Regex(
-        "(?<!\\d)(?:\\d{4}\\s*[-/.]\\s*\\d{1,2}\\s*[-/.]\\s*\\d{1,2}|\\d{1,2}\\s*[-/.]\\s*\\d{1,2}\\s*[-/.]\\s*\\d{4}|\\d(?:\\s*\\d){7})(?!\\d)"
+        "(?<!\\d)(?:\\d{4}\\s*[-/.]\\s*\\d{1,2}\\s*[-/.]\\s*\\d{1,2}|\\d{1,2}\\s*[-/.]\\s*\\d{1,2}\\s*[-/.]\\s*\\d{4}|\\d(?:\\s*\\d){7}|\\d{4}\\s*[-/.]\\s*\\d{1,2}(?!\\s*[-/.]\\s*\\d))(?!\\d)"
     )
 
     /** 仅接受终端料号的 10/12 位数字；型号/Part Number 不会被当成物料编码。 */
@@ -28,15 +29,23 @@ object BatchHeaderParser {
         }
         // Some OCR frames read the 12-digit value but miss its Chinese label. Recover it only
         // when the page has exactly one distinct 12-digit candidate; never promote 10-digit POs.
+        // 11 位末尾 01 同样是本厂标准料号，一并回收，末尾 01 的优先。
         val unlabeledCandidates = lines.flatMap { line ->
             unlabeledTwelveDigitToken.findAll(line).map { it.value.filter(Char::isDigit) }.toList()
         }.distinct()
+        val unlabeledStdCandidates = lines.flatMap { line ->
+            unlabeledElevenDigitToken.findAll(line).map { it.value.filter(Char::isDigit) }.toList()
+        }.distinct()
+        val stdSingle = (unlabeledStdCandidates + unlabeledCandidates.filter { it.endsWith("01") }).distinct().singleOrNull()
+        if (stdSingle != null) return stdSingle
         return unlabeledCandidates.singleOrNull()
     }
 
     private fun extractLabeledMaterialNumber(text: String): String? =
         materialNumberToken.findAll(text).firstNotNullOfOrNull { match ->
-            match.value.filter(Char::isDigit).takeIf { it.length == 10 || it.length == 12 }
+            match.value.filter(Char::isDigit).takeIf {
+                it.length == 10 || it.length == 12 || (it.length == 11 && it.endsWith("01"))
+            }
         }
 
     /**
@@ -70,7 +79,7 @@ object BatchHeaderParser {
         val raw = code.trim()
         if (raw.isEmpty()) return true
         when (LabelParser.classify(raw)?.first) {
-            "date", "ean", "material10", "material12" -> return true
+            "date", "ean", "material10", "material11", "material12" -> return true
         }
         if (raw.length <= 6 && raw.all(Char::isDigit)) return true // 如 QTY 条码 144
         if (raw.length == 8 && raw.all(Char::isDigit)) {
@@ -102,6 +111,7 @@ object BatchHeaderParser {
         val d: Int
         val yearFirst = Regex("^(\\d{4})[-/.](\\d{1,2})[-/.](\\d{1,2})$").matchEntire(value)
         val monthFirst = Regex("^(\\d{1,2})[-/.](\\d{1,2})[-/.](\\d{4})$").matchEntire(value)
+        val yearMonth = Regex("^(\\d{4})[-/.](\\d{1,2})$").matchEntire(value)
         val compact = Regex("^\\d{8}$").matches(value)
         when {
             yearFirst != null -> {
@@ -113,6 +123,12 @@ object BatchHeaderParser {
                 m = monthFirst.groupValues[1].toInt()
                 d = monthFirst.groupValues[2].toInt()
                 y = monthFirst.groupValues[3].toInt()
+            }
+            // 只有年月（如 2026-11）：后面补 01 当 1 号。
+            yearMonth != null -> {
+                y = yearMonth.groupValues[1].toInt()
+                m = yearMonth.groupValues[2].toInt()
+                d = 1
             }
             compact -> {
                 y = value.substring(0, 4).toInt()

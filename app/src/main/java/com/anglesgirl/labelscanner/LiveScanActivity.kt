@@ -394,8 +394,7 @@ class LiveScanActivity : AppCompatActivity() {
         cameraGeneration++
         sourceStarted = false
         cancelPendingOcr()
-        lastFrameKey = null
-        pickStableSince = 0L
+        resetConfirmWindow()
         noCodeStreak = 0
         usbCameraController?.stop()
         usbCameraController = null
@@ -616,9 +615,10 @@ class LiveScanActivity : AppCompatActivity() {
                 else -> 0
             }
             "material" -> when {
-                // 物料（SAP）编码（用户明确给出）：**只有 10 位和 12 位**
-                //   10 位 → 导出时后面补 01；12 位 → 不补
-                // 不用 \d{10,12} —— 那会把 11 位也纳进来，是把规则写宽了
+                // 物料（SAP）编码：11 位末尾 01（本厂标准，如 20822700301）
+                // 或 12 位末尾 01；10 位 → 导出时后面补 01；12 位 → 不补。
+                // 10 位订单号也会匹配，靠 LabelParser 的末尾 01 优先规则区分。
+                v.matches(Regex("^\\d{9}01$")) || v.matches(Regex("^\\d{10}01$")) -> 120
                 v.matches(Regex("^\\d{10}$")) || v.matches(Regex("^\\d{12}$")) -> 100
                 // 69 开头的 13 位是**商品条码（69 码）**，不是物料 —— 明确压低，
                 // 避免"要物料时把 69 码填进去"（两者靠双向查关联，不是一回事）
@@ -633,6 +633,8 @@ class LiveScanActivity : AppCompatActivity() {
                 else -> 0
             }
             "box" -> when {
+                // 箱号：16 位纯数字（如 1110054025000029）就是箱号，最高。
+                v.matches(Regex("^\\d{16}(-\\d+)?$")) -> 200
                 // 箱号：单台机器时**箱号就等于序列号**，粉盒（一箱多台）时箱号是另一套。
                 // 两种形态都与托盘号同源（TP/CA/PA 前缀 + 数字），所以这里与 tray 一致，
                 // 只是额外让"纯数字/字母数字混合的长串"（SN 形态）也靠前。
@@ -822,19 +824,32 @@ class LiveScanActivity : AppCompatActivity() {
      * 一帧解出乱码，不确认就直接填进去就是"扫出来一串垃圾"。帧率 30fps，
      * 两帧约 66ms，用户对准停稳即触发，无感。
      */
-    private var lastFrameKey: String? = null
+    /**
+     * 多次采样确认（用户定）：同一数据在最近 5 帧里出现 3 次才算确认。
+     * 小放大镜各扫描模式统一用这个，不再只凭单帧或计时定格。
+     * 帧率 30fps，3 次约 0.1 秒，用户对准停稳即触发，无感。
+     */
+    private val recentCodeSets = ArrayDeque<Set<String>>()
+    private val confirmWindowSize = 5
+    private val confirmMatches = 3
+
+    /** 把当前帧码集记入窗口，返回其中已确认（出现 ≥3 次）的码。 */
+    private fun confirmedCodes(current: Set<String>): Set<String> {
+        recentCodeSets.addLast(current)
+        while (recentCodeSets.size > confirmWindowSize) recentCodeSets.removeFirst()
+        val counts = recentCodeSets.flatten().groupingBy { it }.eachCount()
+        return current.filter { (counts[it] ?: 0) >= confirmMatches }.toSet()
+    }
+
+    private fun resetConfirmWindow() {
+        recentCodeSets.clear()
+    }
+
     /** 同码上报冷却：确认上报后 500ms 内不重复报同一组码（持续对准时防反复弹框）。 */
     private var lastReportAt = 0L
     private val reportCooldownMs = 500L
 
-    /**
-     * 补扫定格稳定检测（2026-09-15 用户反馈"小放大镜扫码太快，人没反应过来就弹"，
-     * 2026-09-28 用户反馈"定屏是乱定的"——等待过长会定格到人已经移开的画面）：
-     * **首次识别到码即开始计时**，持续约 0.7 秒才定格画框；手晃（码短暂
-     * 变化/丢失）不重置计时，只有长时间无码（>1.7s）才重新计时 ——
-     * 既给用户留出对准的时间，又避免定格到已经移开的画面。
-     */
-    private var pickStableSince = 0L
+    /** OCR 兜底延迟定格的等待时长（700ms）。条码确认已改用 3 次匹配计数，不再计时。 */
     private val pickStableMs = 700L
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -941,32 +956,25 @@ class LiveScanActivity : AppCompatActivity() {
                     if (pickMode) {
                         // 条码优先：zxing 解出码时取消 OCR 延迟弹框（防两条路都弹）
                         cancelPendingOcr()
-                        // 稳定检测（2026-09-15 用户要求）：**首次识别到条码即开始计时**，
-                        // 之后手晃（码集合短暂变化 / 瞬时丢码）**不重置计时**，
-                        // 持续约 1.5s 后定格（定格用当前帧，画面微移不影响）。
-                        // 只有长时间（>1.5s+1s）完全无码才视为移开镜头，重新计时。
-                        val now = android.os.SystemClock.elapsedRealtime()
-                        if (found.isNotEmpty()) {
-                            if (pickStableSince == 0L) pickStableSince = now
-                            if (now - pickStableSince >= pickStableMs) {
-                                pickStableSince = 0L
-                                // 定格时用并集重解当前帧（2026-10-01）：直播流里每帧跑的是
-                                // progressive（快，但 1x 解出部分码就提前返回），定格这一刻
-                                // 用 1x/2x/3x 并集把漏掉的小码补回来，框位与定格画面严格对应。
-                                val frozenFrame = runCatching {
-                                    bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
-                                }.getOrNull()
-                                if (frozenFrame != null) {
-                                    runOnUiThread {
-                                        if (generation == cameraGeneration && activityResumed)
-                                            freezeForUnionDecode(frozenFrame, found, rotationDegrees)
-                                        else frozenFrame.recycle()
-                                    }
+                        // 多次采样确认（用户定）：当前帧的码全部在最近 5 帧里各出现
+                        // 3 次才定格点选；否则继续采样。手晃瞬时丢码不清空窗口，
+                        // 连续无码才清空重计。
+                        val current = found.map { it.first }.toSet()
+                        val confirmed = confirmedCodes(current)
+                        if (confirmed.size == current.size && current.isNotEmpty()) {
+                            resetConfirmWindow()
+                            // 定格时用并集重解当前帧（2026-10-01）：直播流里每帧跑的是
+                            // progressive（快，但 1x 解出部分码就提前返回），定格这一刻
+                            // 用 1x/2x/3x 并集把漏掉的小码补回来，框位与定格画面严格对应。
+                            val frozenFrame = runCatching {
+                                bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
+                            }.getOrNull()
+                            if (frozenFrame != null) {
+                                runOnUiThread {
+                                    if (generation == cameraGeneration && activityResumed)
+                                        freezeForUnionDecode(frozenFrame, found, rotationDegrees)
+                                    else frozenFrame.recycle()
                                 }
-                            }
-                        } else {
-                            if (pickStableSince != 0L && now - pickStableSince >= pickStableMs + 1000L) {
-                                pickStableSince = 0L
                             }
                         }
                     } else {
@@ -974,37 +982,23 @@ class LiveScanActivity : AppCompatActivity() {
                             val integ = IntegratedCode.isPayload(v)
                             TypedCode(v, integ, 0)
                         }.distinctBy { it.value }
-                        // 多帧确认 + 冷却：**两帧码集有交集即确认**（2026-09-28 放宽）——
-                        // 原来要求"同一组码完全一致"才上报，手持微抖导致一帧漏解某个码、
-                        // 码集变来变去，就永远确认不了（"对准半天扫不出"）。现在只要
-                        // 有任一码在两帧重复出现即上报交集；上报后 500ms 冷却期内
-                        // 不重复报同一组。码集完全变化则重新累计。
-                        val key = typed.joinToString("|") { it.value }
-                        val now = android.os.SystemClock.elapsedRealtime()
-                        val prev = lastFrameKey?.split("|")?.toSet() ?: emptySet()
+                        // 多帧确认 + 冷却：**同一码在最近 5 帧里出现 3 次即确认**
+                        // （用户定；原来是两帧有交集即上报，手持微抖导致一帧漏解
+                        // 某个码、码集变来变去，就永远确认不了）。上报后 500ms
+                        // 冷却期内不重复报同一组。码集完全变化则重新累计。
                         val cur = typed.map { it.value }.toSet()
-                        val common = prev.intersect(cur)
-                        if (lastFrameKey != null && common.isNotEmpty() && now - lastReportAt >= reportCooldownMs) {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        val confirmed = confirmedCodes(cur)
+                        if (confirmed.isNotEmpty() && now - lastReportAt >= reportCooldownMs) {
                             lastReportAt = now
-                            lastFrameKey = null
-                            val toReport = typed.filter { it.value in common }
+                            resetConfirmWindow()
+                            val toReport = typed.filter { it.value in confirmed }
                             runOnUiThread { if (generation == cameraGeneration && activityResumed) onCodesCollected(toReport) }
-                        } else if (key != lastFrameKey) {
-                            lastFrameKey = key
                         }
                     }
                 } else {
-                    // 当前帧无码
-                    lastFrameKey = null
-                    if (pickMode) {
-                        // 手晃瞬时丢码**不停止计时**；连续 ~2.5s 完全无码
-                        // 才视为移开镜头，重置（下次识别重新计时）
-                        if (pickStableSince != 0L &&
-                            android.os.SystemClock.elapsedRealtime() - pickStableSince >= pickStableMs + 1000L
-                        ) pickStableSince = 0L
-                    } else {
-                        pickStableSince = 0L
-                    }
+                    // 当前帧无码：清空确认窗口，重新累计。
+                    resetConfirmWindow()
                     // ⭐ 无条码 → 累计轮数，达到阈值启用 OCR 兜底。
                     // 用户原则："有条码的优先识别条码；没有条码的，就用 OCR 补。"
                     // 型号字段天然没有条码（用户明确指出），所以它的阈值取得更短。
@@ -1268,7 +1262,7 @@ class LiveScanActivity : AppCompatActivity() {
 
     private fun resumeLiveScan() {
         cancelPendingOcr()
-        pickStableSince = 0L   // 重扫后重新计时
+        resetConfirmWindow()   // 重扫后重新累计确认
         currentPickItems = emptyList()
         ivSnapshot.visibility = android.view.View.GONE
         ivSnapshot.setImageBitmap(null)

@@ -23,9 +23,15 @@ object LabelParser {
     private val DATE_CN = Regex("^\\s*(\\d(?:\\s*\\d){3})\\s*年\\s*(\\d(?:\\s*\\d){0,1})\\s*月\\s*(\\d(?:\\s*\\d){0,1})\\s*日\\s*$")
     /** 行内日期提取，分隔符之间及数字内部均可有 OCR 空白。 */
     private val DATE_INLINE = Regex("\\d(?:\\s*\\d){3}\\s*[-/. _－·．]\\s*\\d(?:\\s*\\d){0,1}\\s*[-/. _－·．]\\s*\\d(?:\\s*\\d){0,1}")
+    /** 行内年月提取（只有年月时补 01）：先试完整日期，找不到再试这个。 */
+    private val DATE_YM_INLINE = Regex("\\d(?:\\s*\\d){3}\\s*[-/. _－·．]\\s*\\d(?:\\s*\\d){0,1}(?!\\s*[-/. _－·．]\\s*\\d)")
     private val EAN13 = Pattern.compile("^69\\d{11}$")
     private val MAT10 = Pattern.compile("^\\d{10}$")
+    /** 本厂标准料号：11 位且末尾 01（如 20822700301）。12 位末尾 01 同样是标准料号。 */
+    private val MAT11 = Pattern.compile("^\\d{9}01$")
     private val MAT12 = Pattern.compile("^\\d{12}$")
+    /** 箱号：16 位纯数字（如 1110054025000029，条码常带 -9 后缀，先剥掉再认）。 */
+    private val BOX16 = Pattern.compile("^(\\d{16})(?:-\\d+)?$")
     private val SN_MIX = Pattern.compile("^[A-Za-z0-9]{6,30}$")
 
     /**
@@ -50,6 +56,13 @@ object LabelParser {
         val digits = when {
             Regex("^\\d(?:\\s*\\d){7}$").matches(value) -> value.replace(Regex("\\s+"), "")
             else -> {
+                // 只有年月（如生产日期 2026-11）：后面补 01 当 1 号。
+                val yearMonth = Regex("^(\\d{4})\\s*[-/. _－·．]\\s*(\\d{1,2})\\s*$").matchEntire(value)
+                if (yearMonth != null) {
+                    val y = yearMonth.groupValues[1].toIntOrNull() ?: return null
+                    val m = yearMonth.groupValues[2].toIntOrNull() ?: return null
+                    return validDate(y, m, 1)
+                }
                 val separated = DATE_SEP.matchEntire(value) ?: DATE_CN.matchEntire(value)
                 if (separated != null) {
                     val year = separated.groupValues[1].replace(Regex("\\s+"), "")
@@ -93,9 +106,15 @@ object LabelParser {
         // EAN13 商品码（69 开头）
         if (EAN13.matcher(v).matches()) return "ean" to v
 
-        // 物料编码：10 位（补 01）或 12 位
-        if (MAT10.matcher(v).matches()) return "material10" to v
+        // 物料编码：11 位末尾 01（本厂标准，如 20822700301）最优先；
+        // 12 位末尾 01 同样是标准料号；10 位（补 01）或 12 位次之。
+        // 11/12 位末尾 01 必须先于 10 位判定，否则 10 位订单号会抢先进物料框。
+        if (MAT11.matcher(v).matches()) return "material11" to v
         if (MAT12.matcher(v).matches()) return "material12" to v
+        if (MAT10.matcher(v).matches()) return "material10" to v
+
+        // 箱号：16 位纯数字（如 1110054025000029，-9 后缀已剥掉）。
+        BOX16.matcher(v).takeIf { it.matches() }?.let { return "box" to it.group(1) }
 
         // 箱号：CA/PA 开头、≥14 位的字母数字混合码。
         // （2026-09-17 用户实测第一张整箱标签校准：CA70450P10052278 是箱号
@@ -138,9 +157,7 @@ object LabelParser {
                 "ean" -> if (result.ean69.isEmpty()) result.ean69 = code
                 "box" -> if (result.boxCode.isEmpty()) result.boxCode = code
                 "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = code
-                "material10", "material12" -> if (result.materialCode.isEmpty()) {
-                    result.materialCode = normalizeMaterial(code)
-                }
+                "material10", "material11", "material12" -> setMaterialCode(result, code, cls.first)
                 "date" -> if (result.productionDate.isEmpty()) result.productionDate = cls.second
             }
         }
@@ -244,6 +261,8 @@ object LabelParser {
 
         // 带标签的行：产品型号/颜色/商品硒鼓/供应商
         when {
+            // 订单号不是物料：10 位订单号常被误认成物料编码，整行跳过不参与补缺。
+            line.contains("订单号") -> return
             line.contains("型号") -> {
                 val m = Regex("[:：]\\s*([A-Za-z0-9][A-Za-z0-9\\-]*)").find(line)
                 if (m != null && result.model.isEmpty()) result.model = m.groupValues[1]
@@ -297,9 +316,7 @@ object LabelParser {
             }
             else -> when (cls.first) {
                 "date" -> if (result.productionDate.isEmpty()) result.productionDate = cls.second
-                "material10", "material12" -> if (result.materialCode.isEmpty()) {
-                    result.materialCode = normalizeMaterial(line)
-                }
+                "material10", "material11", "material12" -> setMaterialCode(result, line, cls.first)
                 "box" -> if (result.boxCode.isEmpty()) result.boxCode = line
                 "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = line
             }
@@ -319,7 +336,7 @@ object LabelParser {
         fun addCandidate(serial: String, material: String) {
             val sn = classify(serial)
             val mat = classify(material)
-            if (sn?.first == "sn" && mat?.first in setOf("material10", "material12")) {
+            if (sn?.first == "sn" && mat?.first in setOf("material10", "material11", "material12")) {
                 candidates += sn.second to normalizeMaterial(mat!!.second)
             }
         }
@@ -367,9 +384,7 @@ object LabelParser {
             val cls = classify(part) ?: continue
             when (cls.first) {
                 "date" -> if (result.productionDate.isEmpty()) result.productionDate = cls.second
-                "material10", "material12" -> if (result.materialCode.isEmpty()) {
-                    result.materialCode = normalizeMaterial(part)
-                }
+                "material10", "material11", "material12" -> setMaterialCode(result, part, cls.first)
                 "ean" -> if (result.ean69.isEmpty()) result.ean69 = part
                 "box" -> if (result.boxCode.isEmpty()) result.boxCode = part
                 "sn" -> if (result.serialNumber.isEmpty()) result.serialNumber = part
@@ -386,11 +401,30 @@ object LabelParser {
      * 整行/分段流程里识别，避免把 SN/物料里的数字串当日期。
      */
     fun extractDateInline(line: String): String? {
-        val hit = DATE_INLINE.find(line)?.value ?: return null
+        val hit = DATE_INLINE.find(line)?.value ?: DATE_YM_INLINE.find(line)?.value ?: return null
         return normalizeDateCandidate(hit)
     }
 
-    /** 物料编码规范化：10 位补 01；12 位原样；69 开头保留（自有数据） */
+    /**
+     * 填物料编码：11 位末尾 01（本厂标准料号）优先于 10 位。
+     * 10 位订单号常被误认成物料；标准料号出现时应覆盖它。
+     * 只有当前值还不是 11 位末尾 01 时才覆盖，避免两个标准料号互相顶掉。
+     */
+    private fun setMaterialCode(result: LabelResult, candidate: String, candidateType: String) {
+        val normalized = normalizeMaterial(candidate)
+        if (result.materialCode.isEmpty()) {
+            result.materialCode = normalized
+            return
+        }
+        if (candidateType == "material11" && !isMaterial11(result.materialCode)) {
+            result.materialCode = candidate
+        }
+    }
+
+    private fun isMaterial11(code: String): Boolean =
+        code.length == 11 && code.all { it.isDigit() } && code.endsWith("01")
+
+    /** 物料编码规范化：10 位补 01；11/12 位原样；69 开头保留（自有数据） */
     fun normalizeMaterial(code: String): String {
         val c = code.trim()
         return if (c.length == 10) c + "01" else c

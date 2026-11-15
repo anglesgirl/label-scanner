@@ -74,7 +74,7 @@ class LiveSampleConsensus(private val headerOnly: Boolean = false) {
         // decode-order jitter cannot change the tuple; the original complete code set is retained.
         val parsed = LabelParser.parse(barcodes.sortedWith(compareBy<String> { barcodeIdentity(it) }.thenBy { it }), ocrText)
         val materialClass = LabelParser.classify(parsed.materialCode.trim()) ?: return null
-        if (materialClass.first !in setOf("material10", "material12")) return null
+        if (materialClass.first !in setOf("material10", "material11", "material12")) return null
         val material = LabelParser.normalizeMaterial(materialClass.second)
 
         // LabelParser intentionally fills a missing date with 19000101. That synthetic fallback
@@ -158,7 +158,7 @@ class LiveSampleConsensus(private val headerOnly: Boolean = false) {
         val trimmed = raw.trim()
         val classified = LabelParser.classify(trimmed)
         val normalized = when (classified?.first) {
-            "material10", "material12" -> "material:${LabelParser.normalizeMaterial(classified.second)}"
+            "material10", "material11", "material12" -> "material:${LabelParser.normalizeMaterial(classified.second)}"
             "date" -> "date:${classified.second}"
             "ean" -> "ean:${classified.second}"
             "sn" -> "sn:${classified.second.uppercase(Locale.ROOT)}"

@@ -87,10 +87,27 @@ object BoxParser {
 
     /** 行内任意位置的日期（用于「DATE: 2024-0-7」这类字段行）。 */
     private val DATE_ANY = Regex("(\\d{4}[-/. ]\\d{1,2}[-/. ]\\d{1,2})")
+    /** 行内年月（只有年月时补 01，如生产日期 2026-11 → 2026-11-01）。 */
+    private val DATE_YM_ANY = Regex("(\\d{4}[-/. ]\\d{1,2})(?!\\s*[-/. ]\\s*\\d)")
+
+    /** 箱号：16 位纯数字（如 1110054025000029，条码常带 -9 后缀，先剥掉再认）。 */
+    private val BOX16 = Regex("^(\\d{16})(?:-\\d+)?$")
+
+    /**
+     * 11/12 位末尾 01（本厂标准料号）优先于 10 位；10 位订单号常被误认成物料。
+     * 只有当前值还是 10 位（弱，可能是订单号）时，才让标准料号覆盖它；
+     * 11/12 位之间先到先得，不互相顶掉。
+     */
+    private fun preferMaterial(current: String, candidate: String): String {
+        if (current.isEmpty()) return candidate
+        val candIsStd = candidate.length in 11..12 && candidate.all { it.isDigit() } && candidate.endsWith("01")
+        return if (current.length == 10 && candIsStd) candidate else current
+    }
 
     /**
      * 把各种写法的日期归一成 yyyyMMdd；不合法返回 null。
      * 支持 20240907 / 2024-0-07 / 2024.9.7 / 2024/09/07 —— 月、日都允许 1 位。
+     * 只有年月（如 2026-11）时补 01 当 1 号。
      */
     private fun normalizeDate(raw: String): String? {
         val s = raw.trim().trim('.', ',', ';', ':', '"', '\'', '(', ')', '[', ']')
@@ -99,6 +116,13 @@ object BoxParser {
             val m = s.substring(4, 6).toIntOrNull() ?: return null
             val d = s.substring(6, 8).toIntOrNull() ?: return null
             return if (y in 1900..2100 && m in 1..12 && d in 1..31) s else null
+        }
+        val ym = Regex("^(\\d{4})[-/. ](\\d{1,2})$").find(s)
+        if (ym != null) {
+            val y = ym.groupValues[1].toIntOrNull() ?: return null
+            val m = ym.groupValues[2].toIntOrNull() ?: return null
+            if (y !in 1900..2100 || m !in 1..12) return null
+            return "%04d%02d01".format(y, m)
         }
         val g = Regex("^(\\d{4})[-/. ](\\d{1,2})[-/. ](\\d{1,2})$").find(s) ?: return null
         val y = g.groupValues[1].toIntOrNull() ?: return null
@@ -149,13 +173,16 @@ object BoxParser {
         val classified = mutableListOf<String>()
 
         // 第 1 轮条码：EAN13(69 开头 13 位) / 纯数字 SAP 物料号(10~12 位)
+        // 16 位纯数字码是箱号（1110054025000029），不进物料也不进 SN。
         for (code in barcodes) {
             val c = code.trim()
             if (c.isEmpty()) continue
             classified.add(c)
+            val box16 = BOX16.find(c)?.groupValues?.get(1)
             when {
                 EAN13.matcher(c).matches() && ean.isEmpty() -> ean = c
-                SAP_NUM.matcher(c).matches() && material.isEmpty() -> material = c
+                box16 != null && box.isEmpty() -> box = box16
+                SAP_NUM.matcher(c).matches() -> material = preferMaterial(material, c)
             }
         }
 
@@ -177,21 +204,23 @@ object BoxParser {
             }
         }
         // 条码没有物料时，OCR 才作为补充来源。
+        // 订单号不是物料：10 位订单号常被误认成物料编码，含订单号的行整行跳过。
         for (line in ocrLines) {
             val l = line.trim()
             if (l.isEmpty()) continue
+            if (l.contains("订单号")) continue
             val upper = l.uppercase()
             when {
-                material.isEmpty() && SAP_NUM.matcher(l).matches() -> material = l
-                material.isEmpty() && (upper.startsWith("SAP") || upper.startsWith("SAP.")) -> {
-                    Regex("(\\d{10,12})").find(l)?.groupValues?.get(1)?.let { material = it }
+                SAP_NUM.matcher(l).matches() -> material = preferMaterial(material, l)
+                upper.startsWith("SAP") || upper.startsWith("SAP.") -> {
+                    Regex("(\\d{10,12})").find(l)?.groupValues?.get(1)?.let { material = preferMaterial(material, it) }
                 }
                 // 一行并排两个字段（OCR 合成一行，如 `3011211002   2025-09-17`）时
                 // 整行匹配不上 → 按空白拆成段，逐段找 10~12 位 SAP 号。
-                material.isEmpty() -> {
+                else -> {
                     for (part in l.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotEmpty() }) {
                         if (SAP_NUM.matcher(part).matches()) {
-                            material = part
+                            material = preferMaterial(material, part)
                             break
                         }
                     }
@@ -219,14 +248,16 @@ object BoxParser {
             val upper = l.uppercase()
             if (date.isEmpty() && (upper.startsWith("DATE") || upper.startsWith("MFG") ||
                         upper.startsWith("生产日期") || upper.startsWith("PD"))) {
-                DATE_ANY.find(l)?.groupValues?.get(1)
+                (DATE_ANY.find(l)?.groupValues?.get(1)
+                    ?: DATE_YM_ANY.find(l)?.groupValues?.get(1))
                     ?.let { raw -> normalizeDate(raw)?.let { n -> date = n } }
             }
             // 裸日期行：先整行归一；整行不是日期时再行内提取 —— 一行并排两字段
             // （如 `3011211002   2025-09-17`）时日期只是其中一段，行内取出来即可。
-            // 只收合法的日期，不会引入新值。
+            // 只收合法的日期，不会引入新值。年月（2026-11）也收，补 01 当 1 号。
             val nd = normalizeDate(l)
                 ?: DATE_ANY.find(l)?.groupValues?.get(1)?.let { raw -> normalizeDate(raw) }
+                ?: DATE_YM_ANY.find(l)?.groupValues?.get(1)?.let { raw -> normalizeDate(raw) }
             if (nd != null) bareDates.add(nd)
         }
         if (date.isEmpty()) {

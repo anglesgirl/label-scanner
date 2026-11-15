@@ -32,6 +32,18 @@ object BoxScanClassifier {
     private val EAN13 = Regex("^69\\d{11}$")
     private val SAP_NUM = Regex("^\\d{10,12}$")
     private val SAP_LABELED = Regex("(?i)SAP[^0-9]{0,3}(\\d{10,12})")
+    /** 箱号：16 位纯数字（如 1110054025000029，条码常带 -9 后缀，先剥掉再认）。 */
+    private val BOX16 = Regex("^(\\d{16})(?:-\\d+)?$")
+
+    /**
+     * 11/12 位末尾 01（本厂标准料号）优先于 10 位；10 位订单号常被误认成物料。
+     * 只有当前值还是 10 位（弱，可能是订单号）时，才让标准料号覆盖它。
+     */
+    private fun preferMaterial(current: String, candidate: String): String {
+        if (current.isEmpty()) return candidate
+        val candIsStd = candidate.length in 11..12 && candidate.all { it.isDigit() } && candidate.endsWith("01")
+        return if (current.length == 10 && candIsStd) candidate else current
+    }
     /**
      * QTY 四档判定（2026-11-02 TL-413 标签教训；2026-11-13 PCS 后缀教训）：
      * 表格是两列，ML Kit 经常把标签列和值列拆成两组行——"QTY." 和 "10 PCS"
@@ -60,6 +72,8 @@ object BoxScanClassifier {
     /** ④ 兜底：行内任意位置的 "N PCS"，数字前面不能是字母数字（防 "ABC10PCS" 这种码内数字）。 */
     private val QTY_PCS_BEFORE = Regex("(?<![0-9A-Za-z])(\\d{1,3})\\s*(?:PCS|PC5|PC|EA)(?![0-9A-Za-z])")
     private val DATE_SEP = Regex("(\\d{4})[-/. ](\\d{1,2})[-/. ](\\d{1,2})")
+    /** 年月（只有年月时补 01，如生产日期 2026-11 → 2026-11-01）。 */
+    private val DATE_YM = Regex("(\\d{4})[-/. ](\\d{1,2})(?!\\s*[-/. ]\\s*\\d)")
     private val DATE8 = Regex("^\\d{8}$")
 
     private fun parseQty(lines: List<String>): Int {
@@ -113,16 +127,22 @@ object BoxScanClassifier {
         for (i in ocrLines.indices) {
             val line = ocrLines[i].trim()
             if (line.isEmpty()) continue
-            if (material.isEmpty()) {
-                if (SAP_NUM.matches(line)) material = line
-                else SAP_LABELED.find(line)?.groupValues?.get(1)?.let { material = it }
-            }
+            // 订单号不是物料：10 位订单号常被误认成物料编码，含订单号的行整行跳过。
+            if (line.contains("订单号")) continue
+            if (SAP_NUM.matches(line)) material = preferMaterial(material, line)
+            else SAP_LABELED.find(line)?.groupValues?.get(1)?.let { material = preferMaterial(material, it) }
             if (date.isEmpty()) {
                 DATE_SEP.find(line)?.let { g ->
                     normalizeDate(
                         g.groupValues[1].toIntOrNull(),
                         g.groupValues[2].toIntOrNull(),
                         g.groupValues[3].toIntOrNull(),
+                    )?.let { date = it }
+                } ?: DATE_YM.find(line)?.let { g ->
+                    normalizeDate(
+                        g.groupValues[1].toIntOrNull(),
+                        g.groupValues[2].toIntOrNull(),
+                        1,
                     )?.let { date = it }
                 } ?: run {
                     if (DATE8.matches(line)) {
@@ -138,12 +158,20 @@ object BoxScanClassifier {
 
         // 条码集合：去重、保首次出现顺序。
         val codes = (state.allCodes + newBarcodes.map { it.trim() }.filter { it.isNotEmpty() }).distinct()
+        // 16 位纯数字码是箱号（1110054025000029），先认出来，不进物料也不进 SN 聚类。
+        // 它与序列号共用前 10 位前缀，若不先摘出来，clusterSn 会把它算进 SN 批。
+        val box16 = codes.firstNotNullOfOrNull { BOX16.find(it)?.groupValues?.get(1) }
         // 条码里的纯数字码也是物料（BoxParser 规则 2）。
+        // 11/12 位末尾 01 的标准料号优先于 10 位（订单号）。
         if (material.isEmpty()) {
-            material = codes.firstOrNull { SAP_NUM.matches(it) } ?: ""
+            val sapCandidates = codes.filter { SAP_NUM.matches(it) }
+            material = sapCandidates.firstOrNull { it.length in 11..12 && it.endsWith("01") }
+                ?: sapCandidates.firstOrNull()
+                ?: ""
         }
         // 混合码：排除 EAN69 与物料码，剩下的才参与 SN/箱号之分。
-        val mixed = codes.filter { !EAN13.matches(it) && !SAP_NUM.matches(it) }
+        // 16 位箱号码已摘出，不参与。
+        val mixed = codes.filter { !EAN13.matches(it) && !SAP_NUM.matches(it) && BOX16.find(it) == null }
         var sns = when {
             material.isNotEmpty() -> {
                 val prefixed = mixed.filter { it.startsWith(material) }
@@ -162,6 +190,12 @@ object BoxScanClassifier {
         //  其余情况（SN 批没确立）：箱号留空，等扫到再说，绝不猜。
         var box = state.boxCode
         var boxFromSn = state.boxFromSn
+        if (box.isEmpty()) {
+            // 16 位纯数字码就是箱号（已从 SN 聚类中摘出），直接定，不走三档猜。
+            if (box16 != null) {
+                box = box16
+            }
+        }
         if (box.isEmpty()) {
             val hasIntegrated = codes.any { it.contains(',') || it.contains(';') }
             when {

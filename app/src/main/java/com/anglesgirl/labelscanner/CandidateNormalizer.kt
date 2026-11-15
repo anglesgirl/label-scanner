@@ -46,9 +46,10 @@ object CandidateNormalizer {
     fun validate(value: String, field: String): String? = when (field) {
         "material" -> when {
             value.matches(Regex("^\\d{10}$")) || value.matches(Regex("^\\d{12}$")) -> null
+            value.matches(Regex("^\\d{9}01$")) -> null
             value.matches(Regex("^69\\d{11}$")) ->
                 "这是 69 商品码（13 位 69 开头），不是物料编码，请确认"
-            else -> "物料编码应为 10 位或 12 位纯数字"
+            else -> "物料编码应为 10 位、11 位末尾 01 或 12 位纯数字"
         }
         "date" -> dateError(value)
         "box" -> when {
