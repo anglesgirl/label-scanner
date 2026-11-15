@@ -37,45 +37,8 @@
             android:textStyle="bold"
             android:textColor="@color/ls_primary" />
 
-        <!-- 识别来源：拍照 / 文档扫描 / 相册 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnTakePhoto"
-                android:layout_width="0dp"
-                android:layout_height="50dp"
-                android:layout_weight="1"
-                android:backgroundTint="@color/ls_primary"
-                android:text="自动拍照"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
-
-            <Button
-                android:id="@+id/btnScanDoc"
-                android:layout_width="0dp"
-                android:layout_height="50dp"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="@color/ls_primary"
-                android:text="Google 扫描"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
-
-            <Button
-                android:id="@+id/btnPickGallery"
-                android:layout_width="0dp"
-                android:layout_height="50dp"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="@color/ls_primary"
-                android:text="🖼️ 相册"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
-        </LinearLayout>
+        <!-- 识别来源（拍照 / 文档扫描 / 相册）已移除：用户反馈顶部相机入口多余，
+             现以实时扫码（小放大镜 / 扫整箱）为主；拍照 OCR 逻辑保留在代码里未删，需要可恢复。 -->
 
         <!-- 整箱直播：一箱多 SN 时，相机累计扫满 QTY 自动回，不用拍照碰运气 -->
         <Button
@@ -156,6 +119,16 @@
                 android:insetTop="0dp"
                 android:insetBottom="0dp" />
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvTrayCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="当前托盘已保存：已存箱数 0 条 · 已存 SN 数 0 个"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/ls_primary" />
 
         <TextView
             android:layout_width="match_parent"

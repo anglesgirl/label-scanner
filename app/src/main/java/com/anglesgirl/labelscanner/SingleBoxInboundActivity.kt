@@ -47,6 +47,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private lateinit var llSnList: LinearLayout
     private lateinit var llCodeCandidates: LinearLayout
     private lateinit var tvBoxStatus: TextView
+    private lateinit var tvTrayCount: TextView
 
     private val snList = mutableListOf<String>()
 
@@ -136,12 +137,6 @@ class SingleBoxInboundActivity : AppCompatActivity() {
      *
      * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数。
      */
-    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**。
-    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(
-        this,
-        com.anglesgirl.labelscanner.camera.CameraCaptureMode.INBOUND_LABEL,
-    ) { uri -> recognizeLabel(uri) }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Edge-to-edge：状态栏/导航栏不留黑色遮罩
@@ -163,11 +158,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         llSnList = findViewById(R.id.llSnList)
         llCodeCandidates = findViewById(R.id.llCodeCandidates)
         tvBoxStatus = findViewById(R.id.tvBoxStatus)
+        tvTrayCount = findViewById(R.id.tvTrayCount)
         LastSavedHint.bind(this, findViewById(R.id.tvLastSavedSn))
+        updateTrayCount()
 
-        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
-        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { imageIn.scanDocument() }
-        findViewById<Button>(R.id.btnPickGallery).setOnClickListener { imageIn.pickGallery() }
         // 整箱直播：一箱多 SN 时不用拍照碰运气，相机累计扫满 QTY 自动回。
         findViewById<Button>(R.id.btnBoxScan).setOnClickListener {
             boxScan.launch(
@@ -187,6 +181,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
                 TrayPrefs.set(this@SingleBoxInboundActivity, s?.toString()?.trim().orEmpty())
+                updateTrayCount()
             }
         })
 
@@ -419,6 +414,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     if (dropped > 0) "\n（自动去重 $dropped 个重复序列号）" else ""
                 Toast.makeText(this@SingleBoxInboundActivity, "已保存 ${records.size} 条记录", Toast.LENGTH_SHORT).show()
                 resetBox()
+                updateTrayCount()
             }.onFailure {
                 Toast.makeText(this@SingleBoxInboundActivity, "保存失败：${it.message}", Toast.LENGTH_SHORT).show()
             }
@@ -444,6 +440,20 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private fun updateStatus() {
         val n = snList.size
         tvBoxStatus.text = if (n == 0) "序列号 0 个" else "📦 序列号 $n 个，保存后每 SN 一行"
+    }
+
+    /** 当前托盘已存数量：已存箱数（记录条数）+ 已存 SN 数（有序列号的记录数）。 */
+    private fun updateTrayCount() {
+        if (!::tvTrayCount.isInitialized || !::etTrayCode.isInitialized) return
+        val tray = etTrayCode.text.toString().trim()
+        if (tray.isEmpty()) {
+            tvTrayCount.text = "当前托盘已保存：已存箱数 0 条 · 已存 SN 数 0 个"
+            return
+        }
+        // SQL COUNT 走 tray_code 索引，毫秒级；不用全量加载该托盘再取 size
+        val boxCount = com.anglesgirl.labelscanner.data.RecordStore.countByTrayCode(this, tray)
+        val snCount = com.anglesgirl.labelscanner.data.RecordStore.countSerialNumbersByTrayCode(this, tray)
+        tvTrayCount.text = "当前托盘已保存：已存箱数 $boxCount 条 · 已存 SN 数 $snCount 个"
     }
 
     /** 重建 SN 行列表（LinearLayout 动态加行） */

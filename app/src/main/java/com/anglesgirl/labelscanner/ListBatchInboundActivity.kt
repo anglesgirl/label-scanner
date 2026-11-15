@@ -135,14 +135,18 @@ class ListBatchInboundActivity : AppCompatActivity() {
             tvTraySerialCount.text = "当前托盘序列号：请先填写托盘号"
             return
         }
-        tvTraySerialCount.text = "托盘 $trayCode：正在查询已保存序列号…"
-        DbExecutor.run({ RecordStore.countSerialNumbersByTrayCode(this, trayCode) }) { result ->
+        tvTraySerialCount.text = "托盘 $trayCode：正在查询已保存箱数 / 序列号…"
+        DbExecutor.run({
+            val boxes = RecordStore.countByTrayCode(this, trayCode)
+            val sns = RecordStore.countSerialNumbersByTrayCode(this, trayCode)
+            boxes to sns
+        }) { result ->
             // 输入变化后忽略排队中的旧查询结果，避免旧托盘计数覆盖当前托盘。
             if (etTrayCode.text.toString().trim() != trayCode) return@run
-            result.onSuccess { count ->
-                tvTraySerialCount.text = "托盘 $trayCode：已有序列号 $count 个（含单箱入库）"
+            result.onSuccess { (boxCount, snCount) ->
+                tvTraySerialCount.text = "托盘 $trayCode：已存箱数 $boxCount 条 · 已存 SN 数 $snCount 个（含单箱入库）"
             }.onFailure {
-                tvTraySerialCount.text = "托盘 $trayCode：序列号数查询失败"
+                tvTraySerialCount.text = "托盘 $trayCode：箱数 / 序列号数查询失败"
             }
         }
     }
