@@ -48,12 +48,16 @@ object RecordStore {
             }
     }
 
-    /** 当前托盘的有效序列号数；排除没有序列号的辅助记录。 */
+    /**
+     * 当前托盘的有效序列号数；排除没有序列号的辅助记录。
+     * 重复的 SN 只算一次（COUNT DISTINCT）—— 同一个 SN 重扫/重复保存，
+     * 数量不能再涨（用户 2026-11-15：“不管箱号，还是 SN 号，重复的都不能算增加”）。
+     */
     fun countSerialNumbersByTrayCode(context: Context, trayCode: String): Int {
         ensureImported(context)
         LocalDatabase.get(context).readableDatabase
             .rawQuery(
-                "SELECT COUNT(*) FROM records WHERE tray_code = ? AND TRIM(serial_number) <> ''",
+                "SELECT COUNT(DISTINCT TRIM(serial_number)) FROM records WHERE tray_code = ? AND TRIM(serial_number) <> ''",
                 arrayOf(trayCode),
             ).use { c ->
                 return if (c.moveToFirst()) c.getInt(0) else 0
