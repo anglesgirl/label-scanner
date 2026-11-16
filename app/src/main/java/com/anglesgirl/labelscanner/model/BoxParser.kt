@@ -85,10 +85,24 @@ object BoxParser {
     private val DATE_SEP = Pattern.compile("^\\d{4}[-/. ]\\d{1,2}[-/. ]\\d{1,2}$")
     private val DATE8 = Pattern.compile("^\\d{8}$")
 
-    /** 行内任意位置的日期（用于「DATE: 2024-0-7」这类字段行）。 */
-    private val DATE_ANY = Regex("(\\d{4}[-/. ]\\d{1,2}[-/. ]\\d{1,2})")
+    /** 行内任意位置的日期（用于「DATE: 2024-0-7」这类字段行）。
+     * 与 LabelParser 同款容错：数字间允许 OCR 插入空白（2026-08-2 9）、
+     * 全角分隔符（－·．）、中文年月日（2026年11月1日）。 */
+    private val DATE_ANY = Regex(
+        "(\\d(?:\\s*\\d){3}\\s*[-/. _－·．]\\s*\\d(?:\\s*\\d){0,1}\\s*[-/. _－·．]\\s*\\d(?:\\s*\\d){0,1}" +
+            "|\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日)"
+    )
     /** 行内年月（只有年月时补 01，如生产日期 2026-11 → 2026-11-01）。 */
-    private val DATE_YM_ANY = Regex("(\\d{4}[-/. ]\\d{1,2})(?!\\s*[-/. ]\\s*\\d)")
+    private val DATE_YM_ANY = Regex(
+        "(\\d(?:\\s*\\d){3}\\s*[-/. _－·．]\\s*\\d(?:\\s*\\d){0,1}" +
+            "|\\d{4}\\s*年\\s*\\d{1,2}\\s*月)" +
+            "(?!\\s*[-/. _－·．]\\s*\\d)(?!\\s*\\d)"
+    )
+
+    /** 日期字段分隔符；数字间允许 OCR 插入空白（如 2026-08-2 9）。 */
+    private val DATE_SEP_TOL = Regex("^\\s*(\\d(?:\\s*\\d){3})\\s*[-/. _－·．]\\s*(\\d(?:\\s*\\d){0,1})\\s*[-/. _－·．]\\s*(\\d(?:\\s*\\d){0,1})\\s*$")
+    /** 中文日期：2026年11月1日（数字间同样允许 OCR 空白）。 */
+    private val DATE_CN = Regex("^\\s*(\\d(?:\\s*\\d){3})\\s*年\\s*(\\d(?:\\s*\\d){0,1})\\s*月\\s*(\\d(?:\\s*\\d){0,1})\\s*日\\s*$")
 
     /** 箱号：16 位纯数字（如 1110054025000029，条码常带 -9 后缀，先剥掉再认）。 */
     private val BOX16 = Regex("^(\\d{16})(?:-\\d+)?$")
@@ -106,30 +120,59 @@ object BoxParser {
 
     /**
      * 把各种写法的日期归一成 yyyyMMdd；不合法返回 null。
-     * 支持 20240907 / 2024-0-07 / 2024.9.7 / 2024/09/07 —— 月、日都允许 1 位。
-     * 只有年月（如 2026-11）时补 01 当 1 号。
+     * 与 LabelParser.normalizeDateCandidate 同款容错（单箱入库走 BoxParser，
+     * 之前这里比 LabelParser 弱，中文年月日、数字间空格、全角分隔符、
+     * 字母数字误认都会导致日期识别不出来）：
+     *  - 20240907 / 2024-0-07 / 2024.9.7 / 2024/09/07 —— 月、日都允许 1 位
+     *  - 2026年11月1日 / 2026年11月（年月补 01）
+     *  - OCR 数字间空格（2026-08-2 9）—— 正则里数字间允许 \s*
+     *  - OCR 字母数字误认：O/o→0、I/l/|→1、S/s→5、g→9、B→8
+     *  - 全角分隔符 －·．
+     * 只有年月（如 2026-11）时补 01 当 1 号；用真实日历校验（2 月 30 日无效）。
      */
     private fun normalizeDate(raw: String): String? {
-        val s = raw.trim().trim('.', ',', ';', ':', '"', '\'', '(', ')', '[', ']')
-        if (s.length == 8 && s.all { it.isDigit() }) {
-            val y = s.substring(0, 4).toIntOrNull() ?: return null
-            val m = s.substring(4, 6).toIntOrNull() ?: return null
-            val d = s.substring(6, 8).toIntOrNull() ?: return null
-            return if (y in 1900..2100 && m in 1..12 && d in 1..31) s else null
+        val value = raw.trim().trim('.', ',', ';', ':', '"', '\'', '(', ')', '[', ']')
+            .replace('O', '0').replace('o', '0')
+            .replace('I', '1').replace('l', '1').replace('|', '1')
+            .replace('S', '5').replace('s', '5')
+            .replace('g', '9')
+            .replace('B', '8')
+        // 8 位连写（数字间可能有 OCR 空白，如 2026 08 29）
+        if (Regex("^\\d(?:\\s*\\d){7}$").matches(value)) {
+            val digits = value.replace(Regex("\\s+"), "")
+            return validDate(
+                digits.substring(0, 4).toIntOrNull(),
+                digits.substring(4, 6).toIntOrNull(),
+                digits.substring(6, 8).toIntOrNull(),
+            )
         }
-        val ym = Regex("^(\\d{4})[-/. ](\\d{1,2})$").find(s)
-        if (ym != null) {
-            val y = ym.groupValues[1].toIntOrNull() ?: return null
-            val m = ym.groupValues[2].toIntOrNull() ?: return null
-            if (y !in 1900..2100 || m !in 1..12) return null
-            return "%04d%02d01".format(y, m)
+        // 只有年月（如生产日期 2026-11 / 2026年11月）：后面补 01 当 1 号。
+        val yearMonth = Regex("^(\\d{4})\\s*[-/. _－·．]\\s*(\\d{1,2})\\s*$").matchEntire(value)
+            ?: Regex("^(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月\\s*$").matchEntire(value)
+        if (yearMonth != null) {
+            return validDate(
+                yearMonth.groupValues[1].toIntOrNull(),
+                yearMonth.groupValues[2].toIntOrNull(),
+                1,
+            )
         }
-        val g = Regex("^(\\d{4})[-/. ](\\d{1,2})[-/. ](\\d{1,2})$").find(s) ?: return null
-        val y = g.groupValues[1].toIntOrNull() ?: return null
-        val m = g.groupValues[2].toIntOrNull() ?: return null
-        val d = g.groupValues[3].toIntOrNull() ?: return null
-        if (y !in 1900..2100 || m !in 1..12 || d !in 1..31) return null
-        return "%04d%02d%02d".format(y, m, d)
+        val separated = DATE_SEP_TOL.matchEntire(value) ?: DATE_CN.matchEntire(value) ?: return null
+        val year = separated.groupValues[1].replace(Regex("\\s+"), "")
+        val month = separated.groupValues[2].replace(Regex("\\s+"), "")
+        val day = separated.groupValues[3].replace(Regex("\\s+"), "")
+        return validDate(year.toIntOrNull(), month.toIntOrNull(), day.toIntOrNull())
+    }
+
+    /** 真实日历校验（2 月 30 日、13 月无效）；年份沿用旧范围 1900..2100。 */
+    private fun validDate(y: Int?, m: Int?, d: Int?): String? {
+        if (y == null || m == null || d == null) return null
+        if (y !in 1900..2100) return null
+        return try {
+            java.time.LocalDate.of(y, m, d)
+            "%04d%02d%02d".format(y, m, d)
+        } catch (_: java.time.DateTimeException) {
+            null
+        }
     }
 
     fun parse(barcodes: List<String>, ocrText: String, lookup69: ((String) -> String?)? = null): BoxParseResult {

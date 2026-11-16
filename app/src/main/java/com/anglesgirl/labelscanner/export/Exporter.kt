@@ -29,7 +29,8 @@ import java.util.zip.ZipOutputStream
  *   DATA03 物料编码       -> materialCode
  *   DATA04 箱号           -> boxCode（旧数据/单条模式 boxCode 空 → 回退 serialNumber，
  *                            因为以前一箱一个 SN，箱号=SN；一箱多 SN 后真正分开）
- *   DATA05 数量           -> 1 (固定)
+ *   DATA05 数量           -> 本箱去重 SN 个数（箱号→不同 SN 数；旧数据/单条
+ *                            boxCode 空时回退 SN，计数为 1）
  *   DATA06 工厂           -> 固定 "6012"
  *   DATA07 库存地         -> 留空
  *   DATA08 生产日期-yyyymmdd -> productionDate
@@ -675,16 +676,31 @@ object Exporter {
         return "\"${r.barcodes.joinToString("|")}\",\"${r.ocrText}\",\"${r.supplier}\",\"${r.serialNumber}\",\"${r.materialCode}\",${r.quantity},\"${r.productionDate}\",\"${r.ean69}\",\"${r.model}\",\"${r.color}\",\"${r.tonerModel}\""
     }
 
-    private fun buildWmsRow(r: LabelResult): Array<String> {
+    /**
+     * 数量 = **本箱的去重序列号个数**（用户要求，用户原话：
+     * "一箱里面有多少个序列号，它后面的数量就是多少"）。
+     *
+     * 以前这里写死 "1"，结果一箱 9 个 SN 导出的数量还是 1，
+     * WMS 一比对就报"数量与 SN 不一致"并拒绝导入。
+     *
+     * 计数按本次导出的记录现算（箱号→不同 SN 数），不直接用 r.quantity：
+     * 这样旧数据（保存时 quantity 还是 1）也能导对；新数据保存时
+     * quantity 已是本箱 SN 数，两边一致。箱号回退规则与 DATA04 相同
+     * （boxCode 空 → 回退 serialNumber，一箱一 SN 时计数为 1）。
+     */
+    private fun buildWmsRow(r: LabelResult, boxSnCount: Map<String, Int>): Array<String> {
         val trayCode = r.trayCode.ifBlank { "" }
         // 箱号：一箱多 SN 后 boxCode 独立；旧数据 boxCode 空 → 回退 SN（一箱一 SN 时箱号=SN）
         val boxCode = r.boxCode.ifBlank { r.serialNumber }
+        val quantity = boxSnCount[boxCode]?.takeIf { it > 0 }
+            ?: r.quantity.takeIf { it > 0 }
+            ?: 1
         return arrayOf(
             "STAGE",              // DATA01 库位
             trayCode,             // DATA02 卡板/托盘
             r.materialCode,       // DATA03 物料编码
             boxCode,              // DATA04 箱号
-            "1",                  // DATA05 数量
+            quantity.toString(),  // DATA05 数量（本箱去重 SN 个数）
             "6012",               // DATA06 工厂（固定）
             "",                   // DATA07 库存地
             r.productionDate,     // DATA08 生产日期-yyyymmdd
@@ -782,7 +798,12 @@ object Exporter {
         append("</cols><sheetData>")
         appendXmlRow(1, arrayOf("1") + WMS_DATA_HEADERS)
         appendXmlRow(2, arrayOf("") + WMS_LABEL_HEADERS)
-        records.forEachIndexed { index, record -> appendXmlRow(index + 3, arrayOf("") + buildWmsRow(record)) }
+        // 数量按箱号现算：箱号 → 本次导出中该箱的不同 SN 数（与 buildWmsRow
+        // 的箱号回退规则一致：boxCode 空 → 回退 serialNumber）。
+        val boxSnCount = records
+            .groupBy { it.boxCode.ifBlank { it.serialNumber } }
+            .mapValues { (_, rs) -> rs.map { it.serialNumber }.distinct().size }
+        records.forEachIndexed { index, record -> appendXmlRow(index + 3, arrayOf("") + buildWmsRow(record, boxSnCount)) }
         append("</sheetData></worksheet>")
     }
 
