@@ -392,37 +392,67 @@ class RecordListActivity : AppCompatActivity() {
         }
     }
 
+    /** 库存地（DATA07）：导出时手动填入，上次填过的自动带出来，不用每次重输。 */
+    private fun lastStockLocation(): String =
+        getSharedPreferences("label_scanner_export", MODE_PRIVATE)
+            .getString("last_stock_location", "") ?: ""
+
+    private fun saveLastStockLocation(value: String) {
+        getSharedPreferences("label_scanner_export", MODE_PRIVATE).edit()
+            .putString("last_stock_location", value).apply()
+    }
+
     /** 文件名默认单号，可改；文件名里的单号不变（老板按单号核对）。 */
     private fun showZipNameDialog(slipNo: String, selected: List<LabelResult>) {
-        val input = android.widget.EditText(this).apply {
+        val fileNameInput = android.widget.EditText(this).apply {
             setText(slipNo)
             if (text.isNotEmpty()) setSelection(text.length)
             hint = "文件名"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
+        // 库存地（DATA07）：导出时手动填入，整批同一值；上次填过的自动带出来。
+        val stockLocationInput = android.widget.EditText(this).apply {
+            setText(lastStockLocation())
+            if (text.isNotEmpty()) setSelection(text.length)
+            hint = "库存地（填入 DATA07，可留空）"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+        }
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            addView(fileNameInput, lp)
+            addView(stockLocationInput, lp)
+        }
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("导出 Excel（单号 $slipNo）")
-            .setView(input)
+            .setView(container)
             .setPositiveButton("导出分享") { _, _ ->
-                val fileName = input.text.toString().trim()
+                val fileName = fileNameInput.text.toString().trim()
                 if (fileName.isEmpty()) {
                     Toast.makeText(this, "文件名不能为空", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                shareZip(selected, slipNo, fileName)
+                val stockLocation = stockLocationInput.text.toString().trim()
+                saveLastStockLocation(stockLocation)
+                shareZip(selected, slipNo, fileName, stockLocation)
             }
             .setNegativeButton("取消", null)
             .show()
     }
 
     /** 导出分享 Excel：WMS 表 + 该单号的单据照片（嵌进工作表）+ 单据附件（表格拷成工作表/图片嵌进工作表）。 */
-    private fun shareZip(selected: List<LabelResult>, slipNo: String, fileName: String) {
+    private fun shareZip(selected: List<LabelResult>, slipNo: String, fileName: String, stockLocation: String = "") {
         val photoFile = SlipStore.getSlip(this, slipNo)
             ?.photoPath?.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
         val extraFiles = SlipStore.getFiles(this, slipNo)
             .map { File(it.filePath) }
             .filter { it.exists() }
-        val uri = Exporter.exportSlipWorkbook(this, selected, fileName, slipNo, photoFile, extraFiles)
+        val uri = Exporter.exportSlipWorkbook(this, selected, fileName, slipNo, photoFile, extraFiles, stockLocation)
         if (uri == null) {
             Toast.makeText(this, "Excel 导出失败", Toast.LENGTH_SHORT).show()
             return
@@ -485,9 +515,28 @@ class RecordListActivity : AppCompatActivity() {
         }
     }
 
-    /** 旧格式：单个 WMS xlsx，不带单号（兼容以前的导出方式）。 */
+    /** 旧格式：单个 WMS xlsx，不带单号（兼容以前的导出方式）。先问库存地（DATA07），再导出。 */
     private fun exportLegacy(selected: List<LabelResult>) {
-        val uri = Exporter.exportWms(this, selected)
+        val stockLocationInput = android.widget.EditText(this).apply {
+            setText(lastStockLocation())
+            if (text.isNotEmpty()) setSelection(text.length)
+            hint = "库存地（填入 DATA07，可留空）"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("导出 WMS（旧格式）")
+            .setView(stockLocationInput)
+            .setPositiveButton("导出") { _, _ ->
+                val stockLocation = stockLocationInput.text.toString().trim()
+                saveLastStockLocation(stockLocation)
+                exportLegacyWithLocation(selected, stockLocation)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun exportLegacyWithLocation(selected: List<LabelResult>, stockLocation: String) {
+        val uri = Exporter.exportWms(this, selected, stockLocation)
         if (uri == null) {
             Toast.makeText(this, "WMS 导出失败", Toast.LENGTH_SHORT).show()
             return

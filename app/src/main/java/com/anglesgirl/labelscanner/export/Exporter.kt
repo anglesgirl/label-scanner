@@ -32,7 +32,8 @@ import java.util.zip.ZipOutputStream
  *   DATA05 数量           -> 本箱去重 SN 个数（箱号→不同 SN 数；旧数据/单条
  *                            boxCode 空时回退 SN，计数为 1）
  *   DATA06 工厂           -> 固定 "6012"
- *   DATA07 库存地         -> 留空
+ *   DATA07 库存地         -> 导出时手动填入（托盘中心导出弹窗里输，整批同一值；
+ *                            不填则留空）
  *   DATA08 生产日期-yyyymmdd -> productionDate
  *   DATA09 销售公司       -> 留空
  *   DATA10 销售订单|行号   -> 固定 "|"
@@ -62,18 +63,20 @@ object Exporter {
         }
     }
 
-    /** WMS 导出：库存导入模板 DATA01~DATA14，始终生成真实 .xlsx（单表）。 */
-    fun exportWms(context: Context, records: List<LabelResult>): Uri? {
+    /** WMS 导出：库存导入模板 DATA01~DATA14，始终生成真实 .xlsx（单表）。
+     * @param stockLocation 库存地（DATA07），导出时手动填入，整批同一值；空则留空。 */
+    fun exportWms(context: Context, records: List<LabelResult>, stockLocation: String = ""): Uri? {
         val trayCode = records.firstOrNull()?.trayCode?.takeIf { it.isNotBlank() }
         val fileName = "${trayCode ?: "wms_import_${System.currentTimeMillis()}"}.xlsx"
         return if (Build.VERSION.SDK_INT >= 29) {
-            exportXlsxViaMediaStore(context, fileName) { writeWmsWorkbook(it, records) }
+            exportXlsxViaMediaStore(context, fileName) { writeWmsWorkbook(it, records, stockLocation) }
         } else {
-            exportXlsxViaLegacyDir(context, fileName) { writeWmsWorkbook(it, records) }
+            exportXlsxViaLegacyDir(context, fileName) { writeWmsWorkbook(it, records, stockLocation) }
         }
     }
 
-    /** 单据导出：单个 .xlsx 多工作表（WMS 表 + 单据照片 + 附件表格/图片 + 附件说明）。 */
+    /** 单据导出：单个 .xlsx 多工作表（WMS 表 + 单据照片 + 附件表格/图片 + 附件说明）。
+     * @param stockLocation 库存地（DATA07），导出时手动填入，整批同一值；空则留空。 */
     fun exportSlipWorkbook(
         context: Context,
         records: List<LabelResult>,
@@ -81,13 +84,14 @@ object Exporter {
         slipNo: String,
         photoFile: File?,
         extraFiles: List<File> = emptyList(),
+        stockLocation: String = "",
     ): Uri? {
         val base = fileName.removeSuffix(".xlsx").removeSuffix(".zip").trim().ifBlank { slipNo }
         val fullName = "$base.xlsx"
         return if (Build.VERSION.SDK_INT >= 29) {
-            exportXlsxViaMediaStore(context, fullName) { writeSlipWorkbook(it, records, photoFile, extraFiles) }
+            exportXlsxViaMediaStore(context, fullName) { writeSlipWorkbook(it, records, photoFile, extraFiles, stockLocation) }
         } else {
-            exportXlsxViaLegacyDir(context, fullName) { writeSlipWorkbook(it, records, photoFile, extraFiles) }
+            exportXlsxViaLegacyDir(context, fullName) { writeSlipWorkbook(it, records, photoFile, extraFiles, stockLocation) }
         }
     }
 
@@ -126,6 +130,7 @@ object Exporter {
         records: List<LabelResult>,
         photoFile: File?,
         extraFiles: List<File>,
+        stockLocation: String = "",
     ) {
         val sheets = mutableListOf<BuiltSheet>()
         val usedNames = mutableSetOf<String>()
@@ -134,7 +139,7 @@ object Exporter {
         var mediaCounter = 0
 
         // 第 1 张：WMS导入（格式不变）
-        sheets.add(BuiltSheet(sanitizeSheetName("WMS导入", usedNames), buildSheetXml(records)))
+        sheets.add(BuiltSheet(sanitizeSheetName("WMS导入", usedNames), buildSheetXml(records, stockLocation)))
 
         // 单据照片：嵌进一张工作表
         photoFile?.takeIf { it.exists() }?.let { photo ->
@@ -688,7 +693,7 @@ object Exporter {
      * quantity 已是本箱 SN 数，两边一致。箱号回退规则与 DATA04 相同
      * （boxCode 空 → 回退 serialNumber，一箱一 SN 时计数为 1）。
      */
-    private fun buildWmsRow(r: LabelResult, boxSnCount: Map<String, Int>): Array<String> {
+    private fun buildWmsRow(r: LabelResult, boxSnCount: Map<String, Int>, stockLocation: String = ""): Array<String> {
         val trayCode = r.trayCode.ifBlank { "" }
         // 箱号：一箱多 SN 后 boxCode 独立；旧数据 boxCode 空 → 回退 SN（一箱一 SN 时箱号=SN）
         val boxCode = r.boxCode.ifBlank { r.serialNumber }
@@ -702,7 +707,7 @@ object Exporter {
             boxCode,              // DATA04 箱号
             quantity.toString(),  // DATA05 数量（本箱去重 SN 个数）
             "6012",               // DATA06 工厂（固定）
-            "",                   // DATA07 库存地
+            stockLocation,        // DATA07 库存地（导出时手动填入）
             r.productionDate,     // DATA08 生产日期-yyyymmdd
             "",                   // DATA09 销售公司
             "|",                  // DATA10 销售订单|行号
@@ -756,8 +761,8 @@ object Exporter {
     }.getOrNull()
 
     /** 单表 WMS 工作簿（无照片无附件时与旧版输出等价）。 */
-    private fun writeWmsWorkbook(output: java.io.OutputStream, records: List<LabelResult>) {
-        writeSlipWorkbook(output, records, null, emptyList())
+    private fun writeWmsWorkbook(output: java.io.OutputStream, records: List<LabelResult>, stockLocation: String = "") {
+        writeSlipWorkbook(output, records, null, emptyList(), stockLocation)
     }
 
     /** 最小可用样式表。 */
@@ -790,7 +795,7 @@ object Exporter {
         closeEntry()
     }
 
-    private fun buildSheetXml(records: List<LabelResult>): String = buildString {
+    private fun buildSheetXml(records: List<LabelResult>, stockLocation: String = ""): String = buildString {
         append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
         append("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">")
         append("<cols>")
@@ -803,7 +808,7 @@ object Exporter {
         val boxSnCount = records
             .groupBy { it.boxCode.ifBlank { it.serialNumber } }
             .mapValues { (_, rs) -> rs.map { it.serialNumber }.distinct().size }
-        records.forEachIndexed { index, record -> appendXmlRow(index + 3, arrayOf("") + buildWmsRow(record, boxSnCount)) }
+        records.forEachIndexed { index, record -> appendXmlRow(index + 3, arrayOf("") + buildWmsRow(record, boxSnCount, stockLocation)) }
         append("</sheetData></worksheet>")
     }
 
