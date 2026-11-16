@@ -27,8 +27,45 @@
             android:textSize="12sp"
             android:textColor="@color/ls_text_dim" />
 
-        <!-- 识别来源（拍照 / 文档扫描 / 相册）已移除：用户反馈顶部相机入口多余，
-             现以实时扫码（小放大镜）为主；拍照 OCR 逻辑保留在代码里未删，需要可恢复。 -->
+        <!-- 识别来源：拍照 / 文档扫描 / 相册 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnTakePhoto"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:backgroundTint="@color/ls_primary"
+                android:text="自动拍照"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
+
+            <Button
+                android:id="@+id/btnScanDoc"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_primary"
+                android:text="Google 扫描"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
+
+            <Button
+                android:id="@+id/btnPickGallery"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_primary"
+                android:text="🖼️ 相册"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" android:insetTop="0dp" android:insetBottom="0dp" />
+        </LinearLayout>
 
         <!-- 已识别的条码（点击可选择用途修正） -->
         <TextView

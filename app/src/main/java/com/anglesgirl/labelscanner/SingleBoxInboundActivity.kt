@@ -137,6 +137,12 @@ class SingleBoxInboundActivity : AppCompatActivity() {
      *
      * 三种取图方式（拍照 / 文档扫描 / 相册）共用同一份实现与参数。
      */
+    // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**。
+    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(
+        this,
+        com.anglesgirl.labelscanner.camera.CameraCaptureMode.INBOUND_LABEL,
+    ) { uri -> recognizeLabel(uri) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Edge-to-edge：状态栏/导航栏不留黑色遮罩
@@ -162,6 +168,9 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         LastSavedHint.bind(this, findViewById(R.id.tvLastSavedSn))
         updateTrayCount()
 
+        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
+        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { imageIn.scanDocument() }
+        findViewById<Button>(R.id.btnPickGallery).setOnClickListener { imageIn.pickGallery() }
         // 整箱直播：一箱多 SN 时不用拍照碰运气，相机累计扫满 QTY 自动回。
         findViewById<Button>(R.id.btnBoxScan).setOnClickListener {
             boxScan.launch(
@@ -322,10 +331,11 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                             lookup69().lookupRemote(ean) { material ->
                                 runOnUiThread {
                                     if (material != null && etMaterial.text.toString().isBlank()) {
-                                        etMaterial.setText(material)
+                                        val padded = CandidateNormalizer.normalize(material, "material")
+                                        etMaterial.setText(padded)
                                         materialFromEan69 = true
                                         tvBoxStatus.setTextColor(cc(R.color.ls_err))
-                                        tvBoxStatus.text = "🔴 商品码提供的补码：$material（可修改）" +
+                                        tvBoxStatus.text = "🔴 商品码提供的补码：$padded（可修改）" +
                                             (result.recognitionNote.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: "")
                                     }
                                 }
@@ -544,11 +554,12 @@ class SingleBoxInboundActivity : AppCompatActivity() {
             Toast.makeText(this, "对照表里没有这一项，请手工填写", Toast.LENGTH_SHORT).show()
             return
         }
-        etMaterial.setText(other)
-        if (showingEan69) lastKnownEan69 = other else lastKnownMaterial = other
+        val display = if (showingEan69) other else CandidateNormalizer.normalize(other, "material")
+        etMaterial.setText(display)
+        if (showingEan69) lastKnownEan69 = display else lastKnownMaterial = display
         Toast.makeText(
             this,
-            if (showingEan69) "已切换为 69 码：$other" else "已切换为物料编码：$other",
+            if (showingEan69) "已切换为 69 码：$display" else "已切换为物料编码：$display",
             Toast.LENGTH_SHORT,
         ).show()
     }
@@ -572,7 +583,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         if (e.isNotEmpty() && m.isEmpty()) {
             val found = lookup69().lookup(e)
             if (!found.isNullOrBlank()) {
-                lastKnownMaterial = found
+                lastKnownMaterial = CandidateNormalizer.normalize(found, "material")
                 lookup69().learn(e, found)
             }
         }

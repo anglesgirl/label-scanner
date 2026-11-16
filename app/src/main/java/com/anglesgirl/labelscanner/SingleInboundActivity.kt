@@ -90,6 +90,11 @@ class SingleInboundActivity : AppCompatActivity() {
     // ⚠️ 必须在这里（Activity 构造阶段）就创建，**不能用 by lazy**：
     // registerForActivityResult 要求在当前状态仍为 CREATED 时注册，
     // 延迟到点击按钮时才初始化会抛异常，表现为"相机入口点不进去"。
+    private val imageIn = com.anglesgirl.labelscanner.camera.ImageIn(
+        this,
+        com.anglesgirl.labelscanner.camera.CameraCaptureMode.INBOUND_LABEL,
+    ) { uri -> recognizeStatic(uri) }
+
     /** 字段补扫：实时扫码相机 → 确认框 → 填目标框（不拍照，自动识别） */
     private val liveScan = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -159,6 +164,9 @@ class SingleInboundActivity : AppCompatActivity() {
         LastSavedHint.bind(this, findViewById(R.id.tvLastSavedSn), prefix = "")
         updateTrayCount()
 
+        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { imageIn.takePhoto() }
+        findViewById<Button>(R.id.btnScanDoc).setOnClickListener { imageIn.scanDocument() }
+        findViewById<Button>(R.id.btnPickGallery).setOnClickListener { imageIn.pickGallery() }
         findViewById<Button>(R.id.btnAddSn).setOnClickListener { addSnFromInput() }
         findViewById<Button>(R.id.btnScanAddSn).setOnClickListener {
             scanAppendToSn = true
@@ -284,8 +292,9 @@ class SingleInboundActivity : AppCompatActivity() {
                 lookup69().lookupRemote(result.ean69) { material ->
                     runOnUiThread {
                         if (material != null && etMaterial.text.toString().isBlank()) {
-                            etMaterial.setText(material)
-                            tvStatus.text = "🔁 69码远程反查物料: $material（可修改）" +
+                            val padded = CandidateNormalizer.normalize(material, "material")
+                            etMaterial.setText(padded)
+                            tvStatus.text = "🔁 69码远程反查物料: $padded（可修改）" +
                                 (result.recognitionNote.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: "")
                         }
                     }
@@ -336,7 +345,7 @@ class SingleInboundActivity : AppCompatActivity() {
                 lookup69().lookup(ean) ?: cur
             } else cur
         }
-        etMaterial.setText(other)
+        etMaterial.setText(if (showingEan69) other else CandidateNormalizer.normalize(other, "material"))
         Toast.makeText(
             this,
             if (showingEan69) "已切换为 69 码" else "已切换为物料编码",
@@ -362,8 +371,9 @@ class SingleInboundActivity : AppCompatActivity() {
         // 1. 本地表命中直接填
         val local = lookup69().lookup(ean)
         if (local != null) {
-            etMaterial.setText(local)
-            tvStatus.text = "🔁 本地反查命中：$ean → $local"
+            val padded = CandidateNormalizer.normalize(local, "material")
+            etMaterial.setText(padded)
+            tvStatus.text = "🔁 本地反查命中：$ean → $padded"
             return
         }
         // 2. 未配置远程库
@@ -381,8 +391,9 @@ class SingleInboundActivity : AppCompatActivity() {
         lookup69().lookupRemote(ean) { material ->
             runOnUiThread {
                 if (material != null) {
-                    etMaterial.setText(material)
-                    tvStatus.text = "✅ 反查成功：$ean → $material（已缓存本地）"
+                    val padded = CandidateNormalizer.normalize(material, "material")
+                    etMaterial.setText(padded)
+                    tvStatus.text = "✅ 反查成功：$ean → $padded（已缓存本地）"
                 } else {
                     tvStatus.text = "❌ 数据库中无此 69 码：$ean（可手动填物料，保存后自动学习）"
                     if (!auto) Toast.makeText(this, "库中无此 69 码", Toast.LENGTH_SHORT).show()
@@ -603,6 +614,7 @@ class SingleInboundActivity : AppCompatActivity() {
         val hasTray = etTrayCode.text.toString().trim().isNotEmpty()
         val locked = !hasTray
         val gated = listOf(
+            R.id.btnTakePhoto, R.id.btnScanDoc, R.id.btnPickGallery,
             R.id.btnScanMaterial, R.id.btnToggle69,
             R.id.btnLookup69, R.id.btnScanDate,
             R.id.btnScanAddSn, R.id.btnSave,
