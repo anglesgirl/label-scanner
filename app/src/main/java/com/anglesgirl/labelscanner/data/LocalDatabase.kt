@@ -17,6 +17,7 @@ class LocalDatabase private constructor(context: Context) :
                 supplier TEXT NOT NULL DEFAULT 'NA',
                 serial_number TEXT NOT NULL DEFAULT '',
                 material_code TEXT NOT NULL DEFAULT '',
+                second_material_code TEXT NOT NULL DEFAULT '',
                 quantity INTEGER NOT NULL DEFAULT 1,
                 production_date TEXT NOT NULL DEFAULT '',
                 ean69 TEXT NOT NULL DEFAULT '',
@@ -120,6 +121,12 @@ class LocalDatabase private constructor(context: Context) :
             createLedgerTables(db)
             createAppMetadataTable(db)
         }
+        if (oldVersion < 4) {
+            // v4：双码标签的第二物料编码（“二中心编码”），只存本地、不进导出模板。
+            if (!hasColumn(db, "records", "second_material_code")) {
+                db.execSQL("ALTER TABLE records ADD COLUMN second_material_code TEXT NOT NULL DEFAULT ''")
+            }
+        }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -142,6 +149,9 @@ class LocalDatabase private constructor(context: Context) :
         if (!hasColumn(db, "records", "location")) {
             db.execSQL("ALTER TABLE records ADD COLUMN location TEXT NOT NULL DEFAULT ''")
         }
+        if (!hasColumn(db, "records", "second_material_code")) {
+            db.execSQL("ALTER TABLE records ADD COLUMN second_material_code TEXT NOT NULL DEFAULT ''")
+        }
         if (!hasColumn(db, "records", "slip_no")) {
             db.execSQL("ALTER TABLE records ADD COLUMN slip_no TEXT NOT NULL DEFAULT ''")
         }
@@ -159,7 +169,7 @@ class LocalDatabase private constructor(context: Context) :
 
     companion object {
         private const val DB_NAME = "label_scanner.db"
-        private const val DB_VERSION = 3
+        private const val DB_VERSION = 4
 
         @Volatile private var instance: LocalDatabase? = null
 

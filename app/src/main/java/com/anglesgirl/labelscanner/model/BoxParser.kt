@@ -15,6 +15,17 @@ import java.util.regex.Pattern
  */
 data class BoxParseResult(
     val materialCode: String = "",
+    /**
+     * 第二物料编码（“二中心编码”）：只有标签上同时出现两个物料编码时才有值。
+     *
+     * 2026-11-17 奔图外箱标签（MODEL CPJ3000）：印的 SAP 301603100201 是二中心
+     * 的生产编码（OCR “SAP.” 行后面，纯文字、无条码）；单独贴的小贴纸条码
+     * 308649300001 是一中心的编码，进 D 列（materialCode）。两个编码都是 12 位
+     * 末尾 01，旧的 preferMaterial 先到先得区分不了，必须按来源区分：
+     * 条码来的 → D 列；OCR “SAP.” 行后面的 → 第二编码。
+     * 单个编码的标签：本字段为空，行为与旧版完全一致；不进导出模板（模板列固定）。
+     */
+    val secondMaterialCode: String = "",
     val boxCode: String = "",
     val productionDate: String = "",
     val model: String = "",
@@ -43,6 +54,7 @@ data class BoxParseResult(
 ) {
     val hasData: Boolean
         get() = allBarcodes.isNotEmpty() || materialCode.isNotBlank() ||
+                secondMaterialCode.isNotBlank() ||
                 boxCode.isNotBlank() || serialNumbers.isNotEmpty() ||
                 productionDate.isNotBlank()
 }
@@ -117,6 +129,13 @@ object BoxParser {
         val candIsStd = candidate.length in 11..12 && candidate.all { it.isDigit() } && candidate.endsWith("01")
         return if (current.length == 10 && candIsStd) candidate else current
     }
+
+    /**
+     * 10 位与 12 位末尾 01 是否同一物料的两种写法（10 位补 01）。
+     * 是则不算“两个物料编码”（双码判定用，避免把同一物料的两种写法拆成两码）。
+     */
+    private fun isPadPair(a: String, b: String): Boolean =
+        (a.length == 10 && b == a + "01") || (b.length == 10 && a == b + "01")
 
     /**
      * 把各种写法的日期归一成 yyyyMMdd；不合法返回 null。
@@ -206,6 +225,11 @@ object BoxParser {
         var material = ""
         var ean = ""
         var materialFromEan69 = false
+        // 双码判定用的分来源候选（见文末双码判定）：条码来的 SAP、OCR “SAP.” 行
+        // 后面的印制 SAP、OCR 裸行 SAP。只在两个编码同时出现时才启用区分。
+        var barcodeMaterial = ""
+        var sapLineMaterial = ""
+        var bareOcrMaterial = ""
         var box = ""
         var date = ""
         var model = ""
@@ -225,7 +249,10 @@ object BoxParser {
             when {
                 EAN13.matcher(c).matches() && ean.isEmpty() -> ean = c
                 box16 != null && box.isEmpty() -> box = box16
-                SAP_NUM.matcher(c).matches() -> material = preferMaterial(material, c)
+                SAP_NUM.matcher(c).matches() -> {
+                    material = preferMaterial(material, c)
+                    barcodeMaterial = preferMaterial(barcodeMaterial, c)
+                }
             }
         }
 
@@ -248,15 +275,37 @@ object BoxParser {
         }
         // 条码没有物料时，OCR 才作为补充来源。
         // 订单号不是物料：10 位订单号常被误认成物料编码，含订单号的行整行跳过。
+        // “SAP.” 字段名与值可能分行（OCR 列优先排版：字段名一列、值一列），
+        // 字段名行本身没数字时，下一行裸数字就是印的 SAP（pendingSapLine）。
+        var pendingSapLine = false
         for (line in ocrLines) {
             val l = line.trim()
             if (l.isEmpty()) continue
             if (l.contains("订单号")) continue
             val upper = l.uppercase()
+            if (pendingSapLine) {
+                pendingSapLine = false
+                if (SAP_NUM.matcher(l).matches()) {
+                    material = preferMaterial(material, l)
+                    sapLineMaterial = preferMaterial(sapLineMaterial, l)
+                    continue
+                }
+                // 下一行不是数字：标记作废，继续正常处理本行。
+            }
             when {
-                SAP_NUM.matcher(l).matches() -> material = preferMaterial(material, l)
+                SAP_NUM.matcher(l).matches() -> {
+                    material = preferMaterial(material, l)
+                    bareOcrMaterial = preferMaterial(bareOcrMaterial, l)
+                }
                 upper.startsWith("SAP") || upper.startsWith("SAP.") -> {
-                    Regex("(\\d{10,12})").find(l)?.groupValues?.get(1)?.let { material = preferMaterial(material, it) }
+                    val found = Regex("(\\d{10,12})").find(l)?.groupValues?.get(1)
+                    if (found != null) {
+                        material = preferMaterial(material, found)
+                        sapLineMaterial = preferMaterial(sapLineMaterial, found)
+                    } else {
+                        // 字段名行（“SAP.”），值在下一行。
+                        pendingSapLine = true
+                    }
                 }
                 // 一行并排两个字段（OCR 合成一行，如 `3011211002   2025-09-17`）时
                 // 整行匹配不上 → 按空白拆成段，逐段找 10~12 位 SAP 号。
@@ -264,6 +313,7 @@ object BoxParser {
                     for (part in l.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotEmpty() }) {
                         if (SAP_NUM.matcher(part).matches()) {
                             material = preferMaterial(material, part)
+                            bareOcrMaterial = preferMaterial(bareOcrMaterial, part)
                             break
                         }
                     }
@@ -477,12 +527,41 @@ object BoxParser {
             boxFromSn = true
         }
 
+        // ---- 双物料编码（2026-11-17 奔图外箱标签）----
+        // 只有两个编码同时出现才区分；单个编码走老路（material 保持上面的顺序逻辑结果）。
+        // 判定只看来源，不看先后顺序：
+        //  ① 条码来的 SAP（贴纸码）+ OCR “SAP.” 行后面的印制 SAP，同时出现且不同值
+        //     → D 列 = 贴纸码，第二编码 = 印制 SAP；
+        //  ② 贴纸条码没扫出来时，OCR 裸行读到的 11/12 位 SAP（贴纸上的印刷数字）+
+        //     “SAP.” 行印制 SAP，同时出现且不同值 → 同样区分（裸行 10 位的不算，
+        //     那更可能是订单号）。
+        // 同一物料的两种写法（10 位与补 01 后的 12 位）不算两个编码。
+        // 69 反查只在物料为空时才补位（见上），绝不能压过贴纸码：双码成立时
+        // materialFromEan69 强制清掉，D 列以来源判定为准。
+        var secondMaterial = ""
+        val dualByBarcode = barcodeMaterial.isNotEmpty() && sapLineMaterial.isNotEmpty() &&
+            barcodeMaterial != sapLineMaterial && !isPadPair(barcodeMaterial, sapLineMaterial)
+        val dualByOcr = !dualByBarcode && barcodeMaterial.isEmpty() &&
+            bareOcrMaterial.length in 11..12 && sapLineMaterial.isNotEmpty() &&
+            bareOcrMaterial != sapLineMaterial && !isPadPair(bareOcrMaterial, sapLineMaterial)
+        if (dualByBarcode) {
+            material = barcodeMaterial
+            secondMaterial = sapLineMaterial
+            materialFromEan69 = false
+        } else if (dualByOcr) {
+            material = bareOcrMaterial
+            secondMaterial = sapLineMaterial
+            materialFromEan69 = false
+        }
+
         // 物料编码统一补位：10 位 SAP 号 → 补 01 成 12 位（与 LabelParser 一致，
         // 用户既定规则"SAP 物料 10 位导出补 01"；69 反查回来的已是规范值不受影响）。
+        // 第二编码保持印制原值，不补位（它是备查的原始值，补了反而失真）。
         if (material.length == 10) material += "01"
 
         return BoxParseResult(
             materialCode = material,
+            secondMaterialCode = secondMaterial,
             boxCode = box,
             productionDate = date,
             model = model,

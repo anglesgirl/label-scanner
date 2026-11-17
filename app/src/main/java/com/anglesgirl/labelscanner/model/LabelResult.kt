@@ -27,6 +27,8 @@ data class LabelResult(
     var supplier: String = "NA",
     var serialNumber: String = "",
     var materialCode: String = "",
+    /** 第二物料编码（“二中心编码”）：只在双码标签上有值，不进导出模板。 */
+    var secondMaterialCode: String = "",
     var quantity: Int = 1,
     var productionDate: String = "",
     var ean69: String = "",

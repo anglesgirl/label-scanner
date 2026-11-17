@@ -9,6 +9,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.anglesgirl.labelscanner.model.BoxScanClassifier
 import com.anglesgirl.labelscanner.model.LabelParser
 import com.anglesgirl.labelscanner.util.Diag
 import com.anglesgirl.labelscanner.model.LabelResult
@@ -180,8 +181,9 @@ object StaticRecognizer {
 
     /** 识别单张 Bitmap：**条码全走 zxing-cpp**，**ML Kit 只做 OCR**（各司其职）。
      *
-     * multiCode=true 时条码走 [ZxingDecoder.decodeUnion]（1x/2x/3x 全跑取并集）：
-     * 单箱标签一箱多个 SN 时，提前返回的 decode() 会在某一尺度解出 2 个就停，
+     * multiCode=true（单箱一箱多 SN）走 [recognizeMultiCode]：先 OCR 取 QTY，
+     * 再渐进并集解码，SN 够 QTY 即停、QTY 读不到时全量跑。旧的 decodeUnion
+     * 全跑 1x/2x/3x 是慢的根因；提前返回的 decode() 会在某一尺度解出 2 个就停，
      * 剩下 7 个永远没机会（2026-11-02 CTL-2300HK 标签实测：9 个 SN 只出 2 个，
      * 箱号 CA 码也丢了；多码清单 2026-10-01 已是同一教训）。单码场景保持默认关。
      */
@@ -192,16 +194,118 @@ object StaticRecognizer {
         onError: (String) -> Unit,
         multiCode: Boolean = false,
     ) {
+        // 多码场景（单箱一箱多 SN）走 QTY 早停快路，见 recognizeMultiCode。
+        if (multiCode) {
+            recognizeMultiCode(bitmap, lookup69, onResult)
+            return
+        }
         val input = InputImage.fromBitmap(bitmap, 0)
         val zxingFuture = zxingPool.submit<List<String>> {
             Log.i(TAG, "[ZXING_STATIC] start ${bitmap.width}x${bitmap.height} multiCode=$multiCode")
-            (if (multiCode) ZxingDecoder.decodeUnion(bitmap) else ZxingDecoder.decode(bitmap)).also {
+            ZxingDecoder.decode(bitmap).also {
                 Log.i(TAG, "[ZXING_STATIC] complete count=${it.size}")
             }
         }
         // 条码/二维码一律交给 zxing-cpp（ML Kit 扫码能力弱：高密度 2D 码解不出，
         // 还会用旁边的 1D 结果干扰）。ML Kit 在本流程里**只负责 OCR**。
         finishWithBarcodes(input, emptyList(), zxingFuture, lookup69, onResult, onError, multiCode)
+    }
+
+    /**
+     * 单箱拍照识别（多码）：先跑 OCR 取 QTY，再渐进并集解码。
+     *
+     * 为什么 OCR 先行（2026-11-17 提速）：旧流程是 7 遍全图并集解码（1x/2x/3x +
+     * 增强/二值）跑完才 OCR；大图 2x/3x（4 倍/9 倍像素）是主要耗时。标签上的
+     * QTY 就是本箱 SN 数，1x 解出的 SN 够 QTY 就不用再放大——够数即停。
+     * QTY 读不到时回落全量并集解码，与旧流程完全一致。
+     * 铁律：只有 SN 数 >= QTY 才停；不够数一遍都不能少（见 decodeUnionUntil）。
+     */
+    private fun recognizeMultiCode(
+        bitmap: Bitmap,
+        lookup69: ((String) -> String?)?,
+        onResult: (LabelResult) -> Unit,
+    ) {
+        recognitionPool.submit {
+            val input = InputImage.fromBitmap(bitmap, 0)
+            // QTY 只在印字里，不在条码里：OCR 先跑，解码按 QTY 早停。
+            val ocrText = ocrSync(input)
+            val qty = BoxScanClassifier.extractQty(ocrText)
+            val decodeFuture = zxingPool.submit<List<String>> {
+                Log.i(TAG, "[ZXING_STATIC] start ${bitmap.width}x${bitmap.height} multiCode=true qty=$qty")
+                val r = if (qty > 0) {
+                    ZxingDecoder.decodeUnionUntil(bitmap) { acc -> countSnCandidates(acc) >= qty }
+                } else {
+                    ZxingDecoder.decodeUnion(bitmap)
+                }
+                Log.i(TAG, "[ZXING_STATIC] complete count=${r.size}")
+                r
+            }
+            val merged = try {
+                decodeFuture.get(25, TimeUnit.SECONDS)
+                    .map { it.trim() }
+                    .filter(String::isNotBlank)
+                    .distinct()
+            } catch (e: Exception) {
+                decodeFuture.cancel(true)
+                Log.w(TAG, "[ZXING_STATIC] decode timeout/failure; use OCR only: ${e.message}")
+                emptyList()
+            }
+            Log.i(TAG, "[BARCODE_MERGE] multiCode qty=$qty merged=${merged.size}")
+            // 上报识别实况：图片尺寸 + 解出的码 + QTY（早停是否触发靠 qty 与码数对照）。
+            runCatching {
+                Diag.event(
+                    "static_recognized",
+                    mapOf(
+                        "img" to "${bitmap.width}x${bitmap.height}",
+                        "codes" to merged.size,
+                        "code_list" to merged.joinToString(" | ").take(280),
+                        "qty" to qty,
+                    )
+                )
+            }
+            onResult(LabelParser.parse(merged, ocrText, lookup69))
+        }
+    }
+
+    /** 同步跑一次 ML Kit 拉丁 OCR，返回全文（25 秒超时返回已读到的部分）。 */
+    private fun ocrSync(input: InputImage): String {
+        var ocrText = ""
+        val latch = java.util.concurrent.CountDownLatch(1)
+        getRecognizer().process(input)
+            .addOnSuccessListener { t ->
+                t.text?.trim()?.takeIf { it.isNotEmpty() }?.let { ocrText = it }
+            }
+            .addOnFailureListener { e -> Log.w(TAG, "ocr channel failed", e) }
+            .addOnCompleteListener { latch.countDown() }
+        latch.await(25, TimeUnit.SECONDS)
+        Log.i(TAG, "[OCR_SYNC] chars=${ocrText.length}")
+        return ocrText
+    }
+
+    /**
+     * 早停计数：累计码集里“像 SN”的条码有几个。
+     *
+     * 保守口径（宁可少算、绝不多算 —— 多算会提前停、丢真 SN；少算最多回落全量解码）：
+     *  - 逗号/分号分隔的多值码（QR 集成 SN）先拆开逐个计；
+     *  - 只计 6~13 位、全字母数字、字母数字混排的码；
+     *  - 69 商品码、10~12 位纯数字 SAP 码不计；
+     *  - 14 位及以上的混合码不计 —— 那更像箱号/外箱码（如 PM016NP10054022），
+     *    且 BoxParser 也会把它算进 SN，计进去会在“7 个真 SN + 1 个箱码 = 8”
+     *    时提前停、丢掉第 8 个真 SN。
+     * 本计数是 BoxParser 条码 SN 集的子集：计数值 >= QTY 时，BoxParser 的 SN
+     * 数一定也 >= QTY；计数值不够时继续放大解码，绝不提前返回。
+     */
+    private fun countSnCandidates(codes: List<String>): Int {
+        var n = 0
+        for (raw in codes) {
+            for (part in raw.split(',', ';', '，', '；')) {
+                val c = part.trim()
+                if (c.length in 6..13 && c.any { it.isLetter() } && c.any { it.isDigit() } &&
+                    c.all { it.isLetterOrDigit() }
+                ) n++
+            }
+        }
+        return n
     }
 
     /**

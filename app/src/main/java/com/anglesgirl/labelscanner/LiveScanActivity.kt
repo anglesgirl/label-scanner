@@ -93,6 +93,7 @@ class LiveScanActivity : AppCompatActivity() {
         const val EXTRA_BOX_SCAN = "extra_box_scan"
         const val EXTRA_BOX_CODE = "extra_box_code"
         const val EXTRA_BOX_MATERIAL = "extra_box_material"
+        const val EXTRA_BOX_SECOND_MATERIAL = "extra_box_second_material"
         const val EXTRA_BOX_DATE = "extra_box_date"
         const val EXTRA_BOX_QTY = "extra_box_qty"
 
@@ -1337,6 +1338,7 @@ class LiveScanActivity : AppCompatActivity() {
                 .putStringArrayListExtra(EXTRA_RESULT_CODES, ArrayList(s.serialNumbers))
                 .putExtra(EXTRA_BOX_CODE, s.boxCode)
                 .putExtra(EXTRA_BOX_MATERIAL, s.materialCode)
+                .putExtra(EXTRA_BOX_SECOND_MATERIAL, s.secondMaterialCode)
                 .putExtra(EXTRA_BOX_DATE, s.productionDate)
                 .putExtra(EXTRA_BOX_QTY, s.qty),
         )

@@ -201,6 +201,7 @@ object RecordStore {
         put("barcodes", r.barcodes.joinToString("\n")); put("ocr_text", r.ocrText)
         put("supplier", r.supplier); put("serial_number", r.serialNumber.trim())
         put("material_code", r.materialCode); put("quantity", r.quantity)
+        put("second_material_code", r.secondMaterialCode)
         put("production_date", r.productionDate); put("ean69", r.ean69)
         put("material_from_ean69", if (r.materialFromEan69) 1 else 0)
         put("model", r.model); put("color", r.color); put("toner_model", r.tonerModel)
@@ -212,6 +213,7 @@ object RecordStore {
         barcodes = c.string("barcodes").split("\n").filter { it.isNotBlank() },
         ocrText = c.string("ocr_text"), supplier = c.string("supplier"),
         serialNumber = c.string("serial_number"), materialCode = c.string("material_code"),
+        secondMaterialCode = try { c.string("second_material_code") } catch (_: Exception) { "" },
         quantity = c.getInt(c.getColumnIndexOrThrow("quantity")),
         productionDate = c.string("production_date"), ean69 = c.string("ean69"),
         materialFromEan69 = c.getInt(c.getColumnIndexOrThrow("material_from_ean69")) != 0,

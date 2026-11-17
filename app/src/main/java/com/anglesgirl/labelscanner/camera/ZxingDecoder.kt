@@ -127,6 +127,49 @@ object ZxingDecoder {
     }
 
     /**
+     * 多码并集解码（渐进早停版）：与 [decodeUnion] 同样的 7 遍顺序（原图 1x/2x/3x →
+     * 增强 1x/2x → 二值 1x/2x），但每遍后检查 [stopWhen]——一旦累计码集满足
+     * 条件就立即返回，不再跑后面的尺度。
+     *
+     * 铁律（2026-11-02 CTL-2300HK 教训）：只有调用方确认“码已够数”时才能早停；
+     * 条件不满足时一遍都不能少，本函数退化成与 decodeUnion 完全相同的结果，
+     * 绝不返回不完整的码集。调用方用标签 QTY 作够数标准（见 StaticRecognizer）。
+     * 空累计集永不触发早停（QTY > 0 时 0 个码不可能够数）。
+     */
+    fun decodeUnionUntil(original: Bitmap, stopWhen: (List<String>) -> Boolean): List<String> {
+        if (original.width < 10 || original.height < 10) return emptyList()
+        val acc = linkedSetOf<String>()
+        for (scale in listOf(1f, 2f, 3f)) {
+            acc.addAll(decodeOnce(original, scale))
+            if (acc.isNotEmpty() && stopWhen(acc.toList())) {
+                Log.i(TAG, "[UNION_EARLY_STOP] stop after plain ${scale}x, codes=${acc.size}")
+                return acc.toList()
+            }
+        }
+        if (acc.isEmpty()) {
+            val enhanced = ImageEnhance.enhanceBright(original)
+            for (scale in listOf(1f, 2f)) {
+                acc.addAll(decodeOnce(enhanced, scale))
+                if (acc.isNotEmpty() && stopWhen(acc.toList())) {
+                    Log.i(TAG, "[UNION_EARLY_STOP] stop after enhanced ${scale}x, codes=${acc.size}")
+                    return acc.toList()
+                }
+            }
+        }
+        if (acc.isEmpty()) {
+            val binary = ImageEnhance.binarize(original)
+            for (scale in listOf(1f, 2f)) {
+                acc.addAll(decodeOnce(binary, scale))
+                if (acc.isNotEmpty() && stopWhen(acc.toList())) {
+                    Log.i(TAG, "[UNION_EARLY_STOP] stop after binary ${scale}x, codes=${acc.size}")
+                    return acc.toList()
+                }
+            }
+        }
+        return acc.toList()
+    }
+
+    /**
      * 多码并集解码（值 + 位置框）：点选定格用。
      *
      * 同 [decodeUnion] 的思路，但保留每个码的位置框 —— 同一码值在多个尺度解出时

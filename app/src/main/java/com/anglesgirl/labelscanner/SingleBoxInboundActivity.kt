@@ -40,6 +40,9 @@ import java.io.File
 class SingleBoxInboundActivity : AppCompatActivity() {
 
     private lateinit var etMaterial: EditText
+    /** 二中心编码（印的 SAP）：只在双码标签上有值，单码标签隐藏整行。 */
+    private lateinit var etSecondMaterial: EditText
+    private lateinit var llSecondMaterial: LinearLayout
     private lateinit var etBox: EditText
     private lateinit var etDate: EditText
     private lateinit var etManualSn: EditText
@@ -102,9 +105,14 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         val sns = data.getStringArrayListExtra(LiveScanActivity.EXTRA_RESULT_CODES).orEmpty()
         val boxCode = data.getStringExtra(LiveScanActivity.EXTRA_BOX_CODE).orEmpty()
         val material = data.getStringExtra(LiveScanActivity.EXTRA_BOX_MATERIAL).orEmpty()
+        val secondMaterial = data.getStringExtra(LiveScanActivity.EXTRA_BOX_SECOND_MATERIAL).orEmpty()
         val date = data.getStringExtra(LiveScanActivity.EXTRA_BOX_DATE).orEmpty()
         val qty = data.getIntExtra(LiveScanActivity.EXTRA_BOX_QTY, 0)
         if (material.isNotBlank()) etMaterial.setText(material)
+        if (secondMaterial.isNotBlank()) {
+            llSecondMaterial.visibility = android.view.View.VISIBLE
+            etSecondMaterial.setText(secondMaterial)
+        }
         if (boxCode.isNotBlank()) etBox.setText(boxCode)
         if (date.isNotBlank()) etDate.setText(date)
         // 整箱扫描返回的是这一箱的完整 SN 集，直接替换（旧 SN 属于上一箱，混着会错）。
@@ -155,6 +163,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
         setContentView(R.layout.activity_single_box)
 
         etMaterial = findViewById(R.id.etMaterial)
+        etSecondMaterial = findViewById(R.id.etSecondMaterial)
+        llSecondMaterial = findViewById(R.id.llSecondMaterial)
         // 物料编码 ⟷ 69 码 一一对应：同一个输入框，按钮切换显示
         findViewById<Button>(R.id.btnToggle69).setOnClickListener { toggleMaterialEanView() }
         etBox = findViewById(R.id.etBox)
@@ -258,8 +268,10 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                         result.ocrText,
                         lookup69 = { ean -> lookup69().lookup(ean) },
                     )
+                    // 已确认采样（LabelParser 结果）没有双码概念：BoxParser 分出双码时，
+                    // D 列以 BoxParser 的判定为准（条码来源），不让采样结果把它盖回印制 SAP。
                     val box = if (LiveSampleEvidence.isVerified(uri)) parsedBox.copy(
-                        materialCode = result.materialCode,
+                        materialCode = if (parsedBox.secondMaterialCode.isNotBlank()) parsedBox.materialCode else result.materialCode,
                         productionDate = result.productionDate,
                         materialFromEan69 = false,
                     ) else parsedBox
@@ -282,6 +294,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                     if (!box.hasData) {
                         // 本次没有稳定确认结果时，清空旧图字段，避免旧值被误认为本次识别结果。
                         etMaterial.setText("")
+                        etSecondMaterial.setText("")
+                        llSecondMaterial.visibility = android.view.View.GONE
                         etBox.setText("")
                         etDate.setText("")
                         snList.clear()
@@ -299,6 +313,14 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                         if (showingEan69 && lastKnownEan69.isNotBlank()) lastKnownEan69
                         else box.materialCode
                     )
+                    // 双码标签：第二编码（印的 SAP）显示在二中心编码行；单码标签隐藏该行。
+                    if (box.secondMaterialCode.isNotBlank()) {
+                        llSecondMaterial.visibility = android.view.View.VISIBLE
+                        etSecondMaterial.setText(box.secondMaterialCode)
+                    } else {
+                        etSecondMaterial.setText("")
+                        llSecondMaterial.visibility = android.view.View.GONE
+                    }
                     recognizedEan69 = box.ean69
                     materialFromEan69 = box.materialFromEan69
                     // 箱号需要标红易混字符 —— 它跟 SN 一样是"人要看字符"的字段。
@@ -372,6 +394,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     /** 保存：每个 SN 展开为一条记录（共享物料/LPN/日期/型号），去重后追加 */
     private fun saveBox() {
         val material = etMaterial.text.toString().trim()
+        val secondMaterial = etSecondMaterial.text.toString().trim()
         val box = etBox.text.toString().trim()
         val date = etDate.text.toString().trim()
         val tray = etTrayCode.text.toString().trim()
@@ -401,6 +424,7 @@ class SingleBoxInboundActivity : AppCompatActivity() {
                 barcodes = listOf(sn),
                 serialNumber = sn,
                 materialCode = material,
+                secondMaterialCode = secondMaterial,
                 // 数量 = **本箱的序列号个数**（用户要求）。
                 // 原来写死 1，结果一箱 9 个 SN 导出的「数量」还是 1，
                 // WMS 一比对就报"数量与 SN 不一致"并拒绝导入。
@@ -434,6 +458,8 @@ class SingleBoxInboundActivity : AppCompatActivity() {
     private fun resetBox() {
         // 托盘号保留（整批沿用），其余清空
         etMaterial.setText("")
+        etSecondMaterial.setText("")
+        llSecondMaterial.visibility = android.view.View.GONE
         etBox.setText("")
         etDate.setText("")
         etManualSn.setText("")

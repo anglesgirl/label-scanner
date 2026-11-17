@@ -217,6 +217,34 @@
                 android:insetBottom="0dp" />
         </LinearLayout>
 
+        <!-- 二中心编码（印的 SAP）：只在双码标签上有值，单码标签隐藏整行 -->
+        <LinearLayout
+            android:id="@+id/llSecondMaterial"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="二中心编码（印的 SAP，仅双码标签有）"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/ls_text_dim" />
+
+            <EditText
+                android:id="@+id/etSecondMaterial"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="双码标签的印制 SAP"
+                android:textSize="15sp"
+                android:textColor="@color/ls_text"
+                android:textColorHint="@color/ls_hint"
+                android:inputType="text" />
+        </LinearLayout>
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

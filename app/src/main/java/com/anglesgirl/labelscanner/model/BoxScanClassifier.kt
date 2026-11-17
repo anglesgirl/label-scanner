@@ -15,6 +15,17 @@ package com.anglesgirl.labelscanner.model
  */
 data class BoxScanState(
     val materialCode: String = "",
+    /**
+     * 第二物料编码（“二中心编码”）：只有标签上同时出现两个物料编码时才有值
+     * （2026-11-17 奔图外箱标签：贴纸码进 D 列，印的 SAP 进这里；与 BoxParser 同规则）。
+     * 一旦分出就粘住，后到的帧不能把它翻掉。
+     */
+    val secondMaterialCode: String = "",
+    /**
+     * OCR “SAP.” 行后面读到的印制 SAP（跨帧累计，双码判定的另一半）。
+     * 不直接示人，只用于判定：条码 SAP 与它不同值时才算双码。
+     */
+    val sapLabeledMaterial: String = "",
     val qty: Int = 0,
     val boxCode: String = "",
     val productionDate: String = "",
@@ -44,6 +55,17 @@ object BoxScanClassifier {
         val candIsStd = candidate.length in 11..12 && candidate.all { it.isDigit() } && candidate.endsWith("01")
         return if (current.length == 10 && candIsStd) candidate else current
     }
+
+    /** 10 位与 12 位末尾 01 是否同一物料的两种写法（10 位补 01）——是则不算“两个编码”。 */
+    private fun isPadPair(a: String, b: String): Boolean =
+        (a.length == 10 && b == a + "01") || (b.length == 10 && a == b + "01")
+
+    /**
+     * 供拍照路径复用：从 OCR 全文（\n 分行）里取 QTY；读不到返回 0。
+     * 与直播路径同一套判定（见 parseQty），两边 QTY 口径一致。
+     */
+    fun extractQty(ocrText: String): Int =
+        parseQty(ocrText.lines().map { it.trim() }.filter { it.isNotEmpty() })
     /**
      * QTY 四档判定（2026-11-02 TL-413 标签教训；2026-11-13 PCS 后缀教训）：
      * 表格是两列，ML Kit 经常把标签列和值列拆成两组行——"QTY." 和 "10 PCS"
@@ -115,6 +137,8 @@ object BoxScanClassifier {
         var material = state.materialCode
         var qty = state.qty
         var date = state.productionDate
+        // 跨帧累计的印制 SAP（OCR “SAP.” 行后面，双码判定的另一半）。
+        var sapLabeled = state.sapLabeledMaterial
 
         // OCR 行：定物料 / QTY / 日期（先到先得）。
         // 物料只认两种：整行纯数字，或 "SAP" 后跟的数字 —— SN 条码下方的人读数
@@ -130,7 +154,10 @@ object BoxScanClassifier {
             // 订单号不是物料：10 位订单号常被误认成物料编码，含订单号的行整行跳过。
             if (line.contains("订单号")) continue
             if (SAP_NUM.matches(line)) material = preferMaterial(material, line)
-            else SAP_LABELED.find(line)?.groupValues?.get(1)?.let { material = preferMaterial(material, it) }
+            else SAP_LABELED.find(line)?.groupValues?.get(1)?.let {
+                material = preferMaterial(material, it)
+                sapLabeled = preferMaterial(sapLabeled, it)
+            }
             if (date.isEmpty()) {
                 DATE_SEP.find(line)?.let { g ->
                     normalizeDate(
@@ -163,11 +190,14 @@ object BoxScanClassifier {
         val box16 = codes.firstNotNullOfOrNull { BOX16.find(it)?.groupValues?.get(1) }
         // 条码里的纯数字码也是物料（BoxParser 规则 2）。
         // 11/12 位末尾 01 的标准料号优先于 10 位（订单号）。
+        // 先算出条码候选（双码判定要用），再按老规则补位：只有 OCR 还没定下物料
+        // 时，条码才填进来 —— 单个编码的标签行为不变。
+        val sapCandidates = codes.filter { SAP_NUM.matches(it) }
+        val barcodeMaterial = sapCandidates.firstOrNull { it.length in 11..12 && it.endsWith("01") }
+            ?: sapCandidates.firstOrNull()
+            ?: ""
         if (material.isEmpty()) {
-            val sapCandidates = codes.filter { SAP_NUM.matches(it) }
-            material = sapCandidates.firstOrNull { it.length in 11..12 && it.endsWith("01") }
-                ?: sapCandidates.firstOrNull()
-                ?: ""
+            material = barcodeMaterial
         }
         // 混合码：排除 EAN69 与物料码，剩下的才参与 SN/箱号之分。
         // 16 位箱号码已摘出，不参与。
@@ -221,8 +251,23 @@ object BoxScanClassifier {
             }
         }
 
+        // ---- 双物料编码（2026-11-17 奔图外箱标签，与 BoxParser 同规则）----
+        // 只有条码来的 SAP（贴纸码）与 OCR “SAP.” 行后面的印制 SAP 同时出现且
+        // 不同值时才区分；单个编码走老路。条码优先于 OCR：早先帧 OCR 先把印制 SAP
+        // 定进物料框，后来帧贴纸条码扫出来时，D 列改成贴纸码、印制 SAP 进第二编码。
+        // 一旦分出双码，第二编码就粘住（后到的帧 OCR 糊也不能把它翻掉）。
+        var secondMaterial = state.secondMaterialCode
+        if (barcodeMaterial.isNotEmpty() && sapLabeled.isNotEmpty() &&
+            barcodeMaterial != sapLabeled && !isPadPair(barcodeMaterial, sapLabeled)
+        ) {
+            material = barcodeMaterial
+            secondMaterial = sapLabeled
+        }
+
         return BoxScanState(
             materialCode = material,
+            secondMaterialCode = secondMaterial,
+            sapLabeledMaterial = sapLabeled,
             qty = qty,
             boxCode = box,
             productionDate = date,
@@ -237,12 +282,19 @@ object BoxScanClassifier {
      * 原理：同一箱的 SN 共享物料前缀（12 位 SAP 时前 10 位必然相同），
      * 而箱号（CA/TP/PA…）与 UPC 的前 10 位各不相同，落不到同一组。
      * 没有任何一组 ≥2 个时无法区分，返回空（箱号留空，等物料读到后再分）。
+     *
+     * 前 10 位没成批时再按前 8 位试一次 —— 奔图外箱标签的 SN 是 VA1RV000xx
+     * （10 位，只共享前 8 位“VA1RV000”），前 10 位分组永远成不了批，
+     * 不加这一档扫整箱在这种标签上一个 SN 都收不到（2026-11-17 实测）。
      */
     private fun clusterSn(mixed: List<String>): List<String> {
         if (mixed.isEmpty()) return emptyList()
-        val groups = mixed.groupBy { it.take(10) }.values
-        val batch = groups.maxByOrNull { it.size } ?: return emptyList()
-        return if (batch.size >= 2) batch else emptyList()
+        for (prefixLen in listOf(10, 8)) {
+            val groups = mixed.groupBy { it.take(prefixLen) }.values
+            val batch = groups.maxByOrNull { it.size } ?: return emptyList()
+            if (batch.size >= 2) return batch
+        }
+        return emptyList()
     }
 
     private fun normalizeDate(y: Int?, m: Int?, d: Int?): String? {
