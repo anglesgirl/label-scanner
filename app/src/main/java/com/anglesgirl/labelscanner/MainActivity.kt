@@ -12,6 +12,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.updatePadding
+import com.anglesgirl.labelscanner.camera.PdfSlipRunner
 import com.anglesgirl.labelscanner.camera.SlipOcrRunner
 import com.anglesgirl.labelscanner.data.SlipStore
 import com.anglesgirl.labelscanner.data.SlipUi
@@ -88,6 +89,51 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    /** PDF 单据：选 PDF → 逐页渲染 OCR → 跟照片单据同一套确认归档流程；PDF 原文件当附件存。 */
+    private val pickPdf =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            val displayName = contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+            } ?: "file_${System.currentTimeMillis()}.pdf"
+            val tmp = SlipStore.newTempFile(this, displayName)
+            try {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    tmp.outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (_: Exception) {
+                Toast.makeText(this, "读取 PDF 失败", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            if (!tmp.exists() || tmp.length() <= 0) {
+                Toast.makeText(this, "读取 PDF 失败", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            Toast.makeText(this, "正在识别 PDF 单据…", Toast.LENGTH_SHORT).show()
+            PdfSlipRunner.run(tmp) { result ->
+                if (isFinishing || isDestroyed) return@run
+                if (!result.opened) {
+                    Toast.makeText(this, "PDF 打不开（可能已加密或损坏）", Toast.LENGTH_LONG).show()
+                    return@run
+                }
+                val firstJpeg = result.firstPageJpeg
+                if (firstJpeg == null || !firstJpeg.exists()) {
+                    Toast.makeText(this, "这个 PDF 没有页面", Toast.LENGTH_SHORT).show()
+                    return@run
+                }
+                SlipUi.showSlipOcrDialog(this, SlipStore.generateSlipNo(), result.ocr) { slipNo, qty, boxes, mat ->
+                    val photoPath = SlipStore.storePhoto(this, firstJpeg, slipNo)
+                    SlipStore.saveSlip(this, slipNo, photoPath, qty, boxes, mat)
+                    val pdfPath = SlipStore.storeFile(this, tmp, slipNo, displayName)
+                    SlipStore.addFile(this, slipNo, pdfPath, displayName)
+                    SlipStore.setCurrent(this, slipNo)
+                    Toast.makeText(this, "已设为当前单据：$slipNo，PDF 已附加，之后采集自动跟单", Toast.LENGTH_SHORT).show()
+                    refreshSlipButton()
+                }
+            }
+        }
+
     /** 拍照/相册共用：先 OCR 读数量/箱数/物料，再弹确认框（四项都能改）→ 归档 → 设为当前单据。 */
     private fun confirmSlipPhoto(tmp: java.io.File) {
         Toast.makeText(this, "正在识别单据…", Toast.LENGTH_SHORT).show()
@@ -157,7 +203,7 @@ class MainActivity : AppCompatActivity() {
         btnSlip.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("添加单据")
-                .setItems(arrayOf("📷 拍照", "🖼️ 相册选本地图片", "📄 文件（表格等单独文件）")) { _, which ->
+                .setItems(arrayOf("📷 拍照", "🖼️ 相册选本地图片", "📄 文件（表格等单独文件）", "📄 PDF（读内容识字）")) { _, which ->
                     when (which) {
                         0 -> {
                             val tmp = SlipStore.newTempPhotoFile(this)
@@ -166,10 +212,14 @@ class MainActivity : AppCompatActivity() {
                             takeSlipPhoto.launch(uri)
                         }
                         1 -> pickSlipGallery.launch("image/*")
-                        else -> pickSlipFile.launch(arrayOf("*/*"))
+                        2 -> pickSlipFile.launch(arrayOf("*/*"))
+                        else -> pickPdf.launch(arrayOf("application/pdf"))
                     }
                 }
                 .show()
+        }
+        findViewById<Button>(R.id.btnSlipManage).setOnClickListener {
+            startActivity(Intent(this, SlipManageActivity::class.java))
         }
 
         // 防误触提示：托盘中心是唯一的 WMS 批量导出入口。

@@ -87,6 +87,54 @@ object SlipStore {
         }
     }
 
+    /** 全部单据（最新在前），管理页用。 */
+    fun listAllSlips(context: Context): List<Slip> {
+        val db = LocalDatabase.get(context).readableDatabase
+        db.rawQuery(
+            "SELECT slip_no, photo_path, created_at, quantity, box_count, material_code FROM slips ORDER BY created_at DESC",
+            null
+        ).use { c ->
+            val out = mutableListOf<Slip>()
+            while (c.moveToNext()) {
+                out += Slip(
+                    slipNo = c.getString(0) ?: "",
+                    photoPath = c.getString(1) ?: "",
+                    createdAt = c.getLong(2),
+                    quantity = c.getInt(3),
+                    boxCount = c.getInt(4),
+                    materialCode = c.getString(5) ?: "",
+                )
+            }
+            return out
+        }
+    }
+
+    /** 删单据：行 + 照片文件 + 附件行 + 附件文件；是当前单据则清空当前。 */
+    fun deleteSlip(context: Context, slipNo: String) {
+        val slip = getSlip(context, slipNo)
+        val files = getFiles(context, slipNo)
+        val db = LocalDatabase.get(context).writableDatabase
+        db.delete("slip_files", "slip_no = ?", arrayOf(slipNo))
+        db.delete("slips", "slip_no = ?", arrayOf(slipNo))
+        slip?.photoPath?.takeIf { it.isNotBlank() }?.let { runCatching { File(it).delete() } }
+        for (f in files) {
+            if (f.filePath.isNotBlank()) runCatching { File(f.filePath).delete() }
+        }
+        if (getCurrent(context) == slipNo) setCurrent(context, "")
+    }
+
+    /** 删一个附件：行 + 文件。 */
+    fun deleteFile(context: Context, fileId: Long) {
+        val db = LocalDatabase.get(context).writableDatabase
+        var path: String? = null
+        db.rawQuery(
+            "SELECT file_path FROM slip_files WHERE id = ?",
+            arrayOf(fileId.toString())
+        ).use { c -> if (c.moveToFirst()) path = c.getString(0) }
+        db.delete("slip_files", "id = ?", arrayOf(fileId.toString()))
+        path?.takeIf { it.isNotBlank() }?.let { runCatching { File(it).delete() } }
+    }
+
     /** 相机输出临时文件（FileProvider 只覆盖 cache/captures，拍完再挪到私有 slips 目录）。 */
     fun newTempPhotoFile(context: Context): File {
         val dir = File(context.cacheDir, "captures").apply { mkdirs() }
