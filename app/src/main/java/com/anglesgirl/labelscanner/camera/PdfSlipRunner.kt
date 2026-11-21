@@ -84,11 +84,11 @@ object PdfSlipRunner {
         Thread {
             val pages = renderPages(pdf)
             if (pages == null) {
-                post { onDone("", opened = false) }
+                post { onDone("", false) }
                 return@Thread
             }
             if (pages.isEmpty()) {
-                post { onDone("", opened = true) }
+                post { onDone("", true) }
                 return@Thread
             }
             val texts = mutableListOf<String>()
@@ -96,7 +96,7 @@ object PdfSlipRunner {
             fun ocrNext() {
                 if (index >= pages.size) {
                     for (i in pages.indices) runCatching { pages[i].delete() }
-                    post { onDone(texts.joinToString("\n"), opened = true) }
+                    post { onDone(texts.joinToString("\n"), true) }
                     return
                 }
                 val jpg = pages[index]
