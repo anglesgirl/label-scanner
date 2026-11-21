@@ -251,20 +251,29 @@ class LedgerRegisterActivity : AppCompatActivity() {
                 tvBalance.text = "当前结存：${row.balance}"
             }
             resolved.stocks.size > 1 -> {
-                val items = resolved.stocks.map {
-                    "${it.materialCode} · 库位 ${it.location} · 托盘 ${it.trayCode} · 结存 ${it.balance}"
-                }.toTypedArray()
-                AlertDialog.Builder(this)
-                    .setTitle("该编码有多条库存，选一条")
-                    .setItems(items) { _, which ->
-                        val row = resolved.stocks[which]
-                        etMaterial.setText(row.materialCode)
-                        etLocation.setText(row.location)
-                        etTray.setText(row.trayCode)
-                        tvBalance.text = "当前结存：${row.balance}"
-                    }
-                    .setNegativeButton("取消", null)
-                    .show()
+                if (moveType == LedgerStore.TYPE_OUT) {
+                    // 出库必须选从哪一堆扣，保留选择框。
+                    val items = resolved.stocks.map {
+                        "${it.materialCode} · 库位 ${it.location} · 托盘 ${it.trayCode} · 结存 ${it.balance}"
+                    }.toTypedArray()
+                    AlertDialog.Builder(this)
+                        .setTitle("该编码有多条库存，选一条")
+                        .setItems(items) { _, which ->
+                            val row = resolved.stocks[which]
+                            etMaterial.setText(row.materialCode)
+                            etLocation.setText(row.location)
+                            etTray.setText(row.trayCode)
+                            tvBalance.text = "当前结存：${row.balance}"
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                } else {
+                    // 入库不用选：库位是新输入的，无记录自动建账。
+                    // 扫物料只是认物料，别拿旧库位盖掉单据上的库位。
+                    val total = resolved.stocks.sumOf { it.balance }
+                    tvBalance.text = "当前结存：共 $total（${resolved.stocks.size} 个库位）"
+                    tvStatus.text = "${resolved.note}：多库位，入库直接填库位和数量"
+                }
             }
             else -> {
                 tvBalance.text = "当前结存：无记录"
