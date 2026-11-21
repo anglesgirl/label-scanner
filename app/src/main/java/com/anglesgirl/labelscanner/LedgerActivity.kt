@@ -86,6 +86,9 @@ class LedgerActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnLedgerTransfer).setOnClickListener {
             startActivity(Intent(this, TransferActivity::class.java))
         }
+        findViewById<Button>(R.id.btnSlipBatchInbound).setOnClickListener {
+            startActivity(Intent(this, SlipBatchInboundActivity::class.java))
+        }
 
         refreshLocal()
         syncNow()

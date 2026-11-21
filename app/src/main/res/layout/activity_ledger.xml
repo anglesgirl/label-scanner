@@ -119,6 +119,26 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btnSlipBatchInbound"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:backgroundTint="@color/ls_primary"
+            android:text="📄 单据批量入库"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
         android:baselineAligned="false"
         android:paddingHorizontal="16dp"
         android:paddingBottom="12dp">

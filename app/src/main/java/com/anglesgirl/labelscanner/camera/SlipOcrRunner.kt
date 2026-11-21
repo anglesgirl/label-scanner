@@ -40,6 +40,25 @@ object SlipOcrRunner {
         }.start()
     }
 
+    /**
+     * 返回 OCR 原文（不解析）：给多行入库单这种需要全文按行/按段解析的场景。
+     * 失败回空串，调用方自行提示，不阻断。
+     */
+    fun runText(photo: File, onDone: (String) -> Unit) {
+        Thread {
+            val bmp = decode(photo)
+            if (bmp == null) {
+                post { onDone("") }
+                return@Thread
+            }
+            StaticRecognizer.recognizeText(
+                bmp,
+                onResult = { text -> post { onDone(text) } },
+                onError = { post { onDone("") } },
+            )
+        }.start()
+    }
+
     private fun post(block: () -> Unit) = mainHandler.post(block)
 
     /** 解码：长边 ≤ 2048 采样防 OOM，再按 EXIF 转正。 */

@@ -76,6 +76,40 @@ object PdfSlipRunner {
         }.start()
     }
 
+    /**
+     * 返回各页 OCR 原文拼接（不解析）：给多行入库单用。打不开回 opened=false；
+     * 能打开但无页时原文为空串。首页之后各页的临时图 OCR 完即删。
+     */
+    fun runText(pdf: File, onDone: (text: String, opened: Boolean) -> Unit) {
+        Thread {
+            val pages = renderPages(pdf)
+            if (pages == null) {
+                post { onDone("", opened = false) }
+                return@Thread
+            }
+            if (pages.isEmpty()) {
+                post { onDone("", opened = true) }
+                return@Thread
+            }
+            val texts = mutableListOf<String>()
+            var index = 0
+            fun ocrNext() {
+                if (index >= pages.size) {
+                    for (i in pages.indices) runCatching { pages[i].delete() }
+                    post { onDone(texts.joinToString("\n"), opened = true) }
+                    return
+                }
+                val jpg = pages[index]
+                index++
+                SlipOcrRunner.runText(jpg) { text ->
+                    if (text.isNotBlank()) texts.add(text)
+                    ocrNext()
+                }
+            }
+            ocrNext()
+        }.start()
+    }
+
     private fun post(block: () -> Unit) = mainHandler.post(block)
 
     /**

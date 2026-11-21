@@ -139,4 +139,98 @@ object SlipOcrParser {
 
         return Result(quantity = quantity, boxCount = boxCount, materialCode = best)
     }
+
+    // ================= 多行入库单（免费入库申请单） =================
+
+    /** 入库单的一行明细。quantity 读不到时为 null（留空手填，不猜）。 */
+    data class TableRow(
+        val materialCode: String,
+        val quantity: Int?,
+    )
+
+    /** 多行入库单解析结果。location/factory/date/department 读不到时为空串。 */
+    data class TableResult(
+        val rows: List<TableRow>,
+        val location: String,
+        val factory: String,
+        val date: String,
+        val department: String,
+    ) {
+        val hasAny: Boolean get() = rows.isNotEmpty()
+    }
+
+    /**
+     * 解析多行入库单表格（免费入库申请单）：
+     * 每行一个 10–12 位物料编码 + 该行 "PCS" 前最后一个整数是交货数量；
+     * PCS 后紧跟的两个 4 位数是工厂、仓位；交货日期是 yyyy/M/d；退仓部门是
+     * “×部××”字样。行可能被 OCR 切开，所以按物料编码切段、不依赖行对齐。
+     * 数量读不到就留 null，不猜；描述里的 2023 这类数字不会被当成数量，
+     * 因为只取 PCS 前最后一个整数。全部行都返回，不做取舍。
+     */
+    fun parseInboundTable(ocrText: String): TableResult {
+        val lines = ocrText.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.isEmpty()) return TableResult(emptyList(), "", "", "", "")
+
+        val full = lines.joinToString("\n")
+        // 找全部 10–12 位数字串（物料编码），含易混字母归一化；用边界避免截断更长数字。
+        val codeRe = Regex("(?<![0-9A-Za-z])[0-9OoQqSsLlIi|Zz]{10,12}(?![0-9A-Za-z])")
+        data class CodeHit(val code: String, val start: Int, var end: Int)
+        val hits = mutableListOf<CodeHit>()
+        for (m in codeRe.findAll(full)) {
+            val norm = normalizeDigits(m.value)
+            if (norm.length in 10..12 && norm.all { it.isDigit() }) {
+                hits.add(CodeHit(norm, m.range.first, m.range.last + 1))
+            }
+        }
+        // 断码拼接：10–11 位的码 + 紧跟的 1–2 位数字（后面不是数字）拼成 12 位。
+        // 单据上码后紧跟的是描述（字母开头），不会误拼数量。
+        for (idx in hits.indices) {
+            val hit = hits[idx]
+            if (hit.code.length in 10..11) {
+                val rest = full.substring(hit.end)
+                val join = Regex("^\\s*(\\d{1,2})(?!\\d)").find(rest)
+                if (join != null && hit.code.length + join.groupValues[1].length == 12) {
+                    val joined = hit.code + join.groupValues[1]
+                    hits[idx] = hit.copy(code = joined, end = hit.end + join.range.last + 1)
+                }
+            }
+        }
+        if (hits.isEmpty()) return TableResult(emptyList(), "", "", "", "")
+
+        val rows = mutableListOf<TableRow>()
+        val factories = mutableListOf<String>()
+        val locations = mutableListOf<String>()
+        for (i in hits.indices) {
+            val hit = hits[i]
+            val segEnd = if (i + 1 < hits.size) hits[i + 1].start else full.length
+            val seg = full.substring(hit.end, segEnd)
+            // 数量：该段里 PCS 前最后一个整数。
+            var qty: Int? = null
+            val pcsIdx = seg.indexOf("PCS", ignoreCase = true)
+            if (pcsIdx >= 0) {
+                val before = seg.substring(0, pcsIdx)
+                val nums = Regex("\\d+").findAll(before).mapNotNull { it.value.toIntOrNull() }.toList()
+                qty = nums.lastOrNull()?.takeIf { it in 1..999999 }
+                // PCS 后两个 4 位数：工厂、仓位。
+                val after = seg.substring(pcsIdx + 3)
+                val afterNums = Regex("\\d+").findAll(after).map { it.value }.toList()
+                if (afterNums.size >= 2) {
+                    if (afterNums[0].length == 4) factories.add(afterNums[0])
+                    if (afterNums[1].length == 4) locations.add(afterNums[1])
+                }
+            }
+            rows.add(TableRow(hit.code, qty))
+        }
+
+        // 交货日期：全文第一个 yyyy/M/d。
+        val date = Regex("(\\d{4})/(\\d{1,2})/(\\d{1,2})").find(full)?.value.orEmpty()
+        // 退仓部门：第一个“×部××”字样（如 三部OQC）。部后必须跟字母，
+        // 这样“保存部门”“退仓部门”这种表头（部后是“门”）不会被误认。
+        val dept = Regex("[\\u4e00-\\u9fa5]{1,4}部[A-Za-z]{1,6}").find(full)?.value.orEmpty()
+        // 工厂/仓位取出现次数最多的（各行一致，取众数抗个别误读）。
+        val factory = factories.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key.orEmpty()
+        val location = locations.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key.orEmpty()
+
+        return TableResult(rows, location, factory, date, dept)
+    }
 }
