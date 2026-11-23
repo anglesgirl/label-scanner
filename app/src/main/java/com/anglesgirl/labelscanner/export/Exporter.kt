@@ -125,12 +125,77 @@ object Exporter {
     )
 
     /** 收集全部工作表并写出一个 .xlsx。无照片无附件时与旧版单表输出等价。 */
+    /** 导入表导出：他人 WMS 导入表改完后导出（表头原样 + 改过的数据行），可带单据照片/附件。
+     * @param fileName 完整文件名（含 .xlsx），由调用方按托盘号或时间戳定。 */
+    fun exportImportedWms(
+        context: Context,
+        table: com.anglesgirl.labelscanner.model.WmsImportParser.Table,
+        photoFile: File?,
+        extraFiles: List<File>,
+        fileName: String,
+    ): Uri? {
+        val fullName = fileName.removeSuffix(".xlsx").trim()
+            .ifBlank { "wms_import_${System.currentTimeMillis()}" } + ".xlsx"
+        return if (Build.VERSION.SDK_INT >= 29) {
+            exportXlsxViaMediaStore(context, fullName) {
+                writeWorkbookWithSheets(it, buildImportedSheetXml(table), photoFile, extraFiles)
+            }
+        } else {
+            exportXlsxViaLegacyDir(context, fullName) {
+                writeWorkbookWithSheets(it, buildImportedSheetXml(table), photoFile, extraFiles)
+            }
+        }
+    }
+
+    /** 导入表 WMS 工作表：表头行原样保留（第 1/2 行），数据行写改过的值（第 3 行起）。 */
+    private fun buildImportedSheetXml(table: com.anglesgirl.labelscanner.model.WmsImportParser.Table): String = buildString {
+        append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+        append("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">")
+        append("<cols>")
+        val maxCol = ((table.headerRow1.keys + table.headerRow2.keys).maxOrNull() ?: 0)
+            .coerceAtLeast(table.dataColBase + 13) + 1
+        for (column in 1..maxCol) append("<col min=\"$column\" max=\"$column\" width=\"18\" customWidth=\"1\"/>")
+        append("</cols><sheetData>")
+        appendXmlRowAt(1, table.headerRow1)
+        appendXmlRowAt(2, table.headerRow2)
+        table.rows.forEachIndexed { index, row ->
+            val cells = mutableMapOf<Int, String>()
+            row.cells.forEachIndexed { i, v -> if (v.isNotEmpty()) cells[table.dataColBase + i] = v }
+            appendXmlRowAt(index + 3, cells)
+        }
+        append("</sheetData></worksheet>")
+    }
+
+    /** 按指定列号写一行（表头原样保留用；列号 0 基）。 */
+    private fun StringBuilder.appendXmlRowAt(rowNumber: Int, cells: Map<Int, String>) {
+        append("<row r=\"$rowNumber\">")
+        for ((column, value) in cells.entries.sortedBy { it.key }) {
+            if (value.isNotEmpty()) {
+                val ref = "${excelColumn(column + 1)}$rowNumber"
+                append("<c r=\"$ref\" t=\"inlineStr\"><is><t>")
+                append(xmlEscape(value))
+                append("</t></is></c>")
+            }
+        }
+        append("</row>")
+    }
+
     private fun writeSlipWorkbook(
         output: java.io.OutputStream,
         records: List<LabelResult>,
         photoFile: File?,
         extraFiles: List<File>,
         stockLocation: String = "",
+    ) {
+        writeWorkbookWithSheets(output, buildSheetXml(records, stockLocation), photoFile, extraFiles)
+    }
+
+    /** 多工作表工作簿组装：WMS 表 + 单据照片 + 附件表格/图片 + 附件说明。 */
+    private fun writeWorkbookWithSheets(
+        output: java.io.OutputStream,
+        wmsSheetXml: String,
+        photoFile: File?,
+        extraFiles: List<File>,
     ) {
         val sheets = mutableListOf<BuiltSheet>()
         val usedNames = mutableSetOf<String>()
@@ -139,7 +204,7 @@ object Exporter {
         var mediaCounter = 0
 
         // 第 1 张：WMS导入（格式不变）
-        sheets.add(BuiltSheet(sanitizeSheetName("WMS导入", usedNames), buildSheetXml(records, stockLocation)))
+        sheets.add(BuiltSheet(sanitizeSheetName("WMS导入", usedNames), wmsSheetXml))
 
         // 单据照片：嵌进一张工作表
         photoFile?.takeIf { it.exists() }?.let { photo ->

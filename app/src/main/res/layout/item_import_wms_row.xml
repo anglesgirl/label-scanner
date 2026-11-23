@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="7dp"
+    android:background="@drawable/bg_section_card"
+    android:orientation="vertical"
+    android:paddingHorizontal="10dp"
+    android:paddingVertical="8dp">
+
+    <TextView
+        android:id="@+id/tvImportRowInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="物料 · 箱号 · 数量"
+        android:textColor="@color/ls_text"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <EditText
+        android:id="@+id/etImportTray"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/bg_code_input"
+        android:hint="托盘号（DATA02）"
+        android:importantForAutofill="no"
+        android:inputType="textNoSuggestions"
+        android:paddingHorizontal="9dp"
+        android:paddingVertical="7dp"
+        android:textColor="@color/ls_text"
+        android:textSize="14sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/etImportStock"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_code_input"
+            android:hint="库存地（DATA07）"
+            android:importantForAutofill="no"
+            android:inputType="textNoSuggestions"
+            android:paddingHorizontal="9dp"
+            android:paddingVertical="7dp"
+            android:textColor="@color/ls_text"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/etImportDate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/bg_code_input"
+            android:hint="生产日期（DATA08）"
+            android:importantForAutofill="no"
+            android:inputType="number"
+            android:paddingHorizontal="9dp"
+            android:paddingVertical="7dp"
+            android:textColor="@color/ls_text"
+            android:textSize="14sp" />
+    </LinearLayout>
+</LinearLayout>

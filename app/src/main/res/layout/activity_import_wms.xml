@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ls_bg"
+    android:orientation="vertical"
+    android:paddingHorizontal="16dp"
+    android:paddingTop="16dp"
+    android:paddingBottom="16dp">
+
+    <TextView
+        android:id="@+id/tvImportStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="选一份别人做好的 WMS 导入表（.xlsx），改托盘号 / 库存地 / 生产日期，再导出。"
+        android:textColor="@color/ls_text_dim"
+        android:textSize="14sp" />
+
+    <Button
+        android:id="@+id/btnPickWmsFile"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="12dp"
+        android:backgroundTint="@color/ls_primary"
+        android:text="📥 选择 WMS 导入表（.xlsx）"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:id="@+id/layoutBatchEdit"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_section_card"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="批量修改（整批统一改；逐行改在下面每行里）"
+            android:textColor="@color/ls_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etBatchTray"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_code_input"
+                android:hint="新托盘号（DATA02）"
+                android:importantForAutofill="no"
+                android:inputType="textNoSuggestions"
+                android:paddingHorizontal="9dp"
+                android:paddingVertical="7dp"
+                android:textColor="@color/ls_text"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnApplyTray"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_primary"
+                android:text="应用到全部"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etBatchStock"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_code_input"
+                android:hint="新库存地（DATA07）"
+                android:importantForAutofill="no"
+                android:inputType="textNoSuggestions"
+                android:paddingHorizontal="9dp"
+                android:paddingVertical="7dp"
+                android:textColor="@color/ls_text"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnApplyStock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_primary"
+                android:text="应用到全部"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etBatchDate"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_code_input"
+                android:hint="新生产日期（DATA08，yyyymmdd）"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:paddingHorizontal="9dp"
+                android:paddingVertical="7dp"
+                android:textColor="@color/ls_text"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnApplyDate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="@color/ls_primary"
+                android:text="应用到全部"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutSlip"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_section_card"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvSlipInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="未附加单据"
+            android:textColor="@color/ls_text"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnAttachSlip"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/ls_accent"
+            android:text="📎 附加单据（拍照 / 相册 / 文件）"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/btnExportWms"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="12dp"
+        android:backgroundTint="@color/ls_ok"
+        android:text="⬇ 导出 WMS 导入表（.xlsx）"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvImportRows"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        android:layout_weight="1" />
+</LinearLayout>

@@ -221,6 +221,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSlipManage).setOnClickListener {
             startActivity(Intent(this, SlipManageActivity::class.java))
         }
+        findViewById<Button>(R.id.btnImportWms).setOnClickListener {
+            startActivity(Intent(this, ImportWmsActivity::class.java))
+        }
 
         // 防误触提示：托盘中心是唯一的 WMS 批量导出入口。
         findViewById<Button>(R.id.btnGotoCenter).setOnLongClickListener {
