@@ -134,8 +134,25 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    /** 拍照/相册共用：先 OCR 读数量/箱数/物料，再弹确认框（四项都能改）→ 归档 → 设为当前单据。 */
+    /** 拍照/相册共用：先大图预览（看清了再点“确认识别”，和 WMS 导入附加单据同一套取图方式），再 OCR 读数量/箱数/物料，再弹确认框（四项都能改）→ 归档 → 设为当前单据。 */
     private fun confirmSlipPhoto(tmp: java.io.File) {
+        var confirmed = false
+        PhotoPreview.showDialog(
+            this, tmp,
+            listOf(
+                "取消" to null,
+                "确认识别" to { confirmed = true; runSlipOcr(tmp) },
+            ),
+            onDismiss = {
+                if (!confirmed) {
+                    tmp.delete()
+                    Toast.makeText(this, "已取消", Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
+    }
+
+    private fun runSlipOcr(tmp: java.io.File) {
         Toast.makeText(this, "正在识别单据…", Toast.LENGTH_SHORT).show()
         SlipOcrRunner.run(tmp) { ocr ->
             if (isFinishing || isDestroyed) return@run

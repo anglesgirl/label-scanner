@@ -45,7 +45,7 @@ class RecordListActivity : AppCompatActivity() {
     private var pendingSlipPhoto: File? = null
     private var pendingExportRecords: List<LabelResult>? = null // 导出时拍单据：相机返回后继续打包的记录
 
-    /** 导出时补拍单据：拍完输单号 → 绑定勾选托盘 → 导出 Excel 分享。 */
+    /** 导出时补拍单据：先大图预览确认（和 WMS 导入附加单据同一套取图方式），再 OCR → 拍完输单号 → 绑定勾选托盘 → 导出 Excel 分享。 */
     private val takeSlipPhoto =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             val tmp = pendingSlipPhoto
@@ -53,21 +53,38 @@ class RecordListActivity : AppCompatActivity() {
             val pending = pendingExportRecords
             pendingExportRecords = null
             if (success && tmp != null && tmp.exists() && pending != null) {
-                // 单据 OCR：读数量/箱数/物料，读完再弹确认框（四项都能改）。
-                Toast.makeText(this, "正在识别单据…", Toast.LENGTH_SHORT).show()
-                SlipOcrRunner.run(tmp) { ocr ->
-                    if (isFinishing || isDestroyed) return@run
-                    SlipUi.showSlipOcrDialog(this, SlipStore.generateSlipNo(), ocr) { slipNo, qty, boxes, mat ->
-                        val path = SlipStore.storePhoto(this, tmp, slipNo)
-                        SlipStore.saveSlip(this, slipNo, path, qty, boxes, mat)
-                        bindTraysAndShareZip(pending, slipNo)
-                    }
-                }
+                var confirmed = false
+                PhotoPreview.showDialog(
+                    this, tmp,
+                    listOf(
+                        "取消" to null,
+                        "确认识别" to { confirmed = true; runSlipOcrForExport(tmp, pending) },
+                    ),
+                    onDismiss = {
+                        if (!confirmed) {
+                            tmp.delete()
+                            Toast.makeText(this, "已取消", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
             } else {
                 tmp?.delete()
                 Toast.makeText(this, "拍照已取消", Toast.LENGTH_SHORT).show()
             }
         }
+
+    /** 导出时补拍单据的 OCR：读数量/箱数/物料，读完再弹确认框（四项都能改）。 */
+    private fun runSlipOcrForExport(tmp: File, pending: List<LabelResult>) {
+        Toast.makeText(this, "正在识别单据…", Toast.LENGTH_SHORT).show()
+        SlipOcrRunner.run(tmp) { ocr ->
+            if (isFinishing || isDestroyed) return@run
+            SlipUi.showSlipOcrDialog(this, SlipStore.generateSlipNo(), ocr) { slipNo, qty, boxes, mat ->
+                val path = SlipStore.storePhoto(this, tmp, slipNo)
+                SlipStore.saveSlip(this, slipNo, path, qty, boxes, mat)
+                bindTraysAndShareZip(pending, slipNo)
+            }
+        }
+    }
 
     data class TrayGroup(val trayCode: String, val items: List<LabelResult>)
 

@@ -1,7 +1,5 @@
 package com.anglesgirl.labelscanner
 
-import android.app.Dialog
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -281,12 +279,12 @@ class ImportWmsActivity : AppCompatActivity() {
         val size = (72 * density).toInt()
         val gap = (8 * density).toInt()
         for (file in photos) {
-            val bmp = decodeSampledBitmap(file, 256) ?: continue
+            val bmp = PhotoPreview.decodeSampledBitmap(file, 256) ?: continue
             val iv = ImageView(this).apply {
                 setImageBitmap(bmp)
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = gap }
-                setOnClickListener { showPhotoDialog(file, listOf("关闭" to null)) }
+                setOnClickListener { PhotoPreview.showDialog(this@ImportWmsActivity, file, listOf("关闭" to null)) }
             }
             container.addView(iv)
         }
@@ -295,7 +293,8 @@ class ImportWmsActivity : AppCompatActivity() {
     /** 附加前先大图预览：看清了再点“确认附加”，不直接附上；取消就丢掉临时文件。 */
     private fun showAttachPreview(tmp: File) {
         var confirmed = false
-        showPhotoDialog(
+        PhotoPreview.showDialog(
+            this,
             tmp,
             listOf(
                 "取消" to null,
@@ -303,83 +302,6 @@ class ImportWmsActivity : AppCompatActivity() {
             ),
             onDismiss = { if (!confirmed) tmp.delete() },
         )
-    }
-
-    /**
-     * 全屏看图：双指缩放、单指拖动、双击放大/还原。
-     * actions：底部按钮（文字 → 点后执行的动作，动作先执行、弹窗随后关）。
-     * onDismiss：弹窗关掉后调用。
-     */
-    private fun showPhotoDialog(
-        file: File,
-        actions: List<Pair<String, (() -> Unit)?>>,
-        onDismiss: (() -> Unit)? = null,
-    ) {
-        val bmp = decodeSampledBitmap(file, 2048)
-        if (bmp == null) {
-            Toast.makeText(this, "图片读取失败", Toast.LENGTH_SHORT).show()
-            onDismiss?.invoke()
-            return
-        }
-        // 全屏黑底看图（不盖状态栏/导航栏，按钮不会被手势条挡住）。
-        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar)
-        dialog.window?.setLayout(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
-        )
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(android.graphics.Color.BLACK)
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
-            )
-        }
-        val imageView = ZoomableImageView(this).apply {
-            setImageBitmap(bmp)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f,
-            )
-        }
-        root.addView(imageView)
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            val pad = (16 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad, pad, pad)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
-        }
-        for ((label, action) in actions) {
-            val btn = Button(this).apply {
-                text = label
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                setOnClickListener {
-                    action?.invoke()
-                    dialog.dismiss()
-                }
-            }
-            bar.addView(btn)
-        }
-        root.addView(bar)
-        dialog.setContentView(root)
-        dialog.setOnDismissListener { bmp.recycle(); onDismiss?.invoke() }
-        dialog.show()
-    }
-
-    /** 按最长边上限解码图片（防大图 OOM），解不出返回 null。 */
-    private fun decodeSampledBitmap(file: File, maxDim: Int): android.graphics.Bitmap? {
-        return try {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.absolutePath, bounds)
-            val w = bounds.outWidth
-            val h = bounds.outHeight
-            if (w <= 0 || h <= 0) return null
-            var sample = 1
-            while (maxOf(w, h) / sample > maxDim) sample *= 2
-            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-            BitmapFactory.decodeFile(file.absolutePath, opts)
-        } catch (_: Exception) {
-            null
-        }
     }
 
     /** 导出：表头原样 + 改过的数据行；文件名沿用导入那份的原文件名。 */
