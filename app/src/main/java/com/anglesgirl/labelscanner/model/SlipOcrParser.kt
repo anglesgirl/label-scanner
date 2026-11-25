@@ -21,8 +21,58 @@ object SlipOcrParser {
         val quantity: Int? = null,
         val boxCount: Int? = null,
         val materialCode: String? = null,
+        /** OCR 原文（给单号点选候选与数量核对用，不解析时为空）。 */
+        val rawText: String = "",
     ) {
         val hasAny: Boolean get() = quantity != null || boxCount != null || materialCode != null
+    }
+
+    /** 物料编码归一化：10 位补 01 成 12 位（与台账/采集记录的 12 位形式对齐），其余原样。 */
+    fun normalizeMaterial(code: String): String {
+        val c = code.trim()
+        return if (c.length == 10 && c.all { it.isDigit() }) c + "01" else c
+    }
+
+    /**
+     * 单据编号候选：从 OCR 原文里抽全部“像单号”的串，返回给用户点选，不自动挑
+     * （采集层不取舍，候选全量返回、去重；没想要的就手填）。
+     * 优先“单号/单据号/凭证号…”标签后紧跟的值，其次是 ≥6 位字母数字串
+     * （单号常带字母，如 RK20261125001）。物料编码本身排除掉。
+     */
+    fun slipNoCandidates(ocrText: String, excludeMaterial: String? = null): List<String> {
+        val lines = ocrText.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.isEmpty()) return emptyList()
+        val out = linkedSetOf<String>()
+        val excluded = excludeMaterial?.let { normalizeMaterial(it) }.orEmpty()
+
+        // ① 标签后的值：单号/单据号/申请单号/凭证号/单据编号/送货单号/退货单号/进仓单号/NO。
+        val labels = listOf(
+            "申请单号", "单据编号", "单据号", "送货单号", "退货单号", "进仓单号",
+            "凭证号", "单号", "单据", "NO.", "No.", "NO", "No",
+        )
+        for (line in lines) {
+            for (label in labels) {
+                val idx = line.indexOf(label)
+                if (idx < 0) continue
+                val rest = line.substring(idx + label.length)
+                    .trimStart(' ', ':', '：', '-', '—')
+                val token = rest.split(Regex("[\\s,;，；:：。]+")).firstOrNull().orEmpty()
+                    .trimEnd { !it.isLetterOrDigit() }
+                if (token.length >= 3 && token.any { it.isDigit() }) out.add(token)
+            }
+        }
+        // ② 兜底：≥6 位字母数字串（含数字），排除物料编码与纯 8 位日期。
+        val tokenRe = Regex("[A-Za-z0-9][A-Za-z0-9\\-]{5,29}")
+        for (line in lines) {
+            for (m in tokenRe.findAll(line)) {
+                val token = m.value
+                if (!token.any { it.isDigit() }) continue
+                if (token.length == 8 && token.all { it.isDigit() }) continue
+                if (excluded.isNotEmpty() && normalizeMaterial(token) == excluded) continue
+                out.add(token)
+            }
+        }
+        return out.take(8)
     }
 
     // 数字串里的易混字母归一化。
@@ -137,7 +187,7 @@ object SlipOcrParser {
             }
         }
 
-        return Result(quantity = quantity, boxCount = boxCount, materialCode = best)
+        return Result(quantity = quantity, boxCount = boxCount, materialCode = best, rawText = ocrText)
     }
 
     // ================= 多行入库单（免费入库申请单） =================

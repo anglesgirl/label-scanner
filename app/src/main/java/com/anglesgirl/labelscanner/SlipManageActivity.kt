@@ -17,6 +17,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import com.anglesgirl.labelscanner.data.RecordStore
 import com.anglesgirl.labelscanner.data.SlipStore
 import java.io.File
 import java.text.SimpleDateFormat
@@ -80,9 +81,28 @@ class SlipManageActivity : AppCompatActivity() {
     private fun fmtDate(ts: Long): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
 
+    /** 数量核对：单据数量 vs 该单号下该物料的已采集数量。null = 单据没读到物料/数量，无法核对。 */
+    private data class Match(val expected: Int, val collected: Int) {
+        val gap: Int get() = expected - collected
+        val text: String
+            get() = when {
+                gap == 0 -> "已对上 ✓"
+                gap > 0 -> "已采 $collected/$expected，还差 $gap"
+                else -> "多出 ${-gap}，对不上"
+            }
+    }
+
+    private fun matchFor(slip: SlipStore.Slip): Match? {
+        if (slip.materialCode.isBlank() || slip.quantity <= 0) return null
+        val collected = RecordStore.collectedQtyByMaterial(this, slip.slipNo, slip.materialCode)
+        return Match(slip.quantity, collected)
+    }
+
     private fun refreshList() {
         slips = SlipStore.listAllSlips(this)
         val current = SlipStore.getCurrent(this)
+        // 每单的核对结果一次算好，列表滚动不再重复查库。
+        val matchMap = slips.associate { it.slipNo to matchFor(it) }
         val adapter = object : ArrayAdapter<SlipStore.Slip>(
             this, android.R.layout.simple_list_item_2, android.R.id.text1, slips
         ) {
@@ -95,7 +115,8 @@ class SlipManageActivity : AppCompatActivity() {
                 v.findViewById<TextView>(android.R.id.text2).text =
                     "${fmtDate(s.createdAt)} · 数量 ${s.quantity} · 箱数 ${s.boxCount}" +
                         (if (s.materialCode.isNotBlank()) " · ${s.materialCode}" else "") +
-                        (if (files > 0) " · 附件 $files 个" else "")
+                        (if (files > 0) " · 附件 $files 个" else "") +
+                        (matchMap[s.slipNo]?.let { " · ${it.text}" } ?: "")
                 return v
             }
         }
@@ -149,6 +170,31 @@ class SlipManageActivity : AppCompatActivity() {
         info("数量", slip.quantity.toString())
         info("箱数", slip.boxCount.toString())
         info("物料编码", slip.materialCode.ifBlank { "—" })
+        // 数量核对：单据数量 vs 该单号下该物料的已采集数量（采集记录按单号归集）。
+        layout.addView(TextView(this).apply {
+            text = "数量核对"
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, dp(12), 0, dp(4))
+        })
+        val match = matchFor(slip)
+        if (match == null) {
+            layout.addView(TextView(this).apply {
+                text = "单据没读到物料/数量，无法核对"
+                textSize = 14f
+            })
+        } else {
+            info("单据数量", match.expected.toString())
+            info("已采集", match.collected.toString())
+            info(
+                "还差",
+                when {
+                    match.gap == 0 -> "0，已对上 ✓"
+                    match.gap > 0 -> "${match.gap} 没采集"
+                    else -> "多出 ${-match.gap}，单子与实物对不上"
+                },
+            )
+        }
         layout.addView(TextView(this).apply {
             text = "附件（${files.size} 个）"
             textSize = 15f

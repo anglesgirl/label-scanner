@@ -69,6 +69,10 @@ object PdfSlipRunner {
                     if (merged.materialCode.isNullOrBlank() && !r.materialCode.isNullOrBlank()) {
                         merged = merged.copy(materialCode = r.materialCode)
                     }
+                    // 各页 OCR 原文拼起来，单号候选才能跨页找（单号不一定在第一页）。
+                    if (r.rawText.isNotBlank()) {
+                        merged = merged.copy(rawText = (merged.rawText + "\n" + r.rawText).trim())
+                    }
                     ocrNext()
                 }
             }

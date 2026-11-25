@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import com.anglesgirl.labelscanner.model.LabelResult
+import com.anglesgirl.labelscanner.model.SlipOcrParser
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -46,6 +47,36 @@ object RecordStore {
             .rawQuery("SELECT COUNT(*) FROM records WHERE tray_code = ?", arrayOf(trayCode)).use { c ->
                 return if (c.moveToFirst()) c.getInt(0) else 0
             }
+    }
+
+    /**
+     * 某单据下某物料的已采集数量：采集记录按单号归集，数量按标签 PCS 累加。
+     * 物料码归一化后比对（10 位补 01 成 12 位），主码/副码任一对上就算——
+     * 同一物料在标签与单据上可能写不同形式。
+     * 同一个 SN 重扫只算一次（数量不能因重扫再涨）；没 SN 的辅助记录逐条算。
+     * 没采到返回 0；单号或物料为空也返回 0。
+     */
+    fun collectedQtyByMaterial(context: Context, slipNo: String, materialCode: String): Int {
+        val no = slipNo.trim()
+        val mat = SlipOcrParser.normalizeMaterial(materialCode)
+        if (no.isEmpty() || mat.isEmpty()) return 0
+        ensureImported(context)
+        val db = LocalDatabase.get(context).readableDatabase
+        db.rawQuery(
+            "SELECT serial_number, material_code, second_material_code, quantity FROM records WHERE slip_no = ?",
+            arrayOf(no),
+        ).use { c ->
+            var total = 0
+            val seenSn = mutableSetOf<String>()
+            while (c.moveToNext()) {
+                val sn = (c.getString(0) ?: "").trim()
+                if (sn.isNotEmpty() && !seenSn.add(sn)) continue
+                val m1 = SlipOcrParser.normalizeMaterial(c.getString(1) ?: "")
+                val m2 = SlipOcrParser.normalizeMaterial(c.getString(2) ?: "")
+                if (m1 == mat || m2 == mat) total += c.getInt(3)
+            }
+            return total
+        }
     }
 
     /**

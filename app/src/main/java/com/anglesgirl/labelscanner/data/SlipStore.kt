@@ -3,7 +3,10 @@ package com.anglesgirl.labelscanner.data
 import android.content.ContentValues
 import android.content.Context
 import android.text.InputType
+import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -270,6 +273,37 @@ object SlipUi {
             }.also { layout.addView(it) }
         }
         val etNo = labeled("单据编号", initialSlipNo, InputType.TYPE_CLASS_TEXT)
+        // 单号候选：OCR 原文里像单号的串，点一下就填进单号框（不自动挑，没想要的手填）。
+        val candidates = SlipOcrParser.slipNoCandidates(ocr.rawText, ocr.materialCode)
+        if (candidates.isNotEmpty()) {
+            layout.addView(TextView(activity).apply {
+                text = "点一下用单据上的号："
+                setPadding(0, pad / 2, 0, pad / 4)
+            })
+            val row = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            for (cand in candidates) {
+                row.addView(Button(activity).apply {
+                    text = cand
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { marginEnd = pad / 4 }
+                    setOnClickListener {
+                        etNo.setText(cand)
+                        etNo.setSelection(cand.length)
+                    }
+                })
+            }
+            layout.addView(HorizontalScrollView(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                addView(row)
+            })
+        }
         val etQty = labeled("数量", ocr.quantity?.toString() ?: "", InputType.TYPE_CLASS_NUMBER)
         val etBoxes = labeled("箱数", ocr.boxCount?.toString() ?: "", InputType.TYPE_CLASS_NUMBER)
         val etMat = labeled("物料编码", ocr.materialCode ?: "", InputType.TYPE_CLASS_TEXT)
