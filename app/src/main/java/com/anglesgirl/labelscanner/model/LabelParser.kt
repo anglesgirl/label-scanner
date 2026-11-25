@@ -406,9 +406,15 @@ object LabelParser {
     }
 
     /**
-     * 填物料编码：11 位末尾 01（本厂标准料号）优先于 10 位。
-     * 10 位订单号常被误认成物料；标准料号出现时应覆盖它。
-     * 只有当前值还不是 11 位末尾 01 时才覆盖，避免两个标准料号互相顶掉。
+     * 填物料编码：标准料号优先于非标准料号。
+     *  - 11 位末尾 01（本厂标准料号）优先于 10 位：10 位订单号常被误认成物料；
+     *    标准料号出现时应覆盖它。只有当前值还不是 11 位末尾 01 时才覆盖，
+     *    避免两个标准料号互相顶掉。
+     *  - 12 位末尾 01 同样是标准料号，覆盖 12 位非 01 码（如包装上的零售 UPC）：
+     *    2026-11-25 实测，P2206W 包装上的 936358033206 先被扫到抢进物料框，
+     *    真料号 301061026101（12 位末尾 01）后到时顶不掉，3/128 条记错。
+     *    只覆盖“肯定不是标准料号”的 12 位非 01 值；10 位订单号归一化后也是
+     *    12 位末尾 01，分不清，不在这里碰（仍由上面 material11 规则处理）。
      */
     private fun setMaterialCode(result: LabelResult, candidate: String, candidateType: String) {
         val normalized = normalizeMaterial(candidate)
@@ -417,7 +423,13 @@ object LabelParser {
             return
         }
         if (candidateType == "material11" && !isMaterial11(result.materialCode)) {
-            result.materialCode = candidate
+            result.materialCode = normalized
+            return
+        }
+        val normalizedIsStandard12 = normalized.length == 12 && normalized.endsWith("01")
+        val currentIsNonStandard12 = result.materialCode.length == 12 && !result.materialCode.endsWith("01")
+        if (normalizedIsStandard12 && currentIsNonStandard12) {
+            result.materialCode = normalized
         }
     }
 
