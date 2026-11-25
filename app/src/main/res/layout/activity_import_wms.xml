@@ -161,6 +161,21 @@
             android:textColor="@color/ls_text"
             android:textSize="14sp" />
 
+        <HorizontalScrollView
+            android:id="@+id/scrollSlipThumbs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/layoutSlipThumbs"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
         <Button
             android:id="@+id/btnAttachSlip"
             android:layout_width="match_parent"

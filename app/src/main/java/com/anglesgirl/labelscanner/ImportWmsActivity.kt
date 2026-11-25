@@ -1,5 +1,7 @@
 package com.anglesgirl.labelscanner
 
+import android.app.Dialog
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -7,6 +9,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -41,6 +45,9 @@ class ImportWmsActivity : AppCompatActivity() {
     private val rows = mutableListOf<WmsImportParser.Row>()
     private val adapter = RowAdapter()
 
+    /** 导入的那份表原来的文件名，导出时沿用（不拿托盘号当文件名）。 */
+    private var originalFileName: String = ""
+
     /** 本次导入附加的单据：单号 + 主照片 + 其它附件文件。 */
     private var slipNo: String = ""
     private var slipPhotoFile: File? = null
@@ -52,6 +59,7 @@ class ImportWmsActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri == null) return@registerForActivityResult
             val displayName = queryDisplayName(uri) ?: "wms_import.xlsx"
+            originalFileName = displayName
             val tmp = File(cacheDir, "import_wms_${System.currentTimeMillis()}.xlsx")
             try {
                 contentResolver.openInputStream(uri)?.use { input ->
@@ -87,20 +95,20 @@ class ImportWmsActivity : AppCompatActivity() {
             }.start()
         }
 
-    /** 拍单据：系统相机全分辨率拍照，拍完归档到本次导入的单据。 */
+    /** 拍单据：系统相机全分辨率拍照，拍完先大图预览，看清了再确认附加。 */
     private val takeSlipPhoto =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             val tmp = pendingSlipPhoto
             pendingSlipPhoto = null
             if (success && tmp != null && tmp.exists()) {
-                attachSlipPhoto(tmp)
+                showAttachPreview(tmp)
             } else {
                 tmp?.delete()
                 Toast.makeText(this, "拍照已取消", Toast.LENGTH_SHORT).show()
             }
         }
 
-    /** 单据从相册选本地图片。 */
+    /** 单据从相册选本地图片：先大图预览，看清了再确认附加，不直接附上。 */
     private val pickSlipGallery =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri == null) return@registerForActivityResult
@@ -113,7 +121,7 @@ class ImportWmsActivity : AppCompatActivity() {
                 Toast.makeText(this, "读取图片失败", Toast.LENGTH_SHORT).show()
                 return@registerForActivityResult
             }
-            if (tmp.exists() && tmp.length() > 0) attachSlipPhoto(tmp)
+            if (tmp.exists() && tmp.length() > 0) showAttachPreview(tmp)
             else Toast.makeText(this, "读取图片失败", Toast.LENGTH_SHORT).show()
         }
 
@@ -241,13 +249,149 @@ class ImportWmsActivity : AppCompatActivity() {
         } else {
             "已附加单据：$slipNo（${photoCount + slipExtraFiles.size} 个文件，导出时一起带上）"
         }
+        refreshSlipThumbs()
     }
 
-    /** 导出：表头原样 + 改过的数据行；文件名沿用托盘号，没有则加时间戳。 */
+    /** 已附的单据照片：主照片 + 附件里的图片文件（点开可放大看）。 */
+    private fun slipPhotoFiles(): List<File> {
+        val list = mutableListOf<File>()
+        slipPhotoFile?.let { list.add(it) }
+        list.addAll(slipExtraFiles.filter { isImageFile(it) })
+        return list
+    }
+
+    private fun isImageFile(f: File): Boolean {
+        val name = f.name.lowercase()
+        return name.endsWith(".jpg") || name.endsWith(".jpeg") ||
+            name.endsWith(".png") || name.endsWith(".webp")
+    }
+
+    /** 单据照片缩略图横条：点一张就全屏放大看（双指缩放、拖动、双击还原）。 */
+    private fun refreshSlipThumbs() {
+        val container = findViewById<LinearLayout>(R.id.layoutSlipThumbs)
+        val scroll = findViewById<HorizontalScrollView>(R.id.scrollSlipThumbs)
+        container.removeAllViews()
+        val photos = slipPhotoFiles()
+        if (photos.isEmpty()) {
+            scroll.visibility = View.GONE
+            return
+        }
+        scroll.visibility = View.VISIBLE
+        val density = resources.displayMetrics.density
+        val size = (72 * density).toInt()
+        val gap = (8 * density).toInt()
+        for (file in photos) {
+            val bmp = decodeSampledBitmap(file, 256) ?: continue
+            val iv = ImageView(this).apply {
+                setImageBitmap(bmp)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = gap }
+                setOnClickListener { showPhotoDialog(file, listOf("关闭" to null)) }
+            }
+            container.addView(iv)
+        }
+    }
+
+    /** 附加前先大图预览：看清了再点“确认附加”，不直接附上；取消就丢掉临时文件。 */
+    private fun showAttachPreview(tmp: File) {
+        var confirmed = false
+        showPhotoDialog(
+            tmp,
+            listOf(
+                "取消" to null,
+                "确认附加" to { confirmed = true; attachSlipPhoto(tmp) },
+            ),
+            onDismiss = { if (!confirmed) tmp.delete() },
+        )
+    }
+
+    /**
+     * 全屏看图：双指缩放、单指拖动、双击放大/还原。
+     * actions：底部按钮（文字 → 点后执行的动作，动作先执行、弹窗随后关）。
+     * onDismiss：弹窗关掉后调用。
+     */
+    private fun showPhotoDialog(
+        file: File,
+        actions: List<Pair<String, (() -> Unit)?>>,
+        onDismiss: (() -> Unit)? = null,
+    ) {
+        val bmp = decodeSampledBitmap(file, 2048)
+        if (bmp == null) {
+            Toast.makeText(this, "图片读取失败", Toast.LENGTH_SHORT).show()
+            onDismiss?.invoke()
+            return
+        }
+        // 全屏黑底看图（不盖状态栏/导航栏，按钮不会被手势条挡住）。
+        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar)
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+        )
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(android.graphics.Color.BLACK)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+        }
+        val imageView = ZoomableImageView(this).apply {
+            setImageBitmap(bmp)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f,
+            )
+        }
+        root.addView(imageView)
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        for ((label, action) in actions) {
+            val btn = Button(this).apply {
+                text = label
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener {
+                    action?.invoke()
+                    dialog.dismiss()
+                }
+            }
+            bar.addView(btn)
+        }
+        root.addView(bar)
+        dialog.setContentView(root)
+        dialog.setOnDismissListener { bmp.recycle(); onDismiss?.invoke() }
+        dialog.show()
+    }
+
+    /** 按最长边上限解码图片（防大图 OOM），解不出返回 null。 */
+    private fun decodeSampledBitmap(file: File, maxDim: Int): android.graphics.Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            val w = bounds.outWidth
+            val h = bounds.outHeight
+            if (w <= 0 || h <= 0) return null
+            var sample = 1
+            while (maxOf(w, h) / sample > maxDim) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            BitmapFactory.decodeFile(file.absolutePath, opts)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** 导出：表头原样 + 改过的数据行；文件名沿用导入那份的原文件名。 */
     private fun exportWms() {
         val t = table ?: return
-        val tray = t.commonTrayCode().replace(Regex("[^A-Za-z0-9_\\-\\u4e00-\\u9fa5]"), "_")
-        val fileName = if (tray.isNotEmpty()) "$tray.xlsx" else "wms_import_${System.currentTimeMillis()}.xlsx"
+        val fileName = when {
+            originalFileName.isNotBlank() -> originalFileName
+            else -> {
+                val tray = t.commonTrayCode().replace(Regex("[^A-Za-z0-9_\\-\\u4e00-\\u9fa5]"), "_")
+                if (tray.isNotEmpty()) "$tray.xlsx" else "wms_import_${System.currentTimeMillis()}.xlsx"
+            }
+        }
         val uri = Exporter.exportImportedWms(this, t, slipPhotoFile, slipExtraFiles, fileName)
         if (uri != null) {
             Toast.makeText(this, "已导出：$fileName（下载/LabelScanner）", Toast.LENGTH_LONG).show()
