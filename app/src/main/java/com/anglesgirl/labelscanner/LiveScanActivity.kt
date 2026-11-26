@@ -942,7 +942,15 @@ class LiveScanActivity : AppCompatActivity() {
                     // 集成码多码场景用并集解码（2026-10-01）："任一尺度解出即返回"的
                     // progressive 会在 1x 解出部分码后提前返回，小码永远没机会；
                     // 并集 1x/2x/3x 全跑，小码在高倍率被解出后并入结果。
-                    wantIntegrated -> ZxingDecoder.decodeUnion(bmp).map { it to null }
+                    // 但并集每帧全跑 7 遍（原图 1x/2x/3x + 增强 1x/2x + 二值 1x/2x），
+                    // 集成码（PDF417）1x 解出后仍要跑完剩下 6 遍 —— 单帧数秒，
+                    // 用户体感"举着扫很久"（2026-11-17 奔图 DO-910YMC 标签实测：
+                    // 扫码枪 1 秒，App 数秒）。集成码模式只收集成码 payload
+                    // （SplitCodeActivity 按 IntegratedCode::isPayload 过滤），
+                    // 一旦解出集成码就够数早停；没解出时全跑，与并集结果相同。
+                    wantIntegrated -> ZxingDecoder.decodeUnionUntil(bmp) { codes ->
+                        codes.any { IntegratedCode.isPayload(it) }
+                    }.map { it to null }
                     else -> ZxingDecoder.decode(bmp, 1f).map { it to null }
                 }
                 if (generation != cameraGeneration) return@execute
